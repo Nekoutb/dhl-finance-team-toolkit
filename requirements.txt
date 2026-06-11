@@ -13,6 +13,7 @@ pillow
 pypdfium2
 xlsxwriter
 itsdangerous
+anthropic>=0.109
 # test tooling (scripts/): builds legacy .xls samples
 xlwt
 itsdangerous

@@ -12,7 +12,7 @@
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Albert+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -80,14 +80,21 @@
           <option>Q2 2026</option><option>Q1 2026</option>
         </select>
       </label>
-      <span class="top-ctl" title="Entity">🏢 DHL Express · CM01</span>
-      <a class="icon-btn" href="/settings" title="Settings — email (SMTP)">⚙️</a>
-      <button class="icon-btn" title="Notifications">🔔<span class="dot"></span></button>
+      <span class="top-ctl" title="Entity">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M9 7h2M9 11h2M9 15h2M15 9h4a2 2 0 0 1 2 2v10"/></svg>
+        DHL Express · CM01</span>
+      <a class="icon-btn" href="/settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></a>
+      <button class="icon-btn" title="Notifications" aria-label="Notifications">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/></svg>
+        <span class="dot"></span></button>
       <button class="icon-btn" id="themeToggle" onclick="ftToggleTheme()"
-              title="Toggle dark / light (t)">☾</button>
+              title="Toggle dark / light (t)" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 13A8.5 8.5 0 1 1 11 3a7 7 0 0 0 10 10Z"/></svg></button>
       {% if request.state.user is defined and request.state.user %}
         <span class="avatar" title="Signed in as {{ request.state.user }}">{{ request.state.user[:2]|upper }}</span>
-        <a class="icon-btn" href="/logout" title="Sign out ({{ request.state.user }})">⎋</a>
+        <a class="icon-btn" href="/logout" title="Sign out ({{ request.state.user }})" aria-label="Sign out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></a>
       {% else %}
         <span class="avatar" title="Finance team">FT</span>
       {% endif %}

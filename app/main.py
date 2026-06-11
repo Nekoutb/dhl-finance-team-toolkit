@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
-from .services import (acf_reader, ar_master, auth, bank_statement,
+from .services import (acf_reader, ai_ocr, ar_master, auth, bank_statement,
                        ctp_dashboard, ctp_rules, customers, dgi, emailer,
                        eno_allocation, holds, remittance_pdf, remittance_store,
                        vendors, xlsx_report)
@@ -919,10 +919,12 @@ def _eno_recent(limit=8):
 
 def _alloc_ctx(request, **extra):
     _eno_seed_key()
-    ctx = {"request": request, "cfg": load_config(), "tool": _ALLOC_TOOL,
+    cfg = load_config()
+    ctx = {"request": request, "cfg": cfg, "tool": _ALLOC_TOOL,
            "eno_key": eno_allocation.load_key(), "eno_recent": _eno_recent(),
            "default_tva": eno_allocation.DEFAULT_TVA_RATE, "result": None,
-           "message": "", "error": ""}
+           "message": "", "error": "", "prefill": {}, "extraction": None,
+           "pdf_token": "", "ai_ready": ai_ocr.is_configured(cfg)}
     ctx.update(extra)
     return ctx
 
@@ -956,6 +958,49 @@ async def alloc_eno_key(request: Request, file: UploadFile = File(...)):
     return RedirectResponse(f"/tools/vendor-invoice-allocation?message="
                             f"Allocation key updated — {n} customer(s).",
                             status_code=303)
+
+
+@app.post("/tools/vendor-invoice-allocation/eno/extract", response_class=HTMLResponse)
+async def alloc_eno_extract(request: Request):
+    """AI-read a scanned ENEO invoice and prefill the per-customer amounts."""
+    key = eno_allocation.load_key()
+    if not key:
+        return RedirectResponse("/tools/vendor-invoice-allocation?error="
+                                "Upload the allocation key first.", status_code=303)
+    form = await request.form()
+    upload = form.get("invoice_pdf")
+    if upload is None or not getattr(upload, "filename", "") \
+            or Path(upload.filename).suffix.lower() != ".pdf":
+        return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
+            request, error="Choose the scanned ENEO invoice (PDF) first."))
+    pdf_bytes = await upload.read()
+    refs = key.get("order") or list(key["customers"].keys())
+    cfg = load_config()
+    try:
+        extraction = ai_ocr.extract_eneo_invoice(pdf_bytes, refs, cfg.get("ai"))
+    except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
+        return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
+            request, error=f"AI reading failed: {exc}"))
+
+    # Stage the PDF so Generate can attach it without a re-upload.
+    pdf_token = uuid.uuid4().hex[:12]
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOAD_DIR / f"enoinv_{pdf_token}.pdf").write_bytes(pdf_bytes)
+
+    # Plain decimal strings (never scientific notation) for the form inputs.
+    prefill = {cid: f"{extraction['lines'][cid]:.2f}".rstrip("0").rstrip(".")
+               for cid in refs if cid in extraction["lines"]}
+    extra_refs = [r for r in extraction["lines"] if r not in refs]
+    matched = len(prefill)
+    note = (f"AI read the invoice — {matched}/{len(refs)} customer "
+            f"reference(s) matched and prefilled. Review the amounts, "
+            f"adjust if needed, then build the répartition.")
+    if extra_refs:
+        note += (f" References on the invoice but NOT in the allocation key "
+                 f"(ignored): {', '.join(extra_refs)}.")
+    return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
+        request, message=note, prefill=prefill, extraction=extraction,
+        invoice_no=extraction.get("invoice_no", ""), pdf_token=pdf_token))
 
 
 @app.post("/tools/vendor-invoice-allocation/eno/generate", response_class=HTMLResponse)
@@ -992,6 +1037,13 @@ async def alloc_eno_generate(request: Request):
     if upload is not None and getattr(upload, "filename", ""):
         if Path(upload.filename).suffix.lower() == ".pdf":
             (_ENO_DIR / f"{token}.pdf").write_bytes(await upload.read())
+    else:
+        # Invoice staged by the AI-read step — attach it as evidence.
+        pdf_token = (form.get("pdf_token") or "").strip()
+        if re.fullmatch(r"[0-9a-f]{12}", pdf_token):
+            staged = UPLOAD_DIR / f"enoinv_{pdf_token}.pdf"
+            if staged.exists():
+                (_ENO_DIR / f"{token}.pdf").write_bytes(staged.read_bytes())
 
     return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
         request, result=computed, result_token=token, invoice_no=invoice_no,
@@ -1609,6 +1661,8 @@ def app_settings(request: Request, message: str = "", error: str = ""):
         "users": auth.list_users(),
         "auth_enabled": auth.enabled(cfg.get("auth", {})),
         "current_user": getattr(request.state, "user", None),
+        "ai": cfg.get("ai", {}),
+        "ai_ready": ai_ocr.is_configured(cfg),
     })
 
 
@@ -1672,6 +1726,36 @@ async def settings_change_password(request: Request):
     auth.change_password(user, new)
     return RedirectResponse("/settings?message=Your password has been changed.",
                             status_code=303)
+
+
+@app.post("/settings/ai")
+async def settings_ai_save(request: Request):
+    form = await request.form()
+    cfg = load_config()
+    api_key = (form.get("api_key") or "").strip()
+    if form.get("clear_key") == "on":
+        api_key_value = ""
+    else:
+        # Blank field keeps the stored key (so saving twice is harmless).
+        api_key_value = api_key if api_key else cfg.get("ai", {}).get("api_key", "")
+    new_cfg = save_user_config({"ai": {"api_key": api_key_value}})
+    state = ("saved — AI invoice reading is ON"
+             if new_cfg["ai"]["api_key"] else "cleared — AI reading is OFF")
+    return RedirectResponse(f"/settings?message=Anthropic API key {state}.",
+                            status_code=303)
+
+
+@app.post("/settings/ai/test")
+async def settings_ai_test(request: Request):
+    cfg = load_config()
+    try:
+        ai_ocr.test_key(cfg.get("ai"))
+        return RedirectResponse(
+            "/settings?message=✓ Anthropic API key works — AI invoice "
+            "reading is ready.", status_code=303)
+    except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
+        return RedirectResponse(f"/settings?error=AI key test failed: {exc}",
+                                status_code=303)
 
 
 @app.post("/settings/smtp")

@@ -39,20 +39,64 @@
     </details>
 
     {% if eno_key %}
+    <!-- Step 1 — AI reads the scanned invoice (optional) -->
+    <div class="step-box" style="margin-top:14px;">
+      <h3 class="mini-title">Step 1 — Read the scanned invoice with AI
+        <span class="note-inline">(optional — the ENEO bill is an image-only
+          scan, so AI vision reads the amounts for you)</span></h3>
+      {% if ai_ready %}
+      <form action="/tools/vendor-invoice-allocation/eno/extract" method="post"
+            enctype="multipart/form-data" class="upload-form"
+            onsubmit="var b=this.querySelector('button[type=submit]');b.textContent='⏳ Reading the invoice…';setTimeout(function(){b.disabled=true;},0);">
+        <label class="filedrop" style="flex:1;">
+          <input type="file" name="invoice_pdf" accept=".pdf" required>
+          <span class="filedrop-text">Upload the ENEO invoice PDF — AI extracts
+            the HT amount per refclient CMS and prefills Step 2 for your
+            review.</span>
+        </label>
+        <button class="btn btn-primary" type="submit">
+          🤖 Read invoice with AI</button>
+      </form>
+      {% else %}
+      <div class="alert alert-info">AI reading is not configured yet — paste
+        your Anthropic API key under <a href="/settings">Settings → AI document
+        reading</a>, then upload the invoice here. You can still type the
+        amounts manually in Step 2 below.</div>
+      {% endif %}
+      {% if extraction %}
+      <div class="alert alert-ok" style="margin-top:8px;">AI read:
+        invoice <strong>{{ extraction.invoice_no or '—' }}</strong>
+        {% if extraction.period %}· period <strong>{{ extraction.period }}</strong>{% endif %}
+        {% if extraction.total_ht %}· printed TOTAL HT
+          <strong>{{ "{:,.0f}".format(extraction.total_ht) }}</strong>{% endif %}
+        {% if extraction.total_ttc %}· TOTAL TTC
+          <strong>{{ "{:,.0f}".format(extraction.total_ttc) }}</strong>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Step 2 — amounts per refclient CMS (manual entry or AI-prefilled) -->
     <form action="/tools/vendor-invoice-allocation/eno/generate" method="post"
           enctype="multipart/form-data" style="margin-top:14px;">
+      <h3 class="mini-title">Step 2 — Confirm the invoice amount per
+        refclient CMS</h3>
+      <p class="select-hint">Type (or adjust the AI-prefilled)
+        <strong>HT amount</strong> for each customer reference — the function
+        split &amp; totals compute automatically:</p>
       <div class="inline-fields">
         <label class="field"><span>Invoice number (N° mémoire)</span>
           <input type="text" name="invoice_no" value="{{ invoice_no or '' }}"
                  placeholder="DHL-04-2026"></label>
         <label class="field"><span>VAT rate %</span>
-          <input type="number" step="0.01" name="tva_rate" value="{{ default_tva }}"></label>
+          <input type="number" step="0.01" name="tva_rate" id="eno-tva"
+                 value="{{ default_tva }}"></label>
         <label class="field"><span>Invoice PDF (kept as evidence)</span>
-          <input type="file" name="invoice_pdf" accept=".pdf"></label>
+          <input type="file" name="invoice_pdf" accept=".pdf">
+          {% if pdf_token %}<small class="note-small">the AI-read PDF is already
+            attached — re-upload only to replace it</small>{% endif %}</label>
       </div>
+      <input type="hidden" name="pdf_token" value="{{ pdf_token or '' }}">
 
-      <p class="select-hint">Enter the <strong>HT amount</strong> per customer
-        from the invoice (the function split &amp; totals are computed):</p>
       <div class="table-wrap" style="max-height:none;">
         <table class="tx-table">
           <thead><tr><th>refclient CMS</th><th>Functions in key</th>
@@ -63,16 +107,43 @@
               <td>{{ cid }}</td>
               <td>{{ eno_key.customers[cid].functions|length }}</td>
               <td class="num"><input type="text" name="ht_{{ cid }}"
-                  class="name-input" style="text-align:right;max-width:160px;"
+                  class="name-input eno-ht" style="text-align:right;max-width:160px;"
+                  value="{{ prefill.get(cid, '') }}"
                   placeholder="0"></td>
             </tr>
             {% endfor %}
+            <tr style="font-weight:700;background:var(--glass-hover);">
+              <td>Live preview</td><td></td>
+              <td class="num"><span id="eno-live">HT 0 · TVA 0 · TTC 0</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top:10px;">
         Build REPARTITION ENEO</button>
     </form>
+    <script>
+      (function () {
+        var inputs = document.querySelectorAll('.eno-ht');
+        var tva = document.getElementById('eno-tva');
+        var live = document.getElementById('eno-live');
+        function fmt(n) { return n.toLocaleString('en-US', {maximumFractionDigits: 0}); }
+        function recalc() {
+          var ht = 0;
+          inputs.forEach(function (i) {
+            var v = parseFloat(String(i.value).replace(/[\s,]/g, ''));
+            if (!isNaN(v)) ht += v;
+          });
+          var rate = parseFloat(tva && tva.value) || 0;
+          var tvaAmt = ht * rate / 100;
+          if (live) live.textContent =
+            'HT ' + fmt(ht) + ' · TVA ' + fmt(tvaAmt) + ' · TTC ' + fmt(ht + tvaAmt);
+        }
+        inputs.forEach(function (i) { i.addEventListener('input', recalc); });
+        if (tva) tva.addEventListener('input', recalc);
+        recalc();
+      })();
+    </script>
     {% endif %}
 
     {% if result %}
