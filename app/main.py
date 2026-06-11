@@ -13,9 +13,9 @@ from fastapi.templating import Jinja2Templates
 
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
-from .services import (ar_master, bank_statement, ctp_dashboard, ctp_rules,
-                       customers, dgi, emailer, holds, remittance_pdf,
-                       remittance_store, vendors, xlsx_report)
+from .services import (acf_reader, ar_master, bank_statement, ctp_dashboard,
+                       ctp_rules, customers, dgi, emailer, holds,
+                       remittance_pdf, remittance_store, vendors, xlsx_report)
 from .tools import bank, momo
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
@@ -1145,6 +1145,75 @@ async def vendor_paste(request: Request):
         msg += (f" {len(rejected)} line(s) skipped — no taxpayer ID recognised: "
                 + "; ".join(rejected[:3]))
     return RedirectResponse(f"/tools/vendor-niu?message={msg}", status_code=303)
+
+
+_CERT_DIR = (BASE_DIR / "data" / "certificates")
+_NIU_STRICT = __import__("re").compile(r"^[PM]\d{12}[A-Z]$")
+
+
+@app.post("/tools/vendor-niu/certificates")
+async def vendor_certificates(request: Request,
+                              file: list[UploadFile] = File(...)):
+    """Bulk-upload tax clearance certificates (PDF). Each one is read, the
+    vendor is created/updated from the document, and unchecked NIUs are
+    verified live on DGI — the page then shows the compliance report."""
+    files = [f for f in (file or []) if f and f.filename]
+    if not files:
+        return RedirectResponse("/tools/vendor-niu?error=No certificate received.",
+                                status_code=303)
+    if len(files) > 20:
+        return RedirectResponse(
+            f"/tools/vendor-niu?error=Too many files ({len(files)}) — upload "
+            "at most 20 certificates at a time.", status_code=303)
+    _CERT_DIR.mkdir(parents=True, exist_ok=True)
+    created = updated = 0
+    mismatches, skipped = [], []
+    for f in files:
+        if Path(f.filename or "").suffix.lower() != ".pdf":
+            skipped.append(f"{f.filename} (not a PDF)")
+            continue
+        tmp = UPLOAD_DIR / f"acf_{uuid.uuid4().hex[:8]}.pdf"
+        tmp.write_bytes(await f.read())
+        parsed = acf_reader.read_acf(tmp)
+        if not parsed["ok"]:
+            skipped.append(f"{f.filename} ({parsed['error']})")
+            continue
+        # Keep the document as evidence — latest certificate per vendor.
+        stored = _CERT_DIR / f"{parsed['niu']}.pdf"
+        stored.write_bytes(tmp.read_bytes())
+        outcome = vendors.apply_certificate(parsed, cert_file=stored.name)
+        if outcome == "created":
+            created += 1
+        else:
+            updated += 1
+        if parsed["date_mismatch"]:
+            mismatches.append(parsed["niu"])
+    bits = [f"{created + updated} certificate(s) read — {created} vendor(s) "
+            f"created, {updated} updated"]
+    nius = vendors.pending_nius()
+    if nius:
+        for result in dgi.verify_many(nius):
+            vendors.apply_result(result)
+        bits.append(f"{len(nius)} NIU(s) checked on DGI Fiscalis")
+    if mismatches:
+        bits.append("⚠ header/body issue dates differ on: " + ", ".join(mismatches))
+    if skipped:
+        bits.append("skipped: " + "; ".join(skipped[:4]))
+    return RedirectResponse(
+        f"/tools/vendor-niu?message={'; '.join(bits)}.", status_code=303)
+
+
+@app.get("/tools/vendor-niu/certificate/{niu}")
+def vendor_certificate_view(niu: str):
+    niu = (niu or "").strip().upper()
+    if not _NIU_STRICT.fullmatch(niu):
+        return HTMLResponse("Invalid taxpayer ID.", status_code=400)
+    path = _CERT_DIR / f"{niu}.pdf"
+    if not path.exists():
+        return HTMLResponse("No certificate on file for this vendor.",
+                            status_code=404)
+    return FileResponse(path, media_type="application/pdf",
+                        filename=f"ACF_{niu}.pdf")
 
 
 @app.post("/tools/vendor-niu/upload")

@@ -15,6 +15,23 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+    <form action="/tools/vendor-niu/certificates" method="post"
+          enctype="multipart/form-data" style="margin-bottom:18px;">
+      <h2 class="section-title">Upload tax clearance certificate(s) — the
+        primary control</h2>
+      <label class="filedrop">
+        <input type="file" name="file" accept=".pdf" multiple required>
+        <span class="filedrop-text">Drop the <strong>Attestation de Conformité
+          Fiscale</strong> PDF(s) — up to 20 at once. The SaaS reads the
+          14-character taxpayer ID (P…/M…) and the issue date ("valable 3 mois
+          à compter du …") from each document, checks the NIU live on DGI, and
+          issues the report. The document overrides any manually entered
+          certificate data, and is kept on file as evidence.</span>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:8px;">
+        Read certificate(s) &amp; issue report</button>
+    </form>
+
     <div class="two-col">
       <form action="/tools/vendor-niu/upload" method="post"
             enctype="multipart/form-data">
@@ -94,7 +111,15 @@
               <form action="/tools/vendor-niu/update" method="post"
                     class="row-form" style="display:flex;flex-direction:column;gap:3px;">
                 <input type="hidden" name="niu" value="{{ v.niu }}">
-                <span class="note-inline">{{ v.certificate or 'no cert. ref' }}</span>
+                <span class="note-inline">{{ v.certificate or 'no cert. ref' }}
+                  {% if v.cert_file %}
+                    · <a href="/tools/vendor-niu/certificate/{{ v.niu }}"
+                         target="_blank">📄 view</a>
+                  {% endif %}
+                  {% if v.cert_source == 'certificate' %}
+                    <span class="pill pill-auto" title="Issue date read from the uploaded document">from doc</span>
+                  {% endif %}
+                </span>
                 <input type="date" name="cert_date" class="name-input"
                        value="{{ c.cert.issued }}" title="Certificate issue date">
                 <input type="email" name="email" class="name-input"

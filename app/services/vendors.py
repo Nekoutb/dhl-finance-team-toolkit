@@ -232,6 +232,42 @@ def upsert_many(parsed):
     return added, updated
 
 
+def apply_certificate(parsed, cert_file=""):
+    """Record a parsed tax clearance certificate (acf_reader.read_acf output).
+
+    The certificate is the source of truth: its issue date, reference and
+    email overwrite manual entries. Unknown NIUs auto-create the vendor using
+    the taxpayer name from the document. Returns 'created' or 'updated'.
+    """
+    key = parsed["niu"].upper()
+    with _lock:
+        data = _load()
+        v = data.get(key)
+        outcome = "updated" if v else "created"
+        if not v:
+            v = data[key] = {
+                "name": parsed.get("name", ""), "niu": key,
+                "certificate": "", "cert_date": "", "email": "",
+                "status": "pending", "message": "",
+                "raison_sociale": "", "sigle": "", "cni_rc": "",
+                "activite": "", "regime": "", "centre": "",
+                "checked_at": "",
+                "added_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+        v["cert_date"] = parsed.get("issue_date", "")
+        if parsed.get("reference"):
+            v["certificate"] = parsed["reference"]
+        if parsed.get("email"):
+            v["email"] = parsed["email"]
+        if parsed.get("name") and not v.get("name"):
+            v["name"] = parsed["name"]
+        v["cert_source"] = "certificate"
+        if cert_file:
+            v["cert_file"] = cert_file
+        _save(data)
+    return outcome
+
+
 def set_fields(niu, **fields):
     """Inline edit of a vendor's stored fields (e.g. cert_date, email)."""
     with _lock:
@@ -242,6 +278,8 @@ def set_fields(niu, **fields):
         for key, value in fields.items():
             if key in ("cert_date", "email", "certificate", "name"):
                 v[key] = str(value or "").strip()
+        if "cert_date" in fields:
+            v["cert_source"] = "manual"
         _save(data)
     return True
 

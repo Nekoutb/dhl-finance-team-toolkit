@@ -22,15 +22,19 @@ client = TestClient(app)
 # Surgical cleanup: remove ONLY this test's NIUs (runs even if a check fails,
 # and clears leftovers from any earlier crashed run before we start).
 TEST_NIUS = ("M012345678901A", "P098765432109B", "M555666777888C",
-             "P111222333444D", "M999888777666E")
+             "P111222333444D", "M999888777666E",
+             "M111222333444A", "P555666777888B")
 
 
 def _scrub():
     for niu in TEST_NIUS:
         vendors.delete(niu)
+        (ROOT / "data" / "certificates" / f"{niu}.pdf").unlink(missing_ok=True)
     for p in (ROOT / "data" / "outputs").glob("reminder_*.eml"):
         p.unlink()
     for p in (ROOT / "data" / "uploads").glob("vendors_*"):
+        p.unlink()
+    for p in (ROOT / "data" / "uploads").glob("acf_*"):
         p.unlink()
 
 
@@ -146,6 +150,79 @@ r = client.post("/tools/vendor-niu/paste", data={"vendors":
 zeta = next(v for v in vendors.all_vendors() if v["niu"] == "M999888777666E")
 check("paste captures date + email", zeta["email"] == "zeta@builders.example"
       and zeta["cert_date"] == (date.today() - timedelta(days=10)).isoformat())
+
+# ---- Certificate-driven control (bulk ACF PDF upload) -----------------------
+ACF_OK = ROOT / "samples" / "acf_sample_valid.pdf"
+ACF_OLD = ROOT / "samples" / "acf_sample_expired.pdf"
+
+def fake_verify_acf(nius, delay=0.0, timeout=30):
+    return [{"niu": n, "status": "active", "message": "",
+             "raison_sociale": "ON FILE", "sigle": "", "cni_rc": "",
+             "activite": "", "regime": "", "centre": "",
+             "checked_at": "2026-06-11 12:00"} for n in nius]
+
+dgi.verify_many = fake_verify_acf
+try:
+    with open(ACF_OK, "rb") as f1, open(ACF_OLD, "rb") as f2:
+        r = client.post("/tools/vendor-niu/certificates",
+                        files=[("file", ("acf_valid.pdf", f1, "application/pdf")),
+                               ("file", ("acf_expired.pdf", f2, "application/pdf"))],
+                        follow_redirects=True)
+finally:
+    dgi.verify_many = real
+check("certificates read & vendors auto-created",
+      "2 certificate(s) read" in r.text and "2 vendor(s) created" in r.text)
+zeta = next(v for v in vendors.all_vendors() if v["niu"] == "M111222333444A")
+check("NIU + issue date + email read from document",
+      zeta["cert_source"] == "certificate"
+      and zeta["email"] == "compta@zeta.example"
+      and zeta["certificate"] == "ACF 620264000001" and zeta["cert_date"])
+check("valid cert -> OK TO PAY (active NIU)",
+      vendors.payment_clearance(zeta)["ok"] is True)
+old = next(v for v in vendors.all_vendors() if v["niu"] == "P555666777888B")
+check("expired cert -> DO NOT PAY despite active NIU",
+      vendors.payment_clearance(old)["ok"] is False)
+check("vendor name taken from the document", old["name"] == "OLD STONE TRADING")
+
+# Certificate wins over manual data: type a wrong date, re-upload the document
+vendors.set_fields("M111222333444A", cert_date="2020-01-01")
+dgi.verify_many = fake_verify_acf
+try:
+    with open(ACF_OK, "rb") as f1:
+        r = client.post("/tools/vendor-niu/certificates",
+                        files=[("file", ("acf_valid.pdf", f1, "application/pdf"))],
+                        follow_redirects=True)
+finally:
+    dgi.verify_many = real
+zeta = next(v for v in vendors.all_vendors() if v["niu"] == "M111222333444A")
+check("certificate overrides manual date",
+      zeta["cert_date"] != "2020-01-01" and zeta["cert_source"] == "certificate")
+
+# Stored document is viewable as evidence
+r = client.get("/tools/vendor-niu/certificate/M111222333444A")
+check("stored certificate viewable", r.status_code == 200
+      and r.content[:4] == b"%PDF")
+r = client.get("/tools/vendor-niu/certificate/M000000000000X")
+check("unknown certificate -> 404", r.status_code == 404)
+
+# Unreadable file is reported, not swallowed
+r = client.post("/tools/vendor-niu/certificates",
+                files=[("file", ("junk.pdf", b"not a pdf at all",
+                                 "application/pdf"))], follow_redirects=True)
+check("unreadable certificate reported", "skipped" in r.text)
+
+# ---- Real DGI certificates (run only when present on this machine) ----------
+from app.services import acf_reader
+real_acf = Path(r"C:\Users\UltraBook 3.1\Downloads\620264965936.pdf")
+if real_acf.exists():
+    parsed = acf_reader.read_acf(real_acf)
+    check("REAL ACF parsed (NIU P015800235955C)",
+          parsed["ok"] and parsed["niu"] == "P015800235955C"
+          and parsed["issue_date"] == "2026-02-14"
+          and parsed["reference"] == "ACF 620264965936"
+          and parsed["email"] == "cabusco.aissatou@gmail.com")
+else:
+    print("[--] real ACF not on this machine — skipped")
 
 print("\nALL VENDOR CONTROL CHECKS PASSED")
 print("test vendors scrubbed (atexit)")

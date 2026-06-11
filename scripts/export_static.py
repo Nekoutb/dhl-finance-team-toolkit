@@ -61,6 +61,7 @@ REWRITES = [
     ('action="/tools/momo/settings"', 'action="#"'),
     ('/tools/momo/customers', 'momo-customers.html'),
     ('/tools/momo', 'momo.html'),
+    ('action="/tools/vendor-niu/certificates"', 'action="#"'),
     ('action="/tools/vendor-niu/paste"', 'action="#"'),
     ('action="/tools/vendor-niu/upload"', 'action="#"'),
     ('action="/tools/vendor-niu/update"', 'action="#"'),
@@ -89,6 +90,8 @@ REWRITES = [
 REGEX_REWRITES = [
     (re.compile(r'action="/tools/[a-z-]+/(results|batch)/[0-9a-f]+/delete"'),
      'action="#"'),
+    (re.compile(r'href="/tools/vendor-niu/certificate/[PM]\d{12}[A-Z]"'),
+     'href="#"'),
     (re.compile(r'href="/tools/bank-statements/results/[0-9a-f]+/export"'),
      'href="#"'),
     (re.compile(r'href="/tools/bank-statements/results/[0-9a-f]+"'),
