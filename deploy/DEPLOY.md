@@ -1,5 +1,12 @@
 # Deploying the Finance Team Toolkit to www.rtrotc.com
 
+> **DEPLOYED 11 Jun 2026** on the CM-EA Vultr server (45.32.150.96, SSH alias
+> `eaap-prod`) — the same box hosting verifiscale.com, bp.cm-ea.com, ealedgers
+> etc. That server fronts everything with **Apache2** (not nginx): the live
+> vhost is `deploy/apache-rtrotc.conf` → proxy to gunicorn on 127.0.0.1:8801,
+> systemd unit `finance-toolkit`, repo deploy key `/root/.ssh/ft_deploy`.
+> The nginx config below remains for a generic/fresh VPS.
+
 This is a **Python (FastAPI)** app. It needs a **Hostinger VPS** (Ubuntu), not
 shared hosting — shared/Premium/Business plans run PHP only and cannot run a
 Python/uvicorn process. Your domain `www.rtrotc.com` is registered with
