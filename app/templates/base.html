@@ -76,7 +76,12 @@
       <button class="icon-btn" title="Notifications">🔔<span class="dot"></span></button>
       <button class="icon-btn" id="themeToggle" onclick="ftToggleTheme()"
               title="Toggle dark / light (t)">☾</button>
-      <span class="avatar" title="Finance team">FT</span>
+      {% if request.state.user is defined and request.state.user %}
+        <span class="avatar" title="Signed in as {{ request.state.user }}">{{ request.state.user[:2]|upper }}</span>
+        <a class="icon-btn" href="/logout" title="Sign out ({{ request.state.user }})">⎋</a>
+      {% else %}
+        <span class="avatar" title="Finance team">FT</span>
+      {% endif %}
     </header>
 
     <main class="container">

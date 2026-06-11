@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v4.1 — 11 Jun 2026 · vendor invoice allocation (REPARTITION ENEO)"
+APP_VERSION = "v4.2 — 11 Jun 2026 · staff login + VPS deployment kit (rtrotc.com)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -42,6 +42,15 @@ DEFAULT_CONFIG = {
         "username": "",
         "password": "",
         "from_address": "",
+    },
+    # Staff login. OFF locally (login-free dev); turned ON for public
+    # deployment via scripts/set_password.py. secure_cookies -> True behind
+    # HTTPS so the session cookie is never sent in clear.
+    "auth": {
+        "enabled": False,
+        "secret_key": "",
+        "secure_cookies": False,
+        "users": {},
     },
 }
 

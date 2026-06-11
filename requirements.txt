@@ -11,3 +11,5 @@ httpx
 xlrd
 pillow
 pypdfium2
+itsdangerous
+gunicorn ; sys_platform != "win32"

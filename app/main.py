@@ -15,10 +15,10 @@ from fastapi.templating import Jinja2Templates
 
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
-from .services import (acf_reader, ar_master, bank_statement, ctp_dashboard,
-                       ctp_rules, customers, dgi, emailer, eno_allocation,
-                       holds, remittance_pdf, remittance_store, vendors,
-                       xlsx_report)
+from .services import (acf_reader, ar_master, auth, bank_statement,
+                       ctp_dashboard, ctp_rules, customers, dgi, emailer,
+                       eno_allocation, holds, remittance_pdf, remittance_store,
+                       vendors, xlsx_report)
 from .tools import bank, momo
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
@@ -35,11 +35,69 @@ templates.env.globals["plan_labels"] = ctp_rules.PLAN_LABELS
 
 
 @app.middleware("http")
-async def no_browser_cache(request: Request, call_next):
-    """Internal tool that changes often — never let browsers serve stale pages."""
+async def gate_and_cache(request: Request, call_next):
+    """Staff-login gate (when configured) + no-stale-cache header.
+
+    Auth is enforced only when config.auth is enabled with users; otherwise
+    this is a pass-through (login-free local use). Public paths — the login
+    flow, static assets, customer portal links, downloads, health — are always
+    open. The signed-cookie user is exposed on request.state.user for templates.
+    """
+    cfg = load_config()
+    auth_cfg = cfg.get("auth", {})
+    user = None
+    if auth.enabled(auth_cfg):
+        user = auth.read_token(auth_cfg.get("secret_key", ""),
+                               request.cookies.get(auth.COOKIE))
+        if user is None and not auth.is_public(request.url.path):
+            nxt = request.url.path
+            return RedirectResponse(f"/login?next={nxt}", status_code=303)
+    request.state.user = user
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "version": APP_VERSION}
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/", error: str = ""):
+    if not auth.enabled(load_config().get("auth", {})):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("login.html", {
+        "request": request, "cfg": load_config(), "next": next, "error": error})
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
+    nxt = form.get("next") or "/"
+    if not nxt.startswith("/"):
+        nxt = "/"
+    auth_cfg = load_config().get("auth", {})
+    stored = auth_cfg.get("users", {}).get(username)
+    if stored and auth.verify_password(password, stored):
+        resp = RedirectResponse(nxt, status_code=303)
+        resp.set_cookie(
+            auth.COOKIE, auth.issue(auth_cfg.get("secret_key", ""), username),
+            max_age=auth.MAX_AGE, httponly=True, samesite="lax",
+            secure=bool(auth_cfg.get("secure_cookies")))
+        return resp
+    return templates.TemplateResponse("login.html", {
+        "request": request, "cfg": load_config(), "next": nxt,
+        "error": "Incorrect username or password."}, status_code=401)
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(auth.COOKIE)
+    return resp
 
 ALLOWED_EXT = {".xlsx", ".xlsm", ".xls"}
 BANK_EXT = ALLOWED_EXT | {".pdf"}   # bank statements also arrive as PDFs
