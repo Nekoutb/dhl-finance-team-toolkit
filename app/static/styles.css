@@ -168,16 +168,18 @@ kbd {
   display: flex; align-items: center; gap: 11px;
   padding: 9px 12px; border-radius: var(--radius-sm);
   color: var(--text-soft); font-weight: 500; font-size: 13.5px;
-  border: 1px solid transparent;
+  border: 1px solid transparent; min-height: 38px;
 }
 .nav-item svg { width: 17px; height: 17px; flex-shrink: 0; opacity: .85; }
+/* Label takes the slack so it wraps, not the icon or the shortcut chip. */
+.nav-item .nav-label { flex: 1; min-width: 0; }
 .nav-item:hover { background: var(--glass-hover); text-decoration: none; color: var(--text); }
 .nav-item.active {
   background: var(--accent-soft); color: var(--accent-text);
   border-color: var(--border-glass);
   box-shadow: inset 0 1px 0 var(--highlight);
 }
-.nav-item kbd { margin-left: auto; opacity: .7; }
+.nav-item kbd { margin-left: auto; opacity: .7; flex-shrink: 0; white-space: nowrap; align-self: center; }
 .nav-section { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--text-faint); padding: 14px 12px 4px; }
 .side-foot { margin-top: auto; padding: 10px 12px; color: var(--text-faint); font-size: 11px; }

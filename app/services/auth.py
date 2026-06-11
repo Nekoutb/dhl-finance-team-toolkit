@@ -11,9 +11,13 @@ deployment (set up via scripts/set_password.py) is locked down.
 import base64
 import hashlib
 import hmac
+import json
 import os
+import secrets
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+from ..config import CONFIG_PATH
 
 COOKIE = "ft_session"
 MAX_AGE = 60 * 60 * 12          # 12 hours
@@ -68,3 +72,63 @@ def is_public(path):
 
 def enabled(auth_cfg):
     return bool(auth_cfg.get("enabled") and auth_cfg.get("users"))
+
+
+# --- User administration (writes config.json directly so deletions stick;
+#     config.save_user_config deep-merges, which can't remove a user) ---------
+def _load_raw():
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _save_raw(cfg):
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
+                           encoding="utf-8")
+
+
+def list_users():
+    return sorted(_load_raw().get("auth", {}).get("users", {}).keys())
+
+
+def add_user(username, password, secure_cookies=None):
+    """Create/replace a user. Enables auth and ensures a secret key exists.
+    secure_cookies: set on first enable (True for HTTPS, False for local HTTP)."""
+    username = (username or "").strip()
+    if not username or not password:
+        return False
+    cfg = _load_raw()
+    a = cfg.setdefault("auth", {})
+    a.setdefault("users", {})[username] = hash_password(password)
+    a["enabled"] = True
+    if not a.get("secret_key"):
+        a["secret_key"] = secrets.token_urlsafe(48)
+    if "secure_cookies" not in a and secure_cookies is not None:
+        a["secure_cookies"] = bool(secure_cookies)
+    _save_raw(cfg)
+    return True
+
+
+def delete_user(username):
+    cfg = _load_raw()
+    users = cfg.get("auth", {}).get("users", {})
+    if username in users and len(users) > 1:   # never remove the last user
+        del users[username]
+        _save_raw(cfg)
+        return True
+    return False
+
+
+def change_password(username, new_password):
+    if not new_password:
+        return False
+    cfg = _load_raw()
+    users = cfg.get("auth", {}).get("users", {})
+    if username in users:
+        users[username] = hash_password(new_password)
+        _save_raw(cfg)
+        return True
+    return False

@@ -1606,7 +1606,72 @@ def app_settings(request: Request, message: str = "", error: str = ""):
     return templates.TemplateResponse("settings.html", {
         "request": request, "cfg": cfg, "smtp": cfg["smtp"],
         "message": message, "error": error,
+        "users": auth.list_users(),
+        "auth_enabled": auth.enabled(cfg.get("auth", {})),
+        "current_user": getattr(request.state, "user", None),
     })
+
+
+@app.post("/settings/users/add")
+async def settings_user_add(request: Request):
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
+    if not username:
+        return RedirectResponse("/settings?error=Username is required.",
+                                status_code=303)
+    if len(password) < 6:
+        return RedirectResponse(
+            "/settings?error=Password must be at least 6 characters.",
+            status_code=303)
+    auth.add_user(username, password,
+                  secure_cookies=(request.url.scheme == "https"))
+    return RedirectResponse(
+        f"/settings?message=User '{username}' added. Staff login is enabled.",
+        status_code=303)
+
+
+@app.post("/settings/users/delete")
+async def settings_user_delete(request: Request):
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    if username == getattr(request.state, "user", None):
+        return RedirectResponse(
+            "/settings?error=You can't delete the account you're signed in with.",
+            status_code=303)
+    if auth.delete_user(username):
+        return RedirectResponse(f"/settings?message=User '{username}' removed.",
+                                status_code=303)
+    return RedirectResponse(
+        "/settings?error=Could not remove that user (the last user can't be removed).",
+        status_code=303)
+
+
+@app.post("/settings/account/password")
+async def settings_change_password(request: Request):
+    form = await request.form()
+    user = getattr(request.state, "user", None)
+    cfg = load_config()
+    stored = cfg.get("auth", {}).get("users", {}).get(user or "")
+    if not user or not stored:
+        return RedirectResponse(
+            "/settings?error=Sign in before changing a password.", status_code=303)
+    current = form.get("current_password") or ""
+    new = form.get("new_password") or ""
+    confirm = form.get("confirm_password") or ""
+    if not auth.verify_password(current, stored):
+        return RedirectResponse(
+            "/settings?error=Your current password is incorrect.", status_code=303)
+    if len(new) < 6:
+        return RedirectResponse(
+            "/settings?error=New password must be at least 6 characters.",
+            status_code=303)
+    if new != confirm:
+        return RedirectResponse(
+            "/settings?error=The new passwords don't match.", status_code=303)
+    auth.change_password(user, new)
+    return RedirectResponse("/settings?message=Your password has been changed.",
+                            status_code=303)
 
 
 @app.post("/settings/smtp")

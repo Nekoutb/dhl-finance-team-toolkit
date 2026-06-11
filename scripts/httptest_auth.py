@@ -74,6 +74,63 @@ check("authed: tool now reachable",
       client.get("/tools/vendor-niu").status_code == 200)
 check("authed: topbar shows sign out", "/logout" in client.get("/").text)
 
+# --- Admin: settings page shows user management; onboard + password change --
+from app.services import auth as auth_admin
+
+r = client.get("/settings")
+check("settings shows staff users + your account",
+      "Staff users" in r.text and "Your account" in r.text and "finance" in r.text)
+
+# Onboard a new user
+r = client.post("/settings/users/add",
+                data={"username": "amadou", "password": "welcome123"},
+                follow_redirects=False)
+check("add user -> redirect", r.status_code == 303)
+check("new user persisted (hashed)", "amadou" in auth_admin.list_users())
+
+# Short password rejected
+r = client.post("/settings/users/add", data={"username": "x", "password": "12"},
+                follow_redirects=True)
+check("short password rejected", "at least 6" in r.text)
+
+# New user can log in
+client.cookies.clear()
+r = client.post("/login", data={"username": "amadou", "password": "welcome123"},
+                follow_redirects=False)
+check("new user can sign in", r.status_code == 303 and auth.COOKIE in r.cookies)
+client.cookies.set(auth.COOKIE, r.cookies[auth.COOKIE])
+
+# Change own password (wrong current -> rejected; correct -> changed)
+r = client.post("/settings/account/password", follow_redirects=True, data={
+    "current_password": "nope", "new_password": "newpass1", "confirm_password": "newpass1"})
+check("wrong current password rejected", "current password is incorrect" in r.text)
+r = client.post("/settings/account/password", follow_redirects=True, data={
+    "current_password": "welcome123", "new_password": "newpass1",
+    "confirm_password": "newpass1"})
+check("password changed", "password has been changed" in r.text)
+check("old password no longer works",
+      not auth_admin.verify_password("welcome123",
+          __import__("app.config", fromlist=["load_config"]).load_config()["auth"]["users"]["amadou"]))
+
+# Can't delete the account you're signed in as
+r = client.post("/settings/users/delete", data={"username": "amadou"},
+                follow_redirects=True)
+check("can't delete self", "delete the account you" in r.text.lower())
+
+# Delete the other user (finance) is allowed (2 users exist)
+r = client.post("/settings/users/delete", data={"username": "finance"},
+                follow_redirects=True)
+check("delete other user works", "finance" not in auth_admin.list_users())
+
+# Now amadou is the last user -> can't be removed
+client.cookies.clear()
+r = client.post("/login", data={"username": "amadou", "password": "newpass1"},
+                follow_redirects=False)
+client.cookies.set(auth.COOKIE, r.cookies[auth.COOKIE])
+r = client.post("/settings/users/delete", data={"username": "amadou"},
+                follow_redirects=True)
+check("last user can't be removed", "amadou" in auth_admin.list_users())
+
 # Logout clears the cookie -> gated again
 client.get("/logout", follow_redirects=False)
 client.cookies.clear()

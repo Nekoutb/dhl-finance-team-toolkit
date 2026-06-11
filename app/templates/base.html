@@ -28,34 +28,43 @@
     {% set path = request.url.path %}
     <a class="nav-item {% if path == '/' %}active{% endif %}" href="/">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12 12 4l9 8M5 10v9h5v-5h4v5h5v-9"/></svg>
-      Dashboard <kbd>g d</kbd></a>
+      <span class="nav-label">Dashboard</span> <kbd>g d</kbd></a>
 
     <div class="nav-section">Order to Cash</div>
     <a class="nav-item {% if 'ongoing-ctp' in path %}active{% endif %}" href="/tools/ongoing-ctp-monitoring">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
-      CtP monitoring <kbd>g c</kbd></a>
+      <span class="nav-label">CtP monitoring</span> <kbd>g c</kbd></a>
     <a class="nav-item {% if 'remittance' in path %}active{% endif %}" href="/tools/remittance-portal">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v10H4zM4 11h16"/><path d="M8 15h4"/></svg>
-      Remittance portal <kbd>g r</kbd></a>
+      <span class="nav-label">Remittance portal</span> <kbd>g r</kbd></a>
     <a class="nav-item {% if 'bank-statements' in path %}active{% endif %}" href="/tools/bank-statements">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 18h18M3 21h18"/></svg>
-      Bank statements <kbd>g b</kbd></a>
+      <span class="nav-label">Bank statements</span> <kbd>g b</kbd></a>
 
     <div class="nav-section">Record to Report</div>
     <a class="nav-item {% if path.startswith('/tools/momo') %}active{% endif %}" href="/tools/momo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
-      Mobile Money → PDF <kbd>g m</kbd></a>
+      <span class="nav-label">Mobile Money → PDF</span> <kbd>g m</kbd></a>
     <a class="nav-item {% if 'vendor-invoice-allocation' in path %}active{% endif %}" href="/tools/vendor-invoice-allocation">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
-      Invoice allocation <kbd>g i</kbd></a>
+      <span class="nav-label">Invoice allocation</span> <kbd>g i</kbd></a>
     <a class="nav-item {% if 'orange-cameroun' in path %}active{% endif %}" href="/tools/orange-cameroun">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
-      Orange Money → PDF <kbd>g o</kbd></a>
+      <span class="nav-label">Orange Money → PDF</span> <kbd>g o</kbd></a>
     <a class="nav-item {% if 'vendor-niu' in path %}active{% endif %}" href="/tools/vendor-niu">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6z"/><path d="m9.5 12 2 2 3.5-4"/></svg>
-      Vendor NIU check <kbd>g v</kbd></a>
+      <span class="nav-label">Vendor NIU check</span> <kbd>g v</kbd></a>
 
-    <div class="side-foot">No login required · local host</div>
+    <div class="nav-section">Admin</div>
+    <a class="nav-item {% if path == '/settings' %}active{% endif %}" href="/settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7"/></svg>
+      <span class="nav-label">Users &amp; settings</span> <kbd>g s</kbd></a>
+
+    <div class="side-foot">
+      {% if request.state.user is defined and request.state.user %}
+        Signed in as {{ request.state.user }} · <a href="/logout">sign out</a>
+      {% else %}No login required · local host{% endif %}
+    </div>
   </aside>
 
   <div class="main">

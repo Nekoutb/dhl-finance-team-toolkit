@@ -3,14 +3,86 @@
   <nav class="crumbs"><a href="/">Dashboard</a> / Settings</nav>
 
   <section class="panel">
-    <h1>⚙️ Settings — email (SMTP)</h1>
+    <h1>⚙️ Settings</h1>
+    <p class="lead">Staff users, your password, and the email (SMTP) server.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  </section>
+
+  <!-- ===== Staff users (admin) ===== -->
+  <section class="panel">
+    <h2 class="section-title">👥 Staff users</h2>
+    {% if not auth_enabled %}
+      <div class="alert alert-info">Staff login is currently <strong>off</strong>
+        (open access). Add the first user below to turn it on — required before
+        the site goes on a public domain.</div>
+    {% endif %}
+
+    {% if users %}
+    <div class="table-wrap" style="max-height:none;margin-bottom:14px;">
+      <table class="tx-table">
+        <thead><tr><th>Username</th><th></th></tr></thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td><strong>{{ u }}</strong>
+              {% if u == current_user %}<span class="pill pill-ok">you</span>{% endif %}</td>
+            <td>
+              {% if u != current_user %}
+              <form action="/settings/users/delete" method="post" class="row-form"
+                    onsubmit="return confirm('Remove user {{ u }}?')">
+                <input type="hidden" name="username" value="{{ u }}">
+                <button class="btn btn-small" type="submit">🗑 Remove</button>
+              </form>
+              {% else %}<span class="note-inline">signed in</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <form action="/settings/users/add" method="post">
+      <h3 class="mini-title">Onboard a new user</h3>
+      <div class="inline-fields">
+        <label class="field"><span>Username</span>
+          <input type="text" name="username" autocomplete="off" required></label>
+        <label class="field"><span>Temporary password (min 6 chars)</span>
+          <input type="text" name="password" autocomplete="off" required
+                 minlength="6"></label>
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top:8px;">Add user</button>
+      <p class="note-small" style="margin-top:6px;">Share the temporary password
+        with the new user; they can change it here after signing in.</p>
+    </form>
+  </section>
+
+  <!-- ===== Your account ===== -->
+  {% if current_user %}
+  <section class="panel">
+    <h2 class="section-title">🔑 Your account — {{ current_user }}</h2>
+    <form action="/settings/account/password" method="post">
+      <div class="inline-fields">
+        <label class="field"><span>Current password</span>
+          <input type="password" name="current_password" autocomplete="current-password" required></label>
+        <label class="field"><span>New password (min 6 chars)</span>
+          <input type="password" name="new_password" autocomplete="new-password" minlength="6" required></label>
+        <label class="field"><span>Confirm new password</span>
+          <input type="password" name="confirm_password" autocomplete="new-password" minlength="6" required></label>
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top:8px;">Change my password</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <!-- ===== SMTP ===== -->
+  <section class="panel">
+    <h2 class="section-title">✉️ Email (SMTP)</h2>
     <p class="lead">Configure the mail server once and it's locked into the
       SaaS — every email feature (reconciliations to finance, customer links,
       Mobile Money receipts, CtP reports) sends directly. Until SMTP is
       enabled, the app produces ready-to-send .eml files instead.</p>
-
-    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
-    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     <div class="alert alert-{{ 'ok' if smtp.enabled else 'info' }}">
       Current status:
