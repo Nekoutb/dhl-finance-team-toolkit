@@ -11,5 +11,9 @@ httpx
 xlrd
 pillow
 pypdfium2
+xlsxwriter
+itsdangerous
+# test tooling (scripts/): builds legacy .xls samples
+xlwt
 itsdangerous
 gunicorn ; sys_platform != "win32"
