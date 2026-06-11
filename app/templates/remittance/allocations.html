@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/remittance-portal">{{ tool.name }}</a> / Allocations on file
+  </nav>
+
+  <section class="panel">
+    <h1>Confirmed allocations on file</h1>
+    <p class="lead">{{ allocations|length }} customer allocation(s) kept for future
+      reference. Each is evidence the customer matched their payments to invoices.</p>
+
+    {% if not allocations %}
+      <div class="alert alert-info">No allocations confirmed yet.</div>
+    {% else %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Confirmed</th><th>Customer</th><th>Confirmed by</th>
+          <th>Payments</th><th>Invoices</th><th>Difference</th><th>PDF</th>
+        </tr></thead>
+        <tbody>
+          {% for a in allocations %}
+          <tr>
+            <td>{{ a.allocated_at }}</td>
+            <td>{{ a.customer_name }}</td>
+            <td>{{ a.allocation.confirmed_by }}</td>
+            <td>{{ "{:,.0f}".format(a.allocation.total_payments) }}</td>
+            <td>{{ "{:,.0f}".format(a.allocation.total_invoices) }}</td>
+            <td>{{ "{:,.0f}".format(a.allocation.difference) }}</td>
+            <td>
+              {% if a.pdf_name %}<a href="/download/{{ a.pdf_name }}">Download</a>{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+{% endblock %}

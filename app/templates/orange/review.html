@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/orange-cameroun">{{ tool.name }}</a> / Review
+  </nav>
+
+  <section class="panel">
+    <h1>Review &amp; select transaction(s)</h1>
+    <p class="lead">Sheet <strong>{{ model.sheet }}</strong> ·
+      {{ model.rows|length }} transaction(s) found ·
+      customer key column: <strong>{{ model.key_col }}</strong></p>
+
+    {% if model.metadata %}
+      <details class="meta-box" open>
+        <summary>File header / metadata</summary>
+        <ul>{% for m in model.metadata %}<li>{{ m }}</li>{% endfor %}</ul>
+      </details>
+    {% endif %}
+
+    {% if not model.rows %}
+      <div class="alert alert-error">No transaction rows were detected. Send me
+        a sample file and I'll tune the parser to its exact layout.</div>
+    {% else %}
+    <form action="/tools/orange-cameroun/generate" method="post" id="genform">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="original" value="{{ original }}">
+
+      <p class="select-hint">Select <strong>as many transactions as you
+        need</strong> — groups are rendered as a table in the PDF:</p>
+
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead>
+            <tr>
+              <th class="col-pick">Pick</th>
+              <th class="col-name">Customer name</th>
+              {% for col in model.header %}<th>{{ col }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in model.rows %}
+            <tr>
+              <td class="col-pick">
+                <input type="checkbox" name="selected" value="{{ row.index }}"
+                       class="rowpick" form="genform">
+              </td>
+              <td class="col-name">
+                <input type="text" name="name_{{ row.index }}"
+                       value="{{ row.name }}" placeholder="Add name…"
+                       class="name-input {% if row.name %}known{% endif %}"
+                       form="genform">
+                <div class="key-hint">{{ model.key_col }}: {{ row.key }}</div>
+              </td>
+              {% for col in model.header %}
+                <td>{{ row.data[col] }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="send-row">
+        <label class="field">
+          <span>Email to</span>
+          <input type="email" name="recipient" value="{{ recipient }}"
+                 placeholder="finance@example.com">
+        </label>
+        <div class="actions">
+          <button class="btn" type="submit" name="action" value="download">
+            Generate PDF only
+          </button>
+          <button class="btn btn-primary" type="submit" name="action" value="email">
+            Generate &amp; email
+          </button>
+        </div>
+      </div>
+    </form>
+    {% endif %}
+  </section>
+
+  <script>
+    // Allow at most {{ max_tx }} selected transactions.
+    const MAX = {{ max_tx }};
+    const boxes = () => Array.from(document.querySelectorAll('.rowpick'));
+    document.addEventListener('change', (e) => {
+      if (!e.target.classList.contains('rowpick')) return;
+      const checked = boxes().filter(b => b.checked);
+      if (checked.length > MAX) {
+        e.target.checked = false;
+        alert('You can select at most ' + MAX + ' transaction(s).');
+      }
+    });
+    document.getElementById('genform')?.addEventListener('submit', (e) => {
+      if (boxes().filter(b => b.checked).length === 0) {
+        e.preventDefault();
+        alert('Please tick at least one transaction.');
+      }
+    });
+  </script>
+{% endblock %}

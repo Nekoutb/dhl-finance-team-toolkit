@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / Settings</nav>
+
+  <section class="panel">
+    <h1>⚙️ Settings — email (SMTP)</h1>
+    <p class="lead">Configure the mail server once and it's locked into the
+      SaaS — every email feature (reconciliations to finance, customer links,
+      Mobile Money receipts, CtP reports) sends directly. Until SMTP is
+      enabled, the app produces ready-to-send .eml files instead.</p>
+
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <div class="alert alert-{{ 'ok' if smtp.enabled else 'info' }}">
+      Current status:
+      {% if smtp.enabled %}<strong>ENABLED</strong> — emails send directly via
+        {{ smtp.host }}:{{ smtp.port }}.
+      {% else %}<strong>disabled</strong> — .eml fallback in use.{% endif %}
+    </div>
+
+    <form action="/settings/smtp" method="post">
+      <div class="inline-fields" style="margin-bottom:12px;">
+        <label class="field" style="min-width:280px;">
+          <span>SMTP host (e.g. smtp.office365.com / smtp.gmail.com)</span>
+          <input type="text" name="host" value="{{ smtp.host }}"
+                 placeholder="smtp.office365.com">
+        </label>
+        <label class="field" style="min-width:110px;max-width:130px;">
+          <span>Port</span>
+          <input type="number" name="port" value="{{ smtp.port }}">
+        </label>
+      </div>
+      <div class="inline-fields" style="margin-bottom:12px;">
+        <label class="field" style="min-width:280px;">
+          <span>Username (the sending mailbox)</span>
+          <input type="text" name="username" value="{{ smtp.username }}"
+                 placeholder="finance.cm@dhl.com">
+        </label>
+        <label class="field" style="min-width:280px;">
+          <span>Password / app password
+            {% if smtp.password %}(saved — leave blank to keep){% endif %}</span>
+          <input type="password" name="password" value=""
+                 placeholder="{{ '••••••••  (saved)' if smtp.password else 'app password' }}">
+        </label>
+      </div>
+      <div class="inline-fields" style="margin-bottom:12px;">
+        <label class="field" style="min-width:280px;">
+          <span>From address (usually same as username)</span>
+          <input type="email" name="from_address" value="{{ smtp.from_address }}"
+                 placeholder="finance.cm@dhl.com">
+        </label>
+        <label class="field" style="min-width:160px;">
+          <span>Options</span>
+          <span style="display:flex;gap:16px;padding-top:8px;">
+            <label><input type="checkbox" name="use_tls"
+              {% if smtp.use_tls %}checked{% endif %}> TLS</label>
+            <label><input type="checkbox" name="enabled"
+              {% if smtp.enabled %}checked{% endif %}>
+              <strong>Enable direct sending</strong></label>
+          </span>
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit">Save SMTP settings</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Prove it works</h2>
+    <form action="/settings/smtp/test" method="post" class="upload-form">
+      <label class="field" style="min-width:300px;">
+        <span>Send a test email to</span>
+        <input type="email" name="test_to" placeholder="you@dhl.com" required>
+      </label>
+      <button class="btn" type="submit">Send test email</button>
+    </form>
+    <p class="note-small">Office 365: host <code>smtp.office365.com</code>,
+      port 587, TLS on — if your tenant blocks basic SMTP auth, IT can enable
+      "Authenticated SMTP" for the mailbox or provide a relay. Gmail: host
+      <code>smtp.gmail.com</code>, port 587, TLS on, and an
+      <strong>app password</strong> (not your normal one) from
+      myaccount.google.com → Security → 2-Step Verification → App passwords.
+      <strong>Yahoo:</strong> host <code>smtp.mail.yahoo.com</code>, port 465
+      (SSL — supported) or 587, and an <strong>app password</strong> generated
+      at login.yahoo.com → Account Security → Generate app password; your
+      normal Yahoo password will be rejected.</p>
+  </section>
+{% endblock %}

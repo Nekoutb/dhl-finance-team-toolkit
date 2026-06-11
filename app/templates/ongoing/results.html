@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% set s = result.summary %}
+{% set tc = result.total_check %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/ongoing-ctp-monitoring">{{ tool.name }}</a> / Results
+  </nav>
+
+  <section class="panel">
+    <h1>CtP analysis — {{ s.invoice_count }} invoices, {{ s.customer_count }} customers</h1>
+    <p class="lead">As-of {{ result.as_of }} ·
+      {{ s.actions_due }} manual actions due ·
+      {{ s.auto_dunning }} items in automated dunning (letters by system) ·
+      {{ s.credit_count }} credits/payments on account ·
+      {{ s.calls_suppressed }} calls suppressed (below value threshold)</p>
+
+    {% if result.tb_check %}
+      {% set tb = result.tb_check %}
+      {% if tb.matches %}
+        <div class="alert alert-ok">✓ <strong>First analysis — trial balance
+          agreement:</strong> total AR per the transaction file
+          ({{ "{:,.0f}".format(tb.tx_total) }}) agrees to the AR trial balance
+          ({{ "{:,.0f}".format(tb.tb_total) }}).</div>
+      {% else %}
+        <div class="alert alert-error">✗ <strong>First analysis — trial balance
+          disagreement:</strong> transaction file total
+          {{ "{:,.0f}".format(tb.tx_total) }} vs trial balance
+          {{ "{:,.0f}".format(tb.tb_total) }} — difference
+          <strong>{{ "{:,.0f}".format(tb.difference) }}</strong>. Investigate
+          before relying on the controls below.</div>
+      {% endif %}
+    {% endif %}
+
+    {% if tc %}
+      {% if tc.matches %}
+        <div class="alert alert-ok">✓ Control total check: the file's total line
+          ({{ "{:,.0f}".format(tc.file_total) }}) matches the sum of the
+          {{ s.invoice_count + s.credit_count }} line items analysed.</div>
+      {% else %}
+        <div class="alert alert-error">✗ Control total mismatch: the file's total
+          line says {{ "{:,.0f}".format(tc.file_total) }} but the line items sum
+          to {{ "{:,.0f}".format(tc.line_sum) }}
+          (difference {{ "{:,.0f}".format(tc.line_sum - tc.file_total) }}).
+          Check the file before relying on this analysis.</div>
+      {% endif %}
+    {% else %}
+      <div class="alert alert-info">No control-total line was detected in the
+        file (a line holding the total amount with the other fields empty).</div>
+    {% endif %}
+
+    <div class="stat-grid">
+      <div class="stat"><span class="stat-num">{{ "{:,.0f}".format(s.total_ar) }}</span><span class="stat-lbl">Total AR (net)</span></div>
+      <div class="stat"><span class="stat-num">{{ "{:,.0f}".format(s.overdue_total) }}</span><span class="stat-lbl">Overdue</span></div>
+      <div class="stat"><span class="stat-num">{{ "{:,.0f}".format(s.credits_total) }}</span><span class="stat-lbl">Credits on account</span></div>
+      <div class="stat"><span class="stat-num">{{ hold_cmp.place_on_hold|length }}</span><span class="stat-lbl">To place on hold</span></div>
+      <div class="stat"><span class="stat-num">{{ hold_cmp.review_release|length }}</span><span class="stat-lbl">To review / release</span></div>
+      <div class="stat"><span class="stat-num">{{ hold_cmp.correctly_held|length }}</span><span class="stat-lbl">Correctly on hold</span></div>
+    </div>
+
+    <div class="download-row">
+      <a class="btn btn-primary" href="/tools/ongoing-ctp-monitoring/results/{{ token }}/dashboard">📊 Open dashboard</a>
+      <a class="btn" href="/download/{{ report_name }}">⬇ Download Excel report</a>
+      <form action="/tools/ongoing-ctp-monitoring/email" method="post" class="email-inline">
+        <input type="hidden" name="report" value="{{ report_name }}">
+        <input type="email" name="recipient" value="{{ recipient }}" placeholder="email to…">
+        <button class="btn" type="submit">Email report</button>
+      </form>
+      <a class="btn" href="/tools/ongoing-ctp-monitoring/holds">Hold register ({{ hold_cmp.register_size }})</a>
+    </div>
+    {% if result.currencies|length > 1 %}
+      <div class="alert alert-info">Multiple currencies detected
+        ({{ result.currencies|join(', ') }}) — totals are summed as-is for this
+        draft. Tell me the reporting currency / FX handling you need.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Summary per control type</h2>
+    <p class="lead">Every open item grouped by the control now due under the
+      treatment plan. Letter steps run automatically via system dunning — they
+      are listed for visibility but need no manual action.</p>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Control / action</th><th>Mode</th><th>Executed by</th>
+          <th>Invoices</th><th>Customers</th><th>Amount</th>
+        </tr></thead>
+        <tbody>
+          {% for g in result.controls_summary %}
+          <tr{% if g.auto %} class="row-auto"{% endif %}>
+            <td>{{ g.action }}</td>
+            <td>{% if g.auto %}<span class="pill pill-auto">Automated</span>{% else %}<span class="pill pill-manual">Manual</span>{% endif %}</td>
+            <td>{{ g.owner }}</td>
+            <td>{{ g.invoices }}</td>
+            <td>{{ g.customers }}</td>
+            <td>{{ "{:,.0f}".format(g.amount) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if result.master_used and result.reconciliation %}
+  {% set rec = result.reconciliation %}
+  <section class="panel">
+    <h2 class="section-title">Master file vs transaction file reconciliation</h2>
+    <p class="lead">Balance per customer in the master file compared with the
+      sum of that customer's lines in the transaction file.
+      {{ rec.matched }} matched ·
+      {{ rec.mismatches|length }} mismatch(es) ·
+      {{ rec.only_in_master|length }} only in master ·
+      {{ rec.only_in_transactions|length }} only in transactions.</p>
+
+    {% if rec.mismatches %}
+    <h3 class="mini-title">⚠ Balance mismatches ({{ rec.mismatches|length }})</h3>
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>Customer</th><th>Account</th><th>Per transactions</th>
+        <th>Per master</th><th>Difference</th></tr></thead>
+      <tbody>
+        {% for x in rec.mismatches[:50] %}
+        <tr><td>{{ x.customer }}</td><td>{{ x.key }}</td>
+          <td>{{ "{:,.0f}".format(x.transactions) }}</td>
+          <td>{{ "{:,.0f}".format(x.master) }}</td>
+          <td><strong>{{ "{:,.0f}".format(x.difference) }}</strong></td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    {% endif %}
+
+    {% if rec.only_in_master %}
+    <h3 class="mini-title">In master with a balance, but no transaction lines ({{ rec.only_in_master|length }})</h3>
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>Customer</th><th>Account</th><th>Master balance</th></tr></thead>
+      <tbody>
+        {% for x in rec.only_in_master[:50] %}
+        <tr><td>{{ x.customer }}</td><td>{{ x.key }}</td>
+          <td>{{ "{:,.0f}".format(x.master) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    {% endif %}
+
+    {% if rec.only_in_transactions %}
+    <h3 class="mini-title">In transactions, but not in the master ({{ rec.only_in_transactions|length }})</h3>
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>Customer</th><th>Account</th><th>Transactions balance</th></tr></thead>
+      <tbody>
+        {% for x in rec.only_in_transactions[:50] %}
+        <tr><td>{{ x.customer }}</td><td>{{ x.key }}</td>
+          <td>{{ "{:,.0f}".format(x.transactions) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2 class="section-title">Credit-hold exceptions</h2>
+    <p class="lead">Policy-required hold state (credit-risk matrix §2.5) compared
+      with the current position
+      {% if result.master_used %}(per the <a href="/tools/ongoing-ctp-monitoring/master">master
+      file</a> where it covers the customer, else the
+      <a href="/tools/ongoing-ctp-monitoring/holds">register</a>){% else %}(per the
+      <a href="/tools/ongoing-ctp-monitoring/holds">hold register</a>,
+      {{ hold_cmp.register_size }} customer(s) recorded){% endif %}.</p>
+
+    <h3 class="mini-title">⚠ Should be on credit hold — currently NOT on hold ({{ hold_cmp.place_on_hold|length }})</h3>
+    {% if hold_cmp.place_on_hold %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Clerk</th><th>Total AR</th>
+          <th>% beyond GCTP</th><th>Max days</th><th>Required control</th><th></th></tr></thead>
+        <tbody>
+          {% for c in hold_cmp.place_on_hold %}
+          <tr>
+            <td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ c.clerk }}</td>
+            <td>{{ "{:,.0f}".format(c.total_ar) }}</td>
+            <td>{{ "{:.0f}".format(c.beyond_gctp_pct) }}%</td>
+            <td>{{ c.max_days_overdue }}</td>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
+            <td>
+              {% if c.hold_source == 'master file' %}
+                <span class="muted-tag">per master file — place hold in the system</span>
+              {% else %}
+              <form action="/tools/ongoing-ctp-monitoring/results/{{ token }}/hold" method="post" class="row-form">
+                <input type="hidden" name="account" value="{{ c.key }}">
+                <input type="hidden" name="name" value="{{ c.customer }}">
+                <input type="hidden" name="op" value="hold">
+                <button class="btn btn-small" type="submit">Mark as held</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="note-small">None — every customer requiring a hold is already on the register.</p>{% endif %}
+
+    <h3 class="mini-title">↩ On credit hold — policy does NOT require it ({{ hold_cmp.review_release|length }})</h3>
+    {% if hold_cmp.review_release %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Clerk</th><th>Total AR</th>
+          <th>% beyond GCTP</th><th>Max days</th><th>Current state</th><th></th></tr></thead>
+        <tbody>
+          {% for c in hold_cmp.review_release %}
+          <tr>
+            <td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ c.clerk }}</td>
+            <td>{{ "{:,.0f}".format(c.total_ar) }}</td>
+            <td>{{ "{:.0f}".format(c.beyond_gctp_pct) }}%</td>
+            <td>{{ c.max_days_overdue }}</td>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
+            <td>
+              {% if c.hold_source == 'master file' %}
+                <span class="muted-tag">per master file — release in the system</span>
+              {% else %}
+              <form action="/tools/ongoing-ctp-monitoring/results/{{ token }}/hold" method="post" class="row-form">
+                <input type="hidden" name="account" value="{{ c.key }}">
+                <input type="hidden" name="name" value="{{ c.customer }}">
+                <input type="hidden" name="op" value="release">
+                <button class="btn btn-small" type="submit">Release hold</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="note-small">None — nobody on the register is held without policy basis.</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Customer risk &amp; next action</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Customer</th><th>Account</th><th>Plan</th><th>Clerk</th><th>Inv</th>
+          <th>Total AR (net)</th><th>Overdue</th><th>% beyond GCTP</th>
+          <th>Max days</th><th>Risk control</th><th>On hold?</th>
+          <th>Next action</th><th>Owner</th>
+        </tr></thead>
+        <tbody>
+          {% for c in result.customers %}
+          <tr>
+            <td>{{ c.customer }}</td>
+            <td>{{ c.key }}</td>
+            <td>{{ c.plan_label }}</td>
+            <td>{{ c.clerk }}</td>
+            <td>{{ c.invoice_count }}{% if c.credit_count %} (+{{ c.credit_count }} cr){% endif %}</td>
+            <td>{{ "{:,.0f}".format(c.total_ar) }}</td>
+            <td>{{ "{:,.0f}".format(c.overdue) }}</td>
+            <td>{{ "{:.0f}".format(c.beyond_gctp_pct) }}%</td>
+            <td>{{ c.max_days_overdue }}</td>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
+            <td>{% if c.currently_held %}Yes{% else %}—{% endif %}</td>
+            <td>{{ c.next_action }}</td>
+            <td>{{ c.owner }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Controls by invoice</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Customer</th><th>Account</th><th>Document</th><th>Due date</th>
+          <th>Type</th><th>Amount</th><th>Days overdue</th>
+          <th>Control / action</th><th>Owner</th>
+        </tr></thead>
+        <tbody>
+          {% for i in result.invoices %}
+          <tr{% if i.kind == 'credit' %} class="row-auto"{% endif %}>
+            <td>{{ i.customer }}</td>
+            <td>{{ i.account }}</td>
+            <td>{{ i.invoice_no }}</td>
+            <td>{{ i.due_date or '—' }}</td>
+            <td>{{ i.doc_type or '—' }}</td>
+            <td>{{ "{:,.0f}".format(i.amount) }}</td>
+            <td>{{ i.days_overdue }}</td>
+            <td>{{ i.action }}{% if i.call_suppressed %} <span class="muted-tag">(suppressed — below threshold)</span>{% endif %}</td>
+            <td>{{ i.owner }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <details class="meta-box">
+      <summary>Detected column mapping &amp; assumptions</summary>
+      <ul class="map-list">
+        {% for field, col in result.mapping.items() %}
+          <li><code>{{ field }}</code> → <strong>{{ col }}</strong></li>
+        {% endfor %}
+      </ul>
+      {% if result.unmapped %}
+        <p class="note-small">Not found in the file (defaults applied):
+          {{ result.unmapped|join(', ') }}. Where due date is missing it is
+          derived from the document date; missing segment defaults to Telesales;
+          missing rank defaults to {{ result.default_rank }}. Call value
+          thresholds are converted EUR→XAF at the fixed peg.</p>
+      {% endif %}
+    </details>
+  </section>
+{% endblock %}

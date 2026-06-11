@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% set d = dash %}
+{% set cur = d.currency %}
+{% set base = "/tools/ongoing-ctp-monitoring/results/" ~ token %}
+{% macro money(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
+
+{% macro offender_table(rows, field) %}
+  {% if rows %}
+  <div class="table-wrap"><table class="tx-table">
+    <thead><tr><th>#</th><th>Customer</th><th>Account</th>
+      <th>{{ 'Over 60d' if field == 'over60' else 'Over 90d' }}</th><th>Total AR</th></tr></thead>
+    <tbody>
+      {% for c in rows[:30] %}
+      <tr><td>{{ loop.index }}</td><td>{{ c.customer }}</td><td>{{ c.key }}</td>
+        <td>{{ "{:,.0f}".format(c[field]) }}</td><td>{{ "{:,.0f}".format(c.total) }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% if rows|length > 30 %}<p class="note-small">Showing top 30 of {{ rows|length }}.</p>{% endif %}
+  {% else %}<p class="note-small">None.</p>{% endif %}
+{% endmacro %}
+
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/ongoing-ctp-monitoring">{{ tool.name }}</a> / Dashboard
+  </nav>
+
+  <section class="panel">
+    <h1>Receivables control dashboard</h1>
+    <p class="lead">As-of {{ result.as_of }} · {{ cur }} ·
+      {{ result.summary.invoice_count }} invoices ·
+      {{ result.summary.customer_count }} customers ·
+      net AR {{ money(d.net_ar) }}</p>
+    <div class="download-row">
+      <a class="btn" href="{{ base }}">Full controls &amp; invoice tables →</a>
+      <a class="btn" href="/tools/ongoing-ctp-monitoring/holds">Hold register ({{ hold_cmp.register_size }})</a>
+    </div>
+  </section>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.aging.over60_pct) }}%</span><span class="kpi-lbl">AR &gt; 60 days</span></div>
+    <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.aging.over90_pct) }}%</span><span class="kpi-lbl">AR &gt; 90 days</span></div>
+    <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.unapplied.pct) }}%</span><span class="kpi-lbl">Unapplied cash</span></div>
+    <div class="kpi kpi-warn"><span class="kpi-num">{{ d.held_negative|length }}</span><span class="kpi-lbl">On hold &amp; negative</span></div>
+    <div class="kpi"><span class="kpi-num">{{ d.upcoming.total }}</span><span class="kpi-lbl">Going on hold ≤14d</span></div>
+    <div class="kpi"><span class="kpi-num">{{ d.below.count }}</span><span class="kpi-lbl">Below threshold</span></div>
+  </div>
+
+  <!-- 1 & 6. Ageing + top offenders -->
+  <section class="panel">
+    <h2 class="section-title">Ageing by document date &amp; top offenders</h2>
+    <details class="drop" open>
+      <summary><span class="drop-title">Receivables over 60 days</span>
+        <span class="drop-val">{{ "{:.1f}".format(d.aging.over60_pct) }}% · {{ money(d.aging.over60) }} {{ cur }}</span></summary>
+      {{ offender_table(d.over60_customers, "over60") }}
+    </details>
+    <details class="drop">
+      <summary><span class="drop-title">Receivables over 90 days</span>
+        <span class="drop-val">{{ "{:.1f}".format(d.aging.over90_pct) }}% · {{ money(d.aging.over90) }} {{ cur }}</span></summary>
+      {{ offender_table(d.over90_customers, "over90") }}
+    </details>
+    <p class="note-small">Percentages are of gross receivables ({{ money(d.gross_ar) }} {{ cur }}),
+      aged from the document/invoice date.</p>
+  </section>
+
+  <!-- 2. Unapplied cash -->
+  <section class="panel">
+    <h2 class="section-title">Unapplied cash (negative balances)</h2>
+    <details class="drop">
+      <summary><span class="drop-title">Unapplied cash %</span>
+        <span class="drop-val">{{ "{:.1f}".format(d.unapplied.pct) }}% · {{ money(d.unapplied.amount) }} {{ cur }}</span></summary>
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Unapplied credit</th></tr></thead>
+        <tbody>
+          {% for c in d.unapplied.customers %}
+          <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.amount) }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    </details>
+    <p class="note-small">Σ negative balances ÷ net AR ({{ money(d.unapplied.amount) }} ÷ {{ money(d.net_ar) }}).</p>
+  </section>
+
+  <!-- 3. On hold but net negative -->
+  <section class="panel">
+    <h2 class="section-title">On credit hold but net-negative balance</h2>
+    <p class="lead">Customers who have <strong>overpaid</strong> (payments exceed invoices)
+      yet are still on credit hold — candidates for immediate release.</p>
+    <details class="drop" {% if d.held_negative %}open{% endif %}>
+      <summary><span class="drop-title">On hold &amp; overpaid</span>
+        <span class="drop-val">{{ d.held_negative|length }} customer(s)</span></summary>
+      {% if d.held_negative %}
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Net balance</th><th>Risk control</th></tr></thead>
+        <tbody>
+          {% for c in d.held_negative %}
+          <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
+            <td>{{ money(c.total_ar) }}</td>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}<p class="note-small">None — no overpaid customer is sitting on credit hold.</p>{% endif %}
+    </details>
+  </section>
+
+  <!-- 4. Going on hold soon -->
+  <section class="panel">
+    <h2 class="section-title">Projected to go on credit hold</h2>
+    <p class="lead">Not yet on hold, but an open invoice reaches the segment's
+      stop-credit day within the window (per the treatment plan).</p>
+    {% for label, rows in d.upcoming.bands.items() %}
+    <details class="drop" {% if rows and loop.first %}open{% endif %}>
+      <summary><span class="drop-title">{{ label }}</span>
+        <span class="drop-val">{{ rows|length }} customer(s)</span></summary>
+      {% if rows %}
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Plan</th><th>Max days overdue</th>
+          <th>Days to hold</th><th>Total AR</th></tr></thead>
+        <tbody>
+          {% for c in rows %}
+          <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ c.plan_label }}</td>
+            <td>{{ c.max_days_overdue }}</td><td><strong>{{ c.days_to_hold }}</strong></td>
+            <td>{{ money(c.total_ar) }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}<p class="note-small">None in this window.</p>{% endif %}
+    </details>
+    {% endfor %}
+  </section>
+
+  <!-- 5. Below threshold (editable) -->
+  <section class="panel" id="below">
+    <h2 class="section-title">Customers below balance threshold</h2>
+    <form action="{{ base }}/dashboard" method="get" class="threshold-form">
+      <label class="field"><span>Show customers with total AR at or below ({{ cur }})</span>
+        <input type="number" name="threshold" value="{{ "{:.0f}".format(threshold) }}" min="0" step="1000"></label>
+      <button class="btn btn-primary" type="submit">Update list</button>
+    </form>
+    <details class="drop" open>
+      <summary><span class="drop-title">≤ {{ money(threshold) }} {{ cur }}</span>
+        <span class="drop-val">{{ d.below.count }} customer(s) · {{ money(d.below.total) }} {{ cur }}</span></summary>
+      {% if d.below.customers %}
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Total AR</th><th>Max days overdue</th><th>Risk control</th></tr></thead>
+        <tbody>
+          {% for c in d.below.customers %}
+          <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.total_ar) }}</td>
+            <td>{{ c.max_days_overdue }}</td>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}<p class="note-small">No customers at or below this threshold.</p>{% endif %}
+    </details>
+  </section>
+
+  <!-- 7. Bank statement match -->
+  <section class="panel">
+    <h2 class="section-title">Open AR appearing on the bank statement</h2>
+    <p class="lead">Upload a bank statement; the app flags customers who still
+      owe but whose name (or a close variant) appears on the statement —
+      likely a payment received but not yet applied.</p>
+    <form action="{{ base }}/bank" method="post" enctype="multipart/form-data" class="upload-form">
+      <label class="filedrop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
+        <span class="filedrop-text">Choose the bank statement (.xlsx / .xls)</span>
+      </label>
+      <button class="btn btn-primary" type="submit">Match against open AR</button>
+    </form>
+    {% if bank %}
+    <details class="drop" open>
+      <summary><span class="drop-title">Possible unapplied payments</span>
+        <span class="drop-val">{{ bank.matches|length }} match(es) · {{ bank.lines }} bank lines</span></summary>
+      {% if bank.matches %}
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th><th>Open AR</th><th>On hold?</th>
+          <th>Match</th><th>Bank narration</th><th>Bank amount</th><th>Date</th></tr></thead>
+        <tbody>
+          {% for m in bank.matches %}
+          <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td><td>{{ money(m.total_ar) }}</td>
+            <td>{% if m.currently_held %}Yes{% else %}—{% endif %}</td>
+            <td>{{ "{:.0f}".format(m.score * 100) }}%</td>
+            <td>{{ m.bank_description }}</td><td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}<p class="note-small">No customer names matched the bank statement narration.</p>{% endif %}
+    </details>
+    {% endif %}
+  </section>
+{% endblock %}

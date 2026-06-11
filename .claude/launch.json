@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "finance-toolkit",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8801"],
+      "port": 8801
+    },
+    {
+      "name": "finance-toolkit-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8802"],
+      "port": 8802
+    }
+  ]
+}

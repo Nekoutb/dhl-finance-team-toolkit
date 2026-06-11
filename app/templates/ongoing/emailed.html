@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/ongoing-ctp-monitoring">{{ tool.name }}</a> / Email
+  </nav>
+  <section class="panel">
+    <h1>Email report</h1>
+    <div class="alert alert-{{ status[0] }}">{{ status[1]|safe }}</div>
+    <div class="next-row"><a href="/tools/ongoing-ctp-monitoring">← Run another analysis</a></div>
+  </section>
+{% endblock %}

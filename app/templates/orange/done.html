@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/orange-cameroun">{{ tool.name }}</a> / Done
+  </nav>
+
+  <section class="panel">
+    <h1>✅ Receipt generated</h1>
+    <p class="lead">
+      {{ count }} transaction(s)
+      {% if customer %}for <strong>{{ customer }}</strong>{% endif %}
+      converted to PDF.
+    </p>
+
+    {% if email_status %}
+      <div class="alert alert-{{ email_status[0] }}">{{ email_status[1] }}</div>
+    {% endif %}
+
+    <div class="download-row">
+      <a class="btn btn-primary" href="/download/{{ pdf_name }}">⬇ Download PDF</a>
+      {% if eml_name %}
+        <a class="btn" href="/download/{{ eml_name }}">⬇ Download email (.eml)</a>
+      {% endif %}
+    </div>
+
+    <div class="next-row">
+      <a href="/tools/orange-cameroun">← Convert another file</a>
+    </div>
+  </section>
+{% endblock %}

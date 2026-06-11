@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">{{ tool.description }}</p>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form class="upload-form" action="/tools/orange-cameroun/upload"
+          method="post" enctype="multipart/form-data">
+      <label class="filedrop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
+        <span class="filedrop-text">Choose the Orange Cameroun Excel file
+          (.xlsx / .xls)</span>
+      </label>
+      <button class="btn btn-primary" type="submit">Upload &amp; review</button>
+    </form>
+
+    <div class="hint">
+      <p><strong>How it works</strong></p>
+      <ol>
+        <li>Upload the export — the tool finds the table and lists every transaction.</li>
+        <li>Tick the <strong>1 or 2</strong> transaction line(s) you need.</li>
+        <li>Confirm or type the customer's name (remembered for next time —
+            {{ saved_count }} saved so far).</li>
+        <li>Generate the PDF and email it.</li>
+      </ol>
+      <p><a href="/tools/orange-cameroun/customers">View saved customer names →</a></p>
+    </div>
+  </section>
+{% endblock %}

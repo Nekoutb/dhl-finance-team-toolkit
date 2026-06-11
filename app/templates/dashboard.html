@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% macro spark(seed) -%}
+<svg class="spark" viewBox="0 0 72 26" preserveAspectRatio="none" aria-hidden="true">
+  {% if seed % 3 == 0 %}
+  <path class="area" d="M0 20 L10 17 L20 19 L30 12 L42 14 L54 8 L64 10 L72 6 L72 26 L0 26 Z"/>
+  <path d="M0 20 L10 17 L20 19 L30 12 L42 14 L54 8 L64 10 L72 6"/>
+  {% elif seed % 3 == 1 %}
+  <path class="area" d="M0 14 L12 16 L22 10 L34 13 L46 9 L58 12 L72 7 L72 26 L0 26 Z"/>
+  <path d="M0 14 L12 16 L22 10 L34 13 L46 9 L58 12 L72 7"/>
+  {% else %}
+  <path class="area" d="M0 9 L12 12 L24 10 L36 16 L48 13 L60 17 L72 15 L72 26 L0 26 Z"/>
+  <path d="M0 9 L12 12 L24 10 L36 16 L48 13 L60 17 L72 15"/>
+  {% endif %}
+</svg>
+{%- endmacro %}
+{% block content %}
+  <section style="margin-bottom:14px;">
+    <h1 style="margin:0 0 4px;font-size:22px;letter-spacing:-0.01em;">Good day 👋</h1>
+    <p class="lead" style="margin:0;">Operations overview
+      {% if s.as_of %}· receivables as-of {{ s.as_of }}{% endif %}
+      · press <kbd>Ctrl K</kbd> to jump anywhere</p>
+  </section>
+
+  <!-- KPI row -->
+  <div class="kpi-strip">
+    <div class="kpi">
+      <span class="kpi-num">{% if s.ar is not none %}{{ "{:,.0f}".format(s.ar) }}{% else %}—{% endif %}</span>
+      <span class="kpi-lbl">Net receivables (XAF)</span>
+      {% if s.total_ok is not none %}
+        <span class="delta {{ 'up' if s.total_ok else 'down' }}">
+          {{ '✓ control total' if s.total_ok else '✗ total mismatch' }}</span>
+      {% else %}<span class="delta flat">no analysis yet</span>{% endif %}
+      {{ spark(0) }}
+    </div>
+    <div class="kpi">
+      <span class="kpi-num">{% if s.overdue is not none %}{{ "{:,.0f}".format(s.overdue) }}{% else %}—{% endif %}</span>
+      <span class="kpi-lbl">Overdue (XAF)</span>
+      {% if s.ar %}<span class="delta down">{{ "{:.0f}".format(s.overdue / s.ar * 100) }}% of AR</span>{% endif %}
+      {{ spark(1) }}
+    </div>
+    <div class="kpi">
+      <span class="kpi-num">{% if s.unapplied is not none %}{{ "{:,.0f}".format(s.unapplied) }}{% else %}—{% endif %}</span>
+      <span class="kpi-lbl">Unapplied cash (XAF)</span>
+      {% if s.ar and s.unapplied %}<span class="delta flat">{{ "{:.1f}".format(s.unapplied / s.ar * 100) }}% of AR</span>{% endif %}
+      {{ spark(2) }}
+    </div>
+    <div class="kpi {% if s.pending_alloc %}kpi-warn{% endif %}">
+      <span class="kpi-num">{{ s.pending_alloc }}</span>
+      <span class="kpi-lbl">Pending customer allocations</span>
+      {% if s.batch_total %}<span class="delta {{ 'up' if s.alloc_done else 'flat' }}">{{ s.alloc_done }}/{{ s.batch_total }} confirmed</span>{% endif %}
+      {{ spark(3) }}
+    </div>
+  </div>
+
+  <div class="dash-grid">
+    <div>
+      <!-- Today's tasks -->
+      <div class="qcard" style="margin-bottom:16px;">
+        <h2>Today's tasks</h2>
+        <div class="task-row">
+          <span class="t-ico">⛔</span>
+          <span class="t-main"><a href="/tools/ongoing-ctp-monitoring">Place customers on credit hold</a>
+            <div class="t-sub">Required by policy, not yet held — from the latest analysis</div></span>
+          <span class="count">{{ s.place_on_hold }}</span>
+        </div>
+        <div class="task-row">
+          <span class="t-ico">📞</span>
+          <span class="t-main"><a href="/tools/ongoing-ctp-monitoring">Collection calls due</a>
+            <div class="t-sub">Manual CtP actions, above the value threshold</div></span>
+          <span class="count">{{ s.calls_due }}</span>
+        </div>
+        <div class="task-row">
+          <span class="t-ico">🔗</span>
+          <span class="t-main"><a href="/tools/remittance-portal">Chase remittance confirmations</a>
+            <div class="t-sub">Customer links awaiting allocation</div></span>
+          <span class="count">{{ s.pending_alloc }}</span>
+        </div>
+        <div class="task-row">
+          <span class="t-ico">🛡️</span>
+          <span class="t-main"><a href="/tools/vendor-niu">Verify vendor NIUs</a>
+            <div class="t-sub">Vendors not yet checked on DGI Fiscalis</div></span>
+          <span class="count">{{ s.vendors_pending }}</span>
+        </div>
+        <div class="task-row">
+          <span class="t-ico">🧾</span>
+          <span class="t-main"><a href="/tools/ongoing-ctp-monitoring">Manual treatment actions due</a>
+            <div class="t-sub">All non-automated CtP controls (letters run via e-dunning)</div></span>
+          <span class="count">{{ s.actions_due }}</span>
+        </div>
+      </div>
+
+      <!-- Reconciliation status -->
+      <div class="qcard">
+        <h2>Reconciliation status</h2>
+        {% if s.batch_total %}
+          <div style="font-size:13px;">Latest GL batch · {{ s.batch_at }}</div>
+          <div class="progress"><i style="width:{{ (s.alloc_done / s.batch_total * 100) | round }}%"></i></div>
+          <div class="note-small">{{ s.alloc_done }} of {{ s.batch_total }} customers
+            have confirmed their payment allocation
+            · <a href="/tools/remittance-portal">open links →</a></div>
+        {% else %}
+          <p class="note-small">No GL batch uploaded yet —
+            <a href="/tools/remittance-portal">start in the remittance portal</a>.</p>
+        {% endif %}
+        {% if s.total_ok is not none %}
+          <div style="margin-top:12px;font-size:13px;">
+            AR file control total:
+            {% if s.total_ok %}<span class="pill pill-ok">MATCHES</span>
+            {% else %}<span class="pill pill-stop">MISMATCH</span>{% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Activity feed -->
+    <div class="qcard">
+      <h2>Recent activity</h2>
+      {% if s.activity %}
+        {% for when, ico, label, href in s.activity %}
+        <div class="feed-row">
+          <span>{{ ico }}</span>
+          <span style="flex:1;"><a href="{{ href }}">{{ label }}</a></span>
+          <span class="when">{{ when }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="note-small">Nothing yet — activity appears as files are
+          processed.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% for category, tools in groups.items() %}
+    <h2 class="section-title">{{ category }}</h2>
+    <div class="card-grid">
+      {% for tool in tools %}
+        {% set clickable = tool.status in ("live", "draft") %}
+        {% if clickable %}
+        <a class="card live" href="/tools/{{ tool.slug }}">
+        {% else %}
+        <div class="card soon">
+        {% endif %}
+          <div class="card-icon">{{ tool.icon }}</div>
+          <div class="card-body">
+            <h3>{{ tool.name }}</h3>
+            <p>{{ tool.description }}</p>
+          </div>
+          {% if tool.status == "live" %}
+            <span class="badge badge-live">Open</span>
+          {% elif tool.status == "draft" %}
+            <span class="badge badge-draft">Draft</span>
+          {% else %}
+            <span class="badge badge-soon">Coming soon</span>
+          {% endif %}
+        {% if clickable %}</a>{% else %}</div>{% endif %}
+      {% endfor %}
+    </div>
+  {% endfor %}
+{% endblock %}

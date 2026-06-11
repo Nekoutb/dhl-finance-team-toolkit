@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/remittance-portal">{{ tool.name }}</a> / Settings
+  </nav>
+
+  <section class="panel">
+    <h1>Remittance portal settings</h1>
+    <p class="lead">Where each confirmed reconciliation is sent automatically.</p>
+
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+
+    <form action="/tools/remittance-portal/settings" method="post">
+      <label class="field" style="max-width:560px;">
+        <span>Finance recipient emails — one per line. Every confirmed
+          reconciliation PDF is sent to all of them.</span>
+        <textarea name="recipients" rows="5" class="bulk-input"
+          placeholder="credit.controller@dhl.com&#10;finance.cm@dhl.com">{{ settings.recipients|join('\n') }}</textarea>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:10px;">Save settings</button>
+    </form>
+
+    <div class="alert alert-{{ 'ok' if smtp_enabled else 'info' }}" style="margin-top:18px;">
+      {% if smtp_enabled %}
+        <strong>SMTP is configured</strong> — reconciliations and customer links
+        are emailed directly.
+      {% else %}
+        <strong>SMTP is not configured</strong> — the app produces ready-to-send
+        .eml files instead of sending directly. To enable direct sending, fill
+        the <code>smtp</code> block in <code>config.json</code> (host, port,
+        username, password, from_address) and set <code>"enabled": true</code>.
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

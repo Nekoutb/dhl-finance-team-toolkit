@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/remittance-portal">{{ tool.name }}</a> / Links
+  </nav>
+
+  <section class="panel">
+    <h1>Customer links</h1>
+    <p class="lead">Batch {{ batch.id }} · uploaded {{ batch.created_at }} ·
+      {{ batch.customers|length }} customers, sorted by <strong>highest open
+      payments first</strong>. Share each customer's private link — anyone with
+      the link can view and allocate that statement.</p>
+
+    {% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Customer</th><th>Account</th><th>Open payments</th>
+          <th>Open invoices</th><th>Status</th><th>Link</th><th>Email link</th>
+        </tr></thead>
+        <tbody>
+          {% for c in batch.customers %}
+          {% set contact = contacts.get(c.customer_key, {}) %}
+          <tr>
+            <td><strong>{{ c.customer_name }}</strong></td>
+            <td>{{ c.customer_key }}</td>
+            <td>{{ "{:,.0f}".format(c.total_payments) }} <span class="note-inline">({{ c.payment_count }})</span></td>
+            <td>{{ "{:,.0f}".format(c.total_invoices) }} <span class="note-inline">({{ c.invoice_count }})</span></td>
+            <td>
+              {% if c.token in allocated %}
+                <span class="pill pill-ok">Allocated</span>
+              {% else %}
+                <span class="pill pill-watch">Pending</span>
+              {% endif %}
+            </td>
+            <td class="link-cell">
+              <input class="link-input" type="text" readonly
+                     value="{{ base_url }}/portal/{{ c.token }}"
+                     onclick="this.select()">
+              <button type="button" class="btn btn-small copy-btn"
+                      data-link="{{ base_url }}/portal/{{ c.token }}">Copy</button>
+              <a class="btn btn-small" href="/portal/{{ c.token }}" target="_blank">Open</a>
+            </td>
+            <td>
+              <form action="/tools/remittance-portal/send-link/{{ c.token }}"
+                    method="post" class="send-link-form">
+                <input type="email" name="email" class="email-input"
+                       placeholder="customer email…"
+                       value="{{ contact.get('email', '') }}">
+                <button class="btn btn-small" type="submit">
+                  {% if smtp_enabled %}Send{% else %}Make email{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">
+      <strong>Copy</strong> puts the link on your clipboard.
+      {% if smtp_enabled %}<strong>Send</strong> emails it to the customer
+      directly (address prefills from saved contacts).{% else %}
+      <strong>Make email</strong> creates a ready-to-send .eml (SMTP not
+      configured — set recipients &amp; SMTP under
+      <a href="/tools/remittance-portal/settings">Settings</a>).{% endif %}
+      Customer emails prefill automatically once a customer has confirmed an
+      allocation (<a href="/tools/remittance-portal/contacts">saved contacts</a>).
+    </p>
+  </section>
+
+  <script>
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const link = btn.dataset.link;
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch (_err) {
+        const input = btn.parentElement.querySelector('.link-input');
+        input.select();
+        document.execCommand('copy');
+      }
+      const old = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = old; }, 1500);
+    });
+  </script>
+{% endblock %}

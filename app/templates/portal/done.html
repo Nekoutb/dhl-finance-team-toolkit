@@ -1,0 +1,21 @@
+{% extends "portal/base.html" %}
+{% block title %}Allocation confirmed{% endblock %}
+{% block content %}
+  <section class="panel">
+    <h1>✅ Thank you — allocation confirmed</h1>
+    <p class="lead">{{ stmt.customer_name }} · {{ stmt.allocation.allocated_at }}</p>
+
+    <div class="stat-grid">
+      <div class="stat"><span class="stat-num">{{ "{:,.0f}".format(stmt.allocation.total_payments) }}</span><span class="stat-lbl">Payments allocated</span></div>
+      <div class="stat"><span class="stat-num">{{ "{:,.0f}".format(stmt.allocation.total_invoices) }}</span><span class="stat-lbl">Invoices settled</span></div>
+      <div class="stat"><span class="stat-num">{{ "{:,.0f}".format(stmt.allocation.difference) }}</span><span class="stat-lbl">Difference</span></div>
+    </div>
+
+    {% if balance_note %}<div class="alert alert-info">{{ balance_note }}</div>{% endif %}
+
+    <p>A reconciliation has been generated and {{ sent_note }}.</p>
+    <div class="download-row">
+      <a class="btn btn-primary" href="/download/{{ pdf_name }}">⬇ Download your reconciliation (PDF)</a>
+    </div>
+  </section>
+{% endblock %}

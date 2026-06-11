@@ -1,0 +1,19 @@
+# Secrets — config.json holds SMTP credentials. NEVER commit.
+config.json
+
+# Runtime data — uploads, analyses, statements, contacts, registers may hold
+# REAL customer/finance data. The whole directory stays local.
+data/
+
+# Generated artifacts (rebuild with: python scripts/export_static.py)
+preview/
+
+# Local machine state
+.claude/settings.local.json
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

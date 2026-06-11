@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">Upload the daily customer general ledger (invoices + payments).
+      The app builds a statement per customer and a unique link each customer
+      uses to allocate their payments. The confirmed reconciliation is emailed to
+      finance and kept on file.</p>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+
+    <form class="upload-form" action="/tools/remittance-portal/upload"
+          method="post" enctype="multipart/form-data">
+      <label class="filedrop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
+        <span class="filedrop-text">Choose the general ledger (.xlsx / .xls) — all customers</span>
+      </label>
+      <button class="btn btn-primary" type="submit">Upload &amp; create links</button>
+    </form>
+
+    <p class="hint">
+      <a href="/tools/remittance-portal/allocations">Confirmed allocations on file →</a>
+      &nbsp;·&nbsp;
+      <a href="/tools/remittance-portal/contacts">Customer contacts →</a>
+      &nbsp;·&nbsp;
+      <a href="/tools/remittance-portal/settings">Settings (recipient emails) →</a>
+    </p>
+  </section>
+
+  {% if batches %}
+  <section class="panel">
+    <h2 class="section-title">Recent uploads</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Uploaded</th><th>Source</th><th>Customers</th><th></th><th></th></tr></thead>
+        <tbody>
+          {% for b in batches %}
+          <tr>
+            <td>{{ b.created_at }}</td>
+            <td>{{ b.source }}</td>
+            <td>{{ b.customers|length }}</td>
+            <td><a href="/tools/remittance-portal/batch/{{ b.id }}">Open links →</a></td>
+            <td>
+              <form action="/tools/remittance-portal/batch/{{ b.id }}/delete"
+                    method="post" class="row-form"
+                    onsubmit="return confirm('Delete this batch and its customer links?')">
+                <button class="btn btn-small" type="submit">🗑 Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+{% endblock %}

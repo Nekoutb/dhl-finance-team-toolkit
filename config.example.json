@@ -1,0 +1,22 @@
+{
+  "app_name": "Finance Team Toolkit",
+  "organization": "DHL Finance Team",
+
+  "orange_cameroun": {
+    "company_label": "Orange Cameroun S.A. — Orange Money",
+    "document_title": "Mobile Money Transaction Receipt",
+    "default_recipient": "finance.recipient@example.com",
+    "email_subject_template": "Orange Money Transaction — {customer}",
+    "email_body_template": "Hello,\n\nPlease find attached the Orange Money transaction receipt for {customer}.\n\nKind regards,\nFinance Team"
+  },
+
+  "smtp": {
+    "enabled": false,
+    "host": "smtp.office365.com",
+    "port": 587,
+    "use_tls": true,
+    "username": "you@yourcompany.com",
+    "password": "app-password-or-secret",
+    "from_address": "you@yourcompany.com"
+  }
+}

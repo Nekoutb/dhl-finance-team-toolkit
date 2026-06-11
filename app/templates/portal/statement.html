@@ -1,0 +1,127 @@
+{% extends "portal/base.html" %}
+{% block title %}Statement — {{ stmt.customer_name }}{% endblock %}
+{% block content %}
+  <section class="panel">
+    <h1>Statement for {{ stmt.customer_name }}</h1>
+    <p class="lead">Account {{ stmt.customer_key }} · as at {{ stmt.created_at }}{% if stmt.currency %} · {{ stmt.currency }}{% endif %}</p>
+    <p class="lead">Please select the <strong>payment(s)</strong> you have made and
+      tick the <strong>invoice(s)</strong> they settle, then confirm. We'll
+      produce a reconciliation for your records and send it to our finance team
+      as your remittance confirmation.</p>
+
+    {% if not stmt.payments and not stmt.invoices %}
+      <div class="alert alert-info">No open items found on this statement.</div>
+    {% else %}
+    <form action="/portal/{{ stmt.token }}/allocate" method="post" id="allocform">
+      <p class="select-hint">
+        <button type="button" class="btn btn-small" id="selectAll">✓ Select
+          everything</button>
+        <span class="note-inline" style="margin-left:8px;">or use the tick in
+          each table's header — totals update live below.</span>
+      </p>
+
+      <h2 class="section-title">Your payments / receipts</h2>
+      {% if stmt.payments %}
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead><tr><th class="col-pick"><input type="checkbox" id="allpay"
+            title="Select all payments"></th><th>Date</th><th>Reference</th><th>Type</th><th>Amount</th></tr></thead>
+          <tbody>
+            {% for p in stmt.payments %}
+            <tr>
+              <td class="col-pick"><input type="checkbox" name="payment" value="{{ p.id }}" class="pay-cb" data-amt="{{ p.amount }}"></td>
+              <td>{{ p.date or '—' }}</td><td>{{ p.reference or p.doc_no or '—' }}</td>
+              <td>{{ p.doc_type or '—' }}</td><td>{{ "{:,.2f}".format(p.amount) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p class="note-small">No unallocated payments on this statement.</p>{% endif %}
+
+      <h2 class="section-title">Open invoices</h2>
+      {% if stmt.invoices %}
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead><tr><th class="col-pick"><input type="checkbox" id="allinv"
+            title="Select all invoices"></th><th>Invoice</th><th>Date</th><th>Due date</th><th>Amount</th></tr></thead>
+          <tbody>
+            {% for i in stmt.invoices %}
+            <tr>
+              <td class="col-pick"><input type="checkbox" name="invoice" value="{{ i.id }}" class="inv-cb" data-amt="{{ i.amount }}"></td>
+              <td>{{ i.reference or i.doc_no or '—' }}</td><td>{{ i.date or '—' }}</td>
+              <td>{{ i.due_date or '—' }}</td><td>{{ "{:,.2f}".format(i.amount) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p class="note-small">No open invoices on this statement.</p>{% endif %}
+
+      <h2 class="section-title">Your details (required for the confirmation)</h2>
+      {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      <div class="confirm-row">
+        <label class="field"><span>Your name *</span>
+          <input type="text" name="confirmed_by" placeholder="e.g. Jane Doe"
+                 value="{{ contact.name or '' }}" required></label>
+        <label class="field"><span>Your role *</span>
+          <input type="text" name="role" placeholder="e.g. Accounts Payable Manager"
+                 value="{{ contact.role or '' }}" required></label>
+        <label class="field"><span>Email *</span>
+          <input type="email" name="email" placeholder="e.g. jane@company.com"
+                 value="{{ contact.email or '' }}" required></label>
+        <label class="field"><span>Phone number *</span>
+          <input type="tel" name="phone" placeholder="e.g. +237 6 50 11 12 22"
+                 value="{{ contact.phone or '' }}" required></label>
+        <label class="field"><span>Note (optional)</span>
+          <input type="text" name="note" placeholder="e.g. May invoices"></label>
+      </div>
+      <button class="btn btn-primary" type="submit">Confirm allocation</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <div class="totals-bar" id="totalsbar">
+    <span>Payments: <strong id="tp">0.00</strong></span>
+    <span>Invoices: <strong id="ti">0.00</strong></span>
+    <span>Difference: <strong id="td">0.00</strong></span>
+  </div>
+
+  <script>
+    const sum = (sel) => Array.from(document.querySelectorAll(sel))
+      .filter(c => c.checked).reduce((a, c) => a + parseFloat(c.dataset.amt || 0), 0);
+    const fmt = (n) => n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    function recompute() {
+      const p = sum('.pay-cb'), i = sum('.inv-cb'), d = p - i;
+      document.getElementById('tp').textContent = fmt(p);
+      document.getElementById('ti').textContent = fmt(i);
+      const td = document.getElementById('td');
+      td.textContent = fmt(d);
+      td.style.color = Math.abs(d) < 0.005 ? '#1b7f4b' : '#b06f00';
+    }
+    document.addEventListener('change', (e) => {
+      if (e.target.matches('.pay-cb, .inv-cb')) recompute();
+    });
+    const setAll = (sel, on) => {
+      document.querySelectorAll(sel).forEach(cb => { cb.checked = on; });
+      recompute();
+    };
+    const allPay = document.getElementById('allpay');
+    const allInv = document.getElementById('allinv');
+    if (allPay) allPay.addEventListener('change', () => setAll('.pay-cb', allPay.checked));
+    if (allInv) allInv.addEventListener('change', () => setAll('.inv-cb', allInv.checked));
+    document.getElementById('selectAll')?.addEventListener('click', () => {
+      if (allPay) allPay.checked = true;
+      if (allInv) allInv.checked = true;
+      setAll('.pay-cb', true);
+      setAll('.inv-cb', true);
+    });
+    document.getElementById('allocform')?.addEventListener('submit', (e) => {
+      if (sum('.pay-cb') === 0 && sum('.inv-cb') === 0) {
+        e.preventDefault();
+        alert('Please select at least one payment and the invoice(s) it settles.');
+      }
+    });
+    recompute();
+  </script>
+{% endblock %}

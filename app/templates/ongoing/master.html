@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/ongoing-ctp-monitoring">{{ tool.name }}</a> / Master file
+  </nav>
+
+  <section class="panel">
+    <h1>AR customer master file</h1>
+    {% if not master %}
+      <div class="alert alert-info">No master file uploaded yet. Add it from the
+        <a href="/tools/ongoing-ctp-monitoring">CtP upload page</a> — it supplies
+        each customer's segment (treatment plan), balance and credit-hold
+        position.</div>
+    {% else %}
+    <p class="lead">{{ master.source }} · uploaded {{ master.uploaded_at }} ·
+      {{ master.stats.customers }} customers ·
+      total balance {{ "{:,.0f}".format(master.stats.total_balance) }}
+      {% if master.stats.skipped_totals %} ·
+        {{ master.stats.skipped_totals }} total line(s) excluded{% endif %}</p>
+
+    {% if not master.stats.has_segment_column %}
+      <div class="alert alert-info">No segment column detected — customers will
+        default to the Telesales plan. Check the column name if the file has one.</div>
+    {% endif %}
+    {% if not master.stats.has_hold_column %}
+      <div class="alert alert-info">No credit-hold column detected — hold
+        positions will come from the manual register instead.</div>
+    {% endif %}
+
+    <details class="meta-box">
+      <summary>Detected column mapping</summary>
+      <ul class="map-list">
+        {% for field, col in master.mapping.items() %}
+          <li><code>{{ field }}</code> → <strong>{{ col }}</strong></li>
+        {% endfor %}
+      </ul>
+      {% if master.info_columns %}
+        <p class="note-small">General information columns kept:
+          {{ master.info_columns|join(', ') }}</p>
+      {% endif %}
+    </details>
+
+    <div class="table-wrap" style="margin-top:14px;">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Account</th><th>Customer</th><th>Segment</th><th>Plan</th>
+          <th>Balance</th><th>Credit hold</th>
+          {% for col in master.info_columns[:4] %}<th>{{ col }}</th>{% endfor %}
+        </tr></thead>
+        <tbody>
+          {% for key, c in master.customers.items() %}
+          <tr>
+            <td>{{ c.account }}</td>
+            <td>{{ c.name }}</td>
+            <td>{{ c.segment or '—' }}</td>
+            <td>{{ plan_labels.get(c.plan, '(default — Telesales)') }}</td>
+            <td>{{ "{:,.0f}".format(c.balance) }}</td>
+            <td>{% if c.on_hold %}<span class="pill pill-hold">On hold{% if c.hold_raw and c.hold_raw|lower not in ('x','yes','y','true','1') %} — {{ c.hold_raw }}{% endif %}</span>
+                {% elif c.on_hold is none %}—{% else %}No{% endif %}</td>
+            {% for col in master.info_columns[:4] %}<td>{{ c.info.get(col, '') }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+{% endblock %}

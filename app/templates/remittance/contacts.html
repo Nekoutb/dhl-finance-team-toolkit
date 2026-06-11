@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/remittance-portal">{{ tool.name }}</a> / Customer contacts
+  </nav>
+
+  <section class="panel">
+    <h1>Customer contacts on file</h1>
+    <p class="lead">{{ contacts|length }} contact(s), captured when customers
+      confirm an allocation (name, role, email and phone are obligatory there).
+      These prefill the customer's next confirmation and the "email link"
+      buttons.</p>
+
+    {% if contacts %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Account</th><th>Company</th><th>Contact person</th><th>Role</th>
+          <th>Email</th><th>Phone</th><th>Updated</th>
+        </tr></thead>
+        <tbody>
+          {% for key, c in contacts.items() %}
+          <tr>
+            <td>{{ key }}</td>
+            <td>{{ c.company }}</td>
+            <td>{{ c.name }}</td>
+            <td>{{ c.role }}</td>
+            <td>{{ c.email }}</td>
+            <td>{{ c.phone }}</td>
+            <td>{{ c.updated_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="note-small">None yet — details are captured automatically the
+        first time each customer confirms an allocation.</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">{{ tool.description }}</p>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if not has_ar %}
+      <div class="alert alert-info">No AR analysis on file yet — collections
+        will still be reported, but to link payments to each customer's
+        receivables position, run an
+        <a href="/tools/ongoing-ctp-monitoring">AR analysis</a> first.</div>
+    {% endif %}
+
+    <form class="upload-form" action="/tools/bank-statements/upload"
+          method="post" enctype="multipart/form-data">
+      <label class="filedrop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" multiple required>
+        <span class="filedrop-text">Choose the bank statement(s)
+          (.xlsx / .xls) — up to {{ max_files }} files at a time; each bank is
+          identified in the report.</span>
+      </label>
+      <button class="btn btn-primary" type="submit">Analyse collections</button>
+    </form>
+
+    <div class="hint">
+      <p><strong>What you get</strong></p>
+      <ol>
+        <li><strong>Collection activity</strong> from the credited balances —
+          totals, count, and per-day collections.</li>
+        <li><strong>Who paid</strong> — customer names recognised in the
+          transaction narration/description text.</li>
+        <li><strong>Link to receivables</strong> — each payment set against the
+          customer's AR position from the latest CtP analysis (coverage %,
+          remaining balance, risk status, hold state).</li>
+        <li>Unmatched credits listed for manual review, and a full
+          <strong>Excel export</strong>.</li>
+      </ol>
+    </div>
+  </section>
+
+  {% if recent %}
+  <section class="panel">
+    <h2 class="section-title">Recent statements</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Analysed</th><th>Statement</th><th>Credits</th>
+          <th>Total credited</th><th></th><th></th></tr></thead>
+        <tbody>
+          {% for b in recent %}
+          <tr>
+            <td>{{ b.created_at }}</td>
+            <td>{{ b.source }}</td>
+            <td>{{ b.credits }}</td>
+            <td>{{ "{:,.0f}".format(b.total) }}</td>
+            <td><a href="/tools/bank-statements/results/{{ b.token }}">Open report →</a></td>
+            <td>
+              <form action="/tools/bank-statements/results/{{ b.token }}/delete"
+                    method="post" class="row-form"
+                    onsubmit="return confirm('Delete this report?')">
+                <button class="btn btn-small" type="submit">🗑 Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+{% endblock %}

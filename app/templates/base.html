@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ cfg.app_name }}{% endblock %}</title>
+  <script>
+    (function () {
+      var t = "light";
+      try { t = localStorage.getItem("ft-theme") || "light"; } catch (e) {}
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="side-brand">
+      <span class="mark">FT</span>
+      <span><strong>Finance Toolkit</strong>
+        <small>{{ cfg.organization }}</small></span>
+    </div>
+
+    {% set path = request.url.path %}
+    <a class="nav-item {% if path == '/' %}active{% endif %}" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12 12 4l9 8M5 10v9h5v-5h4v5h5v-9"/></svg>
+      Dashboard <kbd>g d</kbd></a>
+
+    <div class="nav-section">Order to Cash</div>
+    <a class="nav-item {% if 'ongoing-ctp' in path %}active{% endif %}" href="/tools/ongoing-ctp-monitoring">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+      CtP monitoring <kbd>g c</kbd></a>
+    <a class="nav-item {% if 'remittance' in path %}active{% endif %}" href="/tools/remittance-portal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v10H4zM4 11h16"/><path d="M8 15h4"/></svg>
+      Remittance portal <kbd>g r</kbd></a>
+    <a class="nav-item {% if 'bank-statements' in path %}active{% endif %}" href="/tools/bank-statements">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 18h18M3 21h18"/></svg>
+      Bank statements <kbd>g b</kbd></a>
+
+    <div class="nav-section">Record to Report</div>
+    <a class="nav-item {% if path.startswith('/tools/momo') %}active{% endif %}" href="/tools/momo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+      Mobile Money → PDF <kbd>g m</kbd></a>
+    <a class="nav-item {% if 'orange-cameroun' in path %}active{% endif %}" href="/tools/orange-cameroun">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
+      Orange Money → PDF <kbd>g o</kbd></a>
+    <a class="nav-item {% if 'vendor-niu' in path %}active{% endif %}" href="/tools/vendor-niu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6z"/><path d="m9.5 12 2 2 3.5-4"/></svg>
+      Vendor NIU check <kbd>g v</kbd></a>
+
+    <div class="side-foot">No login required · local host</div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="search" onclick="ftOpenPalette()" title="Search & jump (Ctrl+K)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        Search or jump to… <kbd>Ctrl K</kbd>
+      </div>
+      <label class="top-ctl" title="Reporting period">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+        <select onchange="try{localStorage.setItem('ft-period',this.value)}catch(e){}">
+          <option>Jun 2026</option><option>May 2026</option><option>Apr 2026</option>
+          <option>Q2 2026</option><option>Q1 2026</option>
+        </select>
+      </label>
+      <span class="top-ctl" title="Entity">🏢 DHL Express · CM01</span>
+      <a class="icon-btn" href="/settings" title="Settings — email (SMTP)">⚙️</a>
+      <button class="icon-btn" title="Notifications">🔔<span class="dot"></span></button>
+      <button class="icon-btn" id="themeToggle" onclick="ftToggleTheme()"
+              title="Toggle dark / light (t)">☾</button>
+      <span class="avatar" title="Finance team">FT</span>
+    </header>
+
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      <span>{{ cfg.app_name }} · internal tool · no login required · {{ app_version }}</span>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

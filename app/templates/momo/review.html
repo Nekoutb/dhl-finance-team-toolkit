@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/momo">{{ tool.name }}</a> / Review
+  </nav>
+
+  <section class="panel">
+    <h1>Review &amp; select transaction(s)</h1>
+    <p class="lead">{{ model.provider }} ·
+      {{ model.rows|length }} transaction(s) found ·
+      third-party key column: <strong>{{ model.key_col }}</strong></p>
+
+    <form action="/tools/momo/generate" method="post" id="genform">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="original" value="{{ original }}">
+
+      <p class="select-hint">Select <strong>one transaction or a group</strong> —
+        <label style="cursor:pointer;"><input type="checkbox" id="pickall">
+        select all</label> · <span id="pickcount">0 selected</span></p>
+
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead>
+            <tr>
+              <th class="col-pick">Pick</th>
+              <th class="col-name">Third party</th>
+              {% for col in model.header %}<th>{{ col }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in model.rows %}
+            <tr>
+              <td class="col-pick">
+                <input type="checkbox" name="selected" value="{{ row.index }}"
+                       class="rowpick" form="genform">
+              </td>
+              <td class="col-name">
+                <input type="text" name="name_{{ row.index }}"
+                       value="{{ row.name }}" placeholder="Add name…"
+                       class="name-input {% if row.name %}known{% endif %}"
+                       form="genform">
+                <input type="text" name="acct_{{ row.index }}"
+                       value="{{ row.account }}" placeholder="Account number…"
+                       class="name-input {% if row.account %}known{% endif %}"
+                       style="margin-top:4px;" form="genform">
+                <div class="key-hint">{{ model.key_col }}: {{ row.key }}</div>
+              </td>
+              {% for col in model.header %}
+                <td>{{ row.data[col] }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="send-row">
+        <label class="field">
+          <span>Email to (set the default under the tool's settings)</span>
+          <input type="email" name="recipient" value="{{ recipient }}"
+                 placeholder="finance@example.com">
+        </label>
+        <div class="actions">
+          <button class="btn" type="submit" name="action" value="download">
+            Extract PDF</button>
+          <button class="btn btn-primary" type="submit" name="action" value="email">
+            Extract &amp; email</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <script>
+    const boxes = () => Array.from(document.querySelectorAll('.rowpick'));
+    const update = () => {
+      const n = boxes().filter(b => b.checked).length;
+      document.getElementById('pickcount').textContent = n + ' selected';
+    };
+    document.getElementById('pickall').addEventListener('change', (e) => {
+      boxes().forEach(b => { b.checked = e.target.checked; });
+      update();
+    });
+    document.addEventListener('change', (e) => {
+      if (e.target.classList.contains('rowpick')) update();
+    });
+    document.getElementById('genform').addEventListener('submit', (e) => {
+      if (boxes().filter(b => b.checked).length === 0) {
+        e.preventDefault();
+        alert('Please tick at least one transaction.');
+      }
+    });
+  </script>
+{% endblock %}

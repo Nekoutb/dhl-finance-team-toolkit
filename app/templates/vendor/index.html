@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">Paste your vendors below — straight from Excel. The app
+      checks each taxpayer ID under <em>“Vérifier un NIU”</em> on the
+      <a href="{{ dgi_url }}" target="_blank" rel="noopener">DGI Fiscalis
+      platform</a>, records the status, and the table can be exported to Excel
+      at any time.</p>
+
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <form action="/tools/vendor-niu/paste" method="post">
+      <label class="field" style="max-width:680px;">
+        <span>One vendor per line:
+          <code>vendor name [tab/;/,] taxpayer ID (NIU) [tab/;/,] tax clearance
+          certificate</code> — the NIU is recognised automatically.</span>
+        <textarea name="vendors" rows="6" class="bulk-input"
+          placeholder="SOCIETE GENERALE DES TRAVAUX; M012345678901A; ANR-2026-0042&#10;CAMEROON SUPPLIES SARL&#9;P098765432109B&#9;ANR-2026-0117"></textarea>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:8px;">
+        Add vendors to the table</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Vendor table — {{ vendors|length }} vendor(s),
+      {{ pending }} not yet checked</h2>
+
+    <div class="download-row">
+      <form action="/tools/vendor-niu/verify" method="post" class="row-form">
+        <input type="hidden" name="scope" value="pending">
+        <button class="btn btn-primary" type="submit"
+                {% if not pending %}disabled{% endif %}>
+          ✓ Verify unchecked on DGI ({{ pending }})</button>
+      </form>
+      <form action="/tools/vendor-niu/verify" method="post" class="row-form">
+        <input type="hidden" name="scope" value="all">
+        <button class="btn" type="submit"
+                {% if not vendors %}disabled{% endif %}>↻ Re-verify all</button>
+      </form>
+      <a class="btn" href="/tools/vendor-niu/export">⬇ Export this version to Excel</a>
+    </div>
+    <p class="note-small">Each check queries fiscalis.dgi.cm live (about a
+      second per vendor) — large lists take a moment; leave the page loading.</p>
+
+    {% if vendors %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Vendor name</th><th>NIU</th><th>Tax clearance cert.</th>
+          <th>Status (DGI)</th><th>Name on DGI file</th><th>Tax regime</th>
+          <th>Tax centre</th><th>DGI message</th><th>Checked</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for v in vendors %}
+          <tr>
+            <td><strong>{{ v.name or '—' }}</strong></td>
+            <td>{{ v.niu }}</td>
+            <td>{{ v.certificate or '—' }}</td>
+            <td>
+              {% if v.status == 'active' %}<span class="pill pill-ok">ACTIVE</span>
+              {% elif v.status == 'inactive' %}<span class="pill pill-stop">INACTIVE</span>
+              {% elif v.status == 'not_found' %}<span class="pill pill-hold">NOT FOUND</span>
+              {% elif v.status == 'error' %}<span class="pill pill-watch">CHECK FAILED</span>
+              {% else %}<span class="pill pill-auto">Not yet checked</span>{% endif %}
+            </td>
+            <td>{{ v.raison_sociale or '—' }}</td>
+            <td>{{ v.regime or '—' }}</td>
+            <td>{{ v.centre or '—' }}</td>
+            <td class="msg-cell">{{ v.message or '—' }}</td>
+            <td>{{ v.checked_at or '—' }}</td>
+            <td>
+              <form action="/tools/vendor-niu/delete" method="post" class="row-form">
+                <input type="hidden" name="niu" value="{{ v.niu }}">
+                <button class="btn btn-small" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="note-small">No vendors yet — paste them above.</p>
+    {% endif %}
+  </section>
+{% endblock %}

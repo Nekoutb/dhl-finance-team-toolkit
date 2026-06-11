@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">Collections Treatment Plan (CtP) monitoring. Feed the
+      accounts-receivable breakdown <strong>at invoice level</strong>; the app
+      analyses each open item against the Collections Treatment Plan and
+      generates the series of controls to apply.</p>
+
+    <div class="alert alert-info">
+      <strong>Draft.</strong> The exact Collections Treatment Plan you provide
+      will configure the thresholds, actions and owners below. The logic shown
+      here is derived from the <em>Credit Policy — Express Specific Conditions
+      v3.3</em> as a starting point, so you can react to a concrete proposal.
+    </div>
+
+    <h2 class="section-title">How it will work</h2>
+    <ol class="flow-steps">
+      <li><strong>Feed data.</strong> Upload the AR breakdown at invoice level.
+        Expected fields: customer / account, invoice no., invoice date, due
+        date, invoice type (freight vs duty/VAT), amount &amp; currency, sales
+        segment, country rank, credit limit.</li>
+      <li><strong>Analyse per CtP.</strong> For each item the app computes days
+        past due (vs due date), aging bucket, share of total AR past due, and
+        credit-limit utilisation, then maps the customer to its treatment plan
+        (Telesales/Multichannel, Field Sales &amp; Major, Enterprise, or New
+        Customer).</li>
+      <li><strong>Generate controls.</strong> It outputs a series of controls —
+        per invoice and per customer — listing the trigger, the action due, and
+        the responsible owner, with anything below the call value-threshold
+        suppressed.</li>
+    </ol>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Collection treatment timeline — Telesales &amp; Multichannel</h2>
+    <p class="lead">From GCTP in policy §3.4 (days are vs. the invoice due date).</p>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Days past due</th><th>Trigger</th><th>Action</th><th>Responsible</th></tr></thead>
+        <tbody>
+          <tr><td>+5 days</td><td>Overdue debt &gt; 20% of total debt</td><td>Send "Overdue Account Letter"</td><td>Collector</td></tr>
+          <tr><td>+15 days</td><td>Overdue debt &gt; 20% of total debt</td><td>Send "Final Demand Letter"</td><td>Collector</td></tr>
+          <tr><td>+23 days</td><td>&gt; 20% of total debt &amp; total debt &gt; country value threshold</td><td>Call the customer</td><td>Collector</td></tr>
+          <tr><td>+25 days</td><td>Final demand sent &amp; not part of a larger customer group</td><td>Stop credit</td><td>Customer Accounting Supervisor</td></tr>
+          <tr><td>+30 days (after stop)</td><td>Still unpaid</td><td>Final letter, then pass to collection agency</td><td>Customer Accounting Supervisor</td></tr>
+          <tr><td>+90 days</td><td>Unrecovered by agency</td><td>Write-off (100% provision) → bad-debt expense</td><td>Customer Accounting Supervisor</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">Field Sales &amp; Major, Enterprise and New Customer
+      plans follow the same shape with their own day thresholds (§3.5–3.7) and
+      will be selectable per segment.</p>
+  </section>
+
+  <section class="panel">
+    <div class="two-col">
+      <div>
+        <h2 class="section-title">Call value thresholds</h2>
+        <p class="lead">No collection call below these amounts (policy §3.4).</p>
+        <div class="table-wrap">
+          <table class="tx-table">
+            <thead><tr><th>Country rank</th><th>Threshold (EUR)</th></tr></thead>
+            <tbody>
+              <tr><td>Rank 1–25</td><td>1,500</td></tr>
+              <tr><td>Rank 26–50</td><td>1,200</td></tr>
+              <tr><td>Rank 51–100</td><td>750</td></tr>
+              <tr><td>Rank &gt; 100</td><td>350</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h2 class="section-title">Credit-risk controls (matrix §2.5)</h2>
+        <div class="table-wrap">
+          <table class="tx-table">
+            <thead><tr><th>Condition</th><th>Control</th></tr></thead>
+            <tbody>
+              <tr><td>Within terms &amp; within credit limit</td><td>No action</td></tr>
+              <tr><td>&lt; 20% AR beyond GCTP</td><td>Add to credit watch list</td></tr>
+              <tr><td>&gt; 20% AR beyond GCTP</td><td>Credit hold via GCTP</td></tr>
+              <tr><td>&gt; 20% beyond credit limit &amp; &gt; 20% AR beyond GCTP</td><td>Immediate mitigation — credit stop</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note-small">Payment terms: 15 days standard; 7 days for
+          duty/VAT/GST/customs. Credit-limit overrun tolerance: 20%.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Controls this tool will generate — preview</h2>
+    <p class="lead">Illustrative output once an AR breakdown is fed in.</p>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Invoice</th><th>Customer</th><th>Segment</th><th>Days overdue</th><th>Status</th><th>Control / action</th><th>Owner</th></tr></thead>
+        <tbody>
+          <tr><td>INV-0421</td><td>ACME Logistics</td><td>Telesales</td><td>6</td><td>Watch list</td><td>Send Overdue Account Letter</td><td>Collector</td></tr>
+          <tr><td>INV-0455</td><td>Beta Trading</td><td>Field Sales</td><td>17</td><td>Watch list</td><td>Send Final Demand Letter</td><td>Collector</td></tr>
+          <tr><td>INV-0478</td><td>Gamma SARL</td><td>Telesales</td><td>24</td><td>Credit hold</td><td>Call customer (above threshold)</td><td>Collector</td></tr>
+          <tr><td>INV-0501</td><td>Delta Corp</td><td>Enterprise</td><td>31</td><td>Credit stop</td><td>Stop credit + escalate</td><td>Cust. Acct. Supervisor</td></tr>
+          <tr><td>INV-0510</td><td>Epsilon Ltd</td><td>Telesales</td><td>9</td><td>—</td><td>Below call value threshold — suppressed</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="alert alert-info" style="margin-top:18px;">
+      <strong>Next:</strong> send me your Collections Treatment Plan and a sample
+      AR breakdown file (invoice level). I'll wire the upload and configure the
+      exact control rules, thresholds and owners to match it.
+    </div>
+  </section>
+{% endblock %}

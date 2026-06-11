@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">{{ tool.description }}</p>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+
+    <form class="upload-form" action="/tools/momo/upload"
+          method="post" enctype="multipart/form-data">
+      <label class="filedrop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required>
+        <span class="filedrop-text">Choose the provider's mobile-money report —
+          Excel (.xlsx / .xls) or PDF. Orange and MTN are detected automatically.</span>
+      </label>
+      <button class="btn btn-primary" type="submit">Upload &amp; review</button>
+    </form>
+
+    <details class="meta-box">
+      <summary>Settings — email sending</summary>
+      <form action="/tools/momo/settings" method="post" style="margin-top:10px;">
+        <label class="field" style="max-width:420px;">
+          <span>Default recipient — receipts are emailed here from the review
+            screen (editable per send)</span>
+          <input type="email" name="recipient"
+                 value="{{ settings.get('recipient', '') }}"
+                 placeholder="finance@example.com">
+        </label>
+        <button class="btn" type="submit" style="margin-top:8px;">Save</button>
+      </form>
+      <p class="note-small" style="margin-top:8px;">
+        {% if smtp_enabled %}SMTP is configured — emails send directly.
+        {% else %}SMTP is not configured — a ready-to-send .eml is produced
+        instead (enable in config.json).{% endif %}</p>
+    </details>
+
+    <div class="hint">
+      <p><strong>How it works</strong></p>
+      <ol>
+        <li>Upload the report — the tool reads the transaction table and the
+          report header (kept for the PDF, not repeated on screen).</li>
+        <li>Tick <strong>one transaction or a whole group</strong> (select-all
+          available).</li>
+        <li>Confirm or type the third party's name and account number —
+          remembered for next time ({{ saved_count }} saved so far).</li>
+        <li>Extract the PDF — provider logo + report header + the selected
+          line(s); the file name starts with the transaction reference
+          (e.g. <code>C00598</code>) — or send it by email directly.</li>
+      </ol>
+      <p><a href="/tools/momo/customers">View saved third-party names →</a></p>
+    </div>
+  </section>
+{% endblock %}

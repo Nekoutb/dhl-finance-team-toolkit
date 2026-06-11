@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% set s = r.summary %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/bank-statements">{{ tool.name }}</a> / Report
+  </nav>
+
+  <section class="panel">
+    <h1>Collection activity — {{ s.statement_count or 1 }} statement(s)</h1>
+    <p class="lead">Analysed {{ r.created_at }}
+      {% if s.first_date %}· period {{ s.first_date }} → {{ s.last_date }}{% endif %}
+      {% if r.ar_link %}· receivables position per analysis as-of
+        {{ r.ar_link.as_of }}{% endif %}</p>
+
+    {% if r.banks %}
+    <div class="table-wrap" style="margin-bottom:14px;">
+      <table class="tx-table">
+        <thead><tr><th>Bank</th><th>Statement file</th>
+          <th>Credit transactions</th><th>Collected</th></tr></thead>
+        <tbody>
+          {% for b in r.banks %}
+          <tr>
+            <td><strong>{{ b.bank }}</strong></td>
+            <td>{{ b.source }}</td>
+            <td>{{ b.credit_count }}</td>
+            <td>{{ "{:,.0f}".format(b.total_credited) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="kpi-strip">
+      <div class="kpi"><span class="kpi-num">{{ "{:,.0f}".format(s.total_credited) }}</span>
+        <span class="kpi-lbl">Total collected (credited)</span></div>
+      <div class="kpi"><span class="kpi-num">{{ s.credit_count }}</span>
+        <span class="kpi-lbl">Credit transactions</span></div>
+      <div class="kpi"><span class="kpi-num">{{ "{:.0f}".format(s.matched_pct) }}%</span>
+        <span class="kpi-lbl">Matched to customers</span></div>
+      <div class="kpi {% if s.unmatched_count %}kpi-warn{% endif %}">
+        <span class="kpi-num">{{ s.unmatched_count }}</span>
+        <span class="kpi-lbl">Unmatched credits</span></div>
+    </div>
+
+    <div class="download-row">
+      <a class="btn btn-primary" href="/tools/bank-statements/results/{{ token }}/export">⬇ Export report to Excel</a>
+      <a class="btn" href="/tools/bank-statements">Analyse another statement</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Collections by customer — linked to receivables</h2>
+    {% if not r.ar_link %}
+      <div class="alert alert-info">No AR analysis on file — run one in
+        <a href="/tools/ongoing-ctp-monitoring">CtP monitoring</a> and re-upload
+        to link payments to receivables positions.</div>
+    {% endif %}
+    {% if r.matched %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Customer</th><th>Account</th><th>Bank(s)</th><th>Collected</th><th>Payments</th>
+          <th>AR position (net)</th><th>AR overdue</th><th>Coverage of AR</th>
+          <th>Remaining after payment</th><th>Risk status</th><th>On hold?</th>
+        </tr></thead>
+        <tbody>
+          {% for e in r.matched %}
+          <tr>
+            <td><strong>{{ e.customer }}</strong></td>
+            <td>{{ e.key }}</td>
+            <td>{{ e.banks | join(' · ') if e.banks else '—' }}</td>
+            <td>{{ "{:,.0f}".format(e.collected) }}</td>
+            <td>{{ e.payments }}</td>
+            <td>{{ "{:,.0f}".format(e.ar_total) }}</td>
+            <td>{{ "{:,.0f}".format(e.ar_overdue) }}</td>
+            <td>{% if e.coverage_pct is not none %}{{ "{:.0f}".format(e.coverage_pct) }}%{% else %}—{% endif %}</td>
+            <td>{{ "{:,.0f}".format(e.remaining) }}</td>
+            <td><span class="pill pill-{{ e.status_key }}">{{ e.status }}</span></td>
+            <td>{% if e.currently_held %}Yes — review for release{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="note-small">No credited line matched a customer name from the
+        latest AR analysis.</p>
+    {% endif %}
+  </section>
+
+  <div class="two-col">
+    <section class="panel">
+      <h2 class="section-title">Daily collections</h2>
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead><tr><th>Date</th><th>Collections</th><th>Payments</th></tr></thead>
+          <tbody>
+            {% for d in r.daily %}
+            <tr><td>{{ d.date }}</td><td>{{ "{:,.0f}".format(d.total) }}</td>
+              <td>{{ d.count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title">Unmatched credits — review manually</h2>
+      {% if r.unmatched %}
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead><tr><th>Date</th><th>Bank</th><th>Narration</th><th>Credited</th></tr></thead>
+          <tbody>
+            {% for ln in r.unmatched %}
+            <tr><td>{{ ln.date }}</td><td>{{ ln.bank or '—' }}</td>
+              <td class="msg-cell">{{ ln.description }}</td>
+              <td>{{ "{:,.0f}".format(ln.credit) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p class="note-small">None — every credit matched a customer.</p>{% endif %}
+    </section>
+  </div>
+{% endblock %}
