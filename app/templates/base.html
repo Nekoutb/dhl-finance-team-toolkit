@@ -45,6 +45,9 @@
     <a class="nav-item {% if path.startswith('/tools/momo') %}active{% endif %}" href="/tools/momo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
       Mobile Money → PDF <kbd>g m</kbd></a>
+    <a class="nav-item {% if 'vendor-invoice-allocation' in path %}active{% endif %}" href="/tools/vendor-invoice-allocation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      Invoice allocation <kbd>g i</kbd></a>
     <a class="nav-item {% if 'orange-cameroun' in path %}active{% endif %}" href="/tools/orange-cameroun">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
       Orange Money → PDF <kbd>g o</kbd></a>

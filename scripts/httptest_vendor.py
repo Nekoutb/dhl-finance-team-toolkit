@@ -120,11 +120,12 @@ check("NORTHERN still blocked (inactive NIU)",
 for p in (ROOT / "data" / "outputs").glob("reminder_*.eml"):
     p.unlink()
 r = client.post("/tools/vendor-niu/remind", follow_redirects=True)
-emls = sorted(p.name for p in (ROOT / "data" / "outputs").glob("reminder_*.eml"))
-check("3 reminder emails created", len(emls) == 3
-      and "reminder_M555666777888C.eml" in emls
-      and "reminder_P111222333444D.eml" in emls
-      and "reminder_P098765432109B.eml" in emls)
+emls = {p.name for p in (ROOT / "data" / "outputs").glob("reminder_*.eml")}
+# Assert THIS test's three non-compliant vendors were reminded. (A global
+# count would wrongly include any real vendors in the live registry.)
+check("this test's 3 reminder emails created",
+      {"reminder_M555666777888C.eml", "reminder_P111222333444D.eml",
+       "reminder_P098765432109B.eml"} <= emls)
 import email as _email
 msg = _email.message_from_bytes(
     (ROOT / "data" / "outputs" / "reminder_M555666777888C.eml").read_bytes())

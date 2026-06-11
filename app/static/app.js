@@ -27,6 +27,7 @@
     { ico: "🔗", label: "Remittance & allocation portal", href: "/tools/remittance-portal", keys: "g r" },
     { ico: "🏦", label: "Bank statements — collection activity", href: "/tools/bank-statements", keys: "g b" },
     { ico: "📱", label: "Mobile Money (Orange & MTN) → PDF", href: "/tools/momo", keys: "g m" },
+    { ico: "🧮", label: "Vendor invoice allocation (MTN / Orange / ENEO)", href: "/tools/vendor-invoice-allocation", keys: "g i" },
     { ico: "📄", label: "Orange Cameroun → PDF", href: "/tools/orange-cameroun", keys: "g o" },
     { ico: "🛡️", label: "Vendor NIU verification", href: "/tools/vendor-niu", keys: "g v" },
     { ico: "🗂", label: "Credit-hold register", href: "/tools/ongoing-ctp-monitoring/holds", keys: "" },

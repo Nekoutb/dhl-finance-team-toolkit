@@ -2,6 +2,8 @@
 
 Run with:  uvicorn app.main:app --reload
 """
+import json
+import re
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -14,8 +16,9 @@ from fastapi.templating import Jinja2Templates
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
 from .services import (acf_reader, ar_master, bank_statement, ctp_dashboard,
-                       ctp_rules, customers, dgi, emailer, holds,
-                       remittance_pdf, remittance_store, vendors, xlsx_report)
+                       ctp_rules, customers, dgi, emailer, eno_allocation,
+                       holds, remittance_pdf, remittance_store, vendors,
+                       xlsx_report)
 from .tools import bank, momo
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
@@ -818,6 +821,147 @@ async def portal_allocate(request: Request, token: str):
         "balance_note": _balance_note(stmt["allocation"], stmt.get("currency", "")),
         "sent_note": sent_note,
     })
+
+
+# --------------------------------------------------------------------------- #
+# Vendor Invoice Allocation (MTN / Orange / ENEO)
+# --------------------------------------------------------------------------- #
+_ALLOC_TOOL = registry.by_slug("vendor-invoice-allocation")
+_ENO_DIR = BASE_DIR / "data" / "allocation" / "eno"
+_ENO_KEY_SAMPLE = BASE_DIR / "samples" / "eno_allocation_key.xlsx"
+
+
+def _eno_seed_key():
+    """Seed the allocation key from the bundled sample on first use."""
+    if eno_allocation.load_key() is None and _ENO_KEY_SAMPLE.exists():
+        try:
+            eno_allocation.save_key(
+                eno_allocation.parse_key_workbook(_ENO_KEY_SAMPLE),
+                source="eno_allocation_key.xlsx (seed)")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _eno_recent(limit=8):
+    if not _ENO_DIR.exists():
+        return []
+    out = []
+    for p in _ENO_DIR.glob("*.json"):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        out.append({"token": p.stem, "invoice_no": d.get("invoice_no", ""),
+                    "created_at": d.get("created_at", ""),
+                    "total_ttc": d.get("computed", {}).get("total_ttc", 0),
+                    "has_pdf": (p.with_suffix(".pdf")).exists()})
+    out.sort(key=lambda r: r["created_at"], reverse=True)
+    return out[:limit]
+
+
+def _alloc_ctx(request, **extra):
+    _eno_seed_key()
+    ctx = {"request": request, "cfg": load_config(), "tool": _ALLOC_TOOL,
+           "eno_key": eno_allocation.load_key(), "eno_recent": _eno_recent(),
+           "default_tva": eno_allocation.DEFAULT_TVA_RATE, "result": None,
+           "message": "", "error": ""}
+    ctx.update(extra)
+    return ctx
+
+
+@app.get("/tools/vendor-invoice-allocation", response_class=HTMLResponse)
+def alloc_home(request: Request, message: str = "", error: str = ""):
+    return templates.TemplateResponse("allocation/index.html",
+                                      _alloc_ctx(request, message=message, error=error))
+
+
+@app.post("/tools/vendor-invoice-allocation/eno/key")
+async def alloc_eno_key(request: Request, file: UploadFile = File(...)):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXT:
+        return RedirectResponse("/tools/vendor-invoice-allocation?error="
+                                "Upload the allocation key as an Excel file.",
+                                status_code=303)
+    dest = UPLOAD_DIR / f"enokey_{uuid.uuid4().hex[:8]}{ext}"
+    dest.write_bytes(await file.read())
+    try:
+        parsed = eno_allocation.parse_key_workbook(dest)
+    except Exception as exc:  # noqa: BLE001
+        return RedirectResponse(f"/tools/vendor-invoice-allocation?error="
+                                f"Could not read the key: {exc}", status_code=303)
+    if not parsed["customers"]:
+        return RedirectResponse("/tools/vendor-invoice-allocation?error="
+                                "No customers/functions found in that key file.",
+                                status_code=303)
+    eno_allocation.save_key(parsed, source=file.filename or "key.xlsx")
+    n = len(parsed["customers"])
+    return RedirectResponse(f"/tools/vendor-invoice-allocation?message="
+                            f"Allocation key updated — {n} customer(s).",
+                            status_code=303)
+
+
+@app.post("/tools/vendor-invoice-allocation/eno/generate", response_class=HTMLResponse)
+async def alloc_eno_generate(request: Request):
+    key = eno_allocation.load_key()
+    if not key:
+        return RedirectResponse("/tools/vendor-invoice-allocation?error="
+                                "Upload the allocation key first.", status_code=303)
+    form = await request.form()
+    invoice_no = (form.get("invoice_no") or "").strip()
+    try:
+        tva_rate = float(form.get("tva_rate") or eno_allocation.DEFAULT_TVA_RATE)
+    except ValueError:
+        tva_rate = eno_allocation.DEFAULT_TVA_RATE
+    ht_by_customer = {}
+    for cid in (key.get("order") or list(key["customers"].keys())):
+        raw = (form.get(f"ht_{cid}") or "").replace(",", "").replace(" ", "")
+        try:
+            ht_by_customer[cid] = float(raw) if raw else 0.0
+        except ValueError:
+            ht_by_customer[cid] = 0.0
+
+    computed = eno_allocation.compute(key, ht_by_customer, tva_rate)
+    token = uuid.uuid4().hex[:12]
+    _ENO_DIR.mkdir(parents=True, exist_ok=True)
+    record = {"invoice_no": invoice_no, "tva_rate": tva_rate,
+              "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+              "computed": computed}
+    (_ENO_DIR / f"{token}.json").write_text(
+        json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    eno_allocation.build_excel(_ENO_DIR / f"{token}.xlsx", computed, invoice_no)
+
+    upload = form.get("invoice_pdf")
+    if upload is not None and getattr(upload, "filename", ""):
+        if Path(upload.filename).suffix.lower() == ".pdf":
+            (_ENO_DIR / f"{token}.pdf").write_bytes(await upload.read())
+
+    return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
+        request, result=computed, result_token=token, invoice_no=invoice_no,
+        message=f"REPARTITION ENEO generated — total TTC "
+                f"{computed['total_ttc']:,.0f}."))
+
+
+@app.get("/tools/vendor-invoice-allocation/eno/export/{token}")
+def alloc_eno_export(token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    path = _ENO_DIR / f"{token}.xlsx"
+    if not path.exists():
+        return HTMLResponse("Sheet not found.", status_code=404)
+    return FileResponse(path, filename=f"REPARTITION_ENEO_{token[:8]}.xlsx",
+                        media_type="application/vnd.openxmlformats-officedocument"
+                                   ".spreadsheetml.sheet")
+
+
+@app.get("/tools/vendor-invoice-allocation/eno/invoice/{token}")
+def alloc_eno_invoice(token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    path = _ENO_DIR / f"{token}.pdf"
+    if not path.exists():
+        return HTMLResponse("No invoice on file.", status_code=404)
+    return FileResponse(path, media_type="application/pdf",
+                        filename=f"ENEO_invoice_{token[:8]}.pdf")
 
 
 # --------------------------------------------------------------------------- #

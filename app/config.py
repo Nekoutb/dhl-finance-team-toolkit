@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v4.0 — 11 Jun 2026 · certificate-driven vendor control (reads the ACF document)"
+APP_VERSION = "v4.1 — 11 Jun 2026 · vendor invoice allocation (REPARTITION ENEO)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

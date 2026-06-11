@@ -56,6 +56,9 @@ REWRITES = [
     ('href="/settings"', 'href="app-settings.html"'),
     ('action="/tools/bank-statements/upload"', 'action="#"'),
     ('/tools/bank-statements', 'bank-statements.html'),
+    ('action="/tools/vendor-invoice-allocation/eno/key"', 'action="#"'),
+    ('action="/tools/vendor-invoice-allocation/eno/generate"', 'action="#"'),
+    ('/tools/vendor-invoice-allocation', 'vendor-invoice-allocation.html'),
     ('action="/tools/momo/upload"', 'action="#"'),
     ('action="/tools/momo/generate"', 'action="#"'),
     ('action="/tools/momo/settings"', 'action="#"'),
@@ -138,7 +141,8 @@ Orange: <a href="orange-cameroun.html">Upload</a>
 <a href="orange-done.html">Done</a>
 <a href="orange-customers.html">Saved names</a> ·
 MoMo: <a href="momo.html">Upload</a>
-<a href="momo-review.html">Review</a> ·
+<a href="momo-review.html">Review</a>
+<a href="vendor-invoice-allocation.html">Invoice allocation</a> ·
 CtP: <a href="ongoing-ctp.html">Upload</a>
 <a href="ongoing-dashboard.html">Dashboard</a>
 <a href="ongoing-results.html">Results</a>
@@ -282,6 +286,8 @@ def main():
     write_page("bank-report.html",
                get(f"/tools/bank-statements/results/{bank_token}"))
     write_page("bank-statements.html", get("/tools/bank-statements"))
+    write_page("vendor-invoice-allocation.html",
+               get("/tools/vendor-invoice-allocation"))
     from app.tools import bank as _bank
     (_bank.STORE_DIR / f"{bank_token}.json").unlink(missing_ok=True)
 

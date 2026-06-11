@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">Upload a vendor invoice, enter the amounts, and the platform
+      builds the cost-allocation sheet — viewable here and downloadable as
+      Excel.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  </section>
+
+  <!-- ===== ENEO ===== -->
+  <section class="panel">
+    <h2 class="section-title">⚡ ENEO — electricity (REPARTITION ENEO)</h2>
+
+    {% if eno_key %}
+      <p class="note-small">Allocation key on file: <strong>{{ eno_key.customers|length }}</strong>
+        customer(s){% if eno_key.source %} · from {{ eno_key.source }}{% endif %}.
+        The key holds the function split (%) per customer; replace it below when it changes.</p>
+    {% else %}
+      <div class="alert alert-info">No allocation key yet — upload the
+        REPARTITION-style Excel (customer → functions → %).</div>
+    {% endif %}
+
+    <details class="meta-box">
+      <summary>Upload / replace the allocation key (Excel)</summary>
+      <form action="/tools/vendor-invoice-allocation/eno/key" method="post"
+            enctype="multipart/form-data" class="upload-form" style="margin-top:10px;">
+        <label class="filedrop">
+          <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
+          <span class="filedrop-text">Columns: NUMERO FACTURE · refclient CMS ·
+            FONCTIONS · % · MONTANT — the function + % per customer is stored as
+            the standing key.</span>
+        </label>
+        <button class="btn" type="submit">Save allocation key</button>
+      </form>
+    </details>
+
+    {% if eno_key %}
+    <form action="/tools/vendor-invoice-allocation/eno/generate" method="post"
+          enctype="multipart/form-data" style="margin-top:14px;">
+      <div class="inline-fields">
+        <label class="field"><span>Invoice number (N° mémoire)</span>
+          <input type="text" name="invoice_no" value="{{ invoice_no or '' }}"
+                 placeholder="DHL-04-2026"></label>
+        <label class="field"><span>VAT rate %</span>
+          <input type="number" step="0.01" name="tva_rate" value="{{ default_tva }}"></label>
+        <label class="field"><span>Invoice PDF (kept as evidence)</span>
+          <input type="file" name="invoice_pdf" accept=".pdf"></label>
+      </div>
+
+      <p class="select-hint">Enter the <strong>HT amount</strong> per customer
+        from the invoice (the function split &amp; totals are computed):</p>
+      <div class="table-wrap" style="max-height:none;">
+        <table class="tx-table">
+          <thead><tr><th>refclient CMS</th><th>Functions in key</th>
+            <th class="num">HT amount (XAF)</th></tr></thead>
+          <tbody>
+            {% for cid in (eno_key.order or eno_key.customers.keys()) %}
+            <tr>
+              <td>{{ cid }}</td>
+              <td>{{ eno_key.customers[cid].functions|length }}</td>
+              <td class="num"><input type="text" name="ht_{{ cid }}"
+                  class="name-input" style="text-align:right;max-width:160px;"
+                  placeholder="0"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top:10px;">
+        Build REPARTITION ENEO</button>
+    </form>
+    {% endif %}
+
+    {% if result %}
+    <h3 class="mini-title" style="margin-top:18px;">REPARTITION ENEO
+      {% if invoice_no %}· {{ invoice_no }}{% endif %}</h3>
+    <div class="download-row">
+      <a class="btn btn-primary" href="/tools/vendor-invoice-allocation/eno/export/{{ result_token }}">⬇ Download Excel</a>
+    </div>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>NUMERO FACTURE</th><th>refclient CMS</th>
+          <th>FONCTIONS</th><th class="num">%</th><th class="num">MONTANT</th></tr></thead>
+        <tbody>
+          {% for cust in result.customers %}
+            {% for f in cust.functions %}
+            <tr>
+              <td>{{ invoice_no if loop.first and cust == result.customers[0] else '' }}</td>
+              <td>{{ cust.customer_id if loop.first else '' }}</td>
+              <td>{{ f.function }}</td>
+              <td class="num">{{ "{:.0%}".format(f.pct) }}</td>
+              <td class="num">{{ "{:,.2f}".format(f.montant) }}</td>
+            </tr>
+            {% endfor %}
+            <tr style="font-weight:600;background:var(--glass-hover);">
+              <td></td><td>{{ cust.customer_id if not cust.functions else '' }}</td>
+              <td></td><td class="num">100%</td>
+              <td class="num">{{ "{:,.2f}".format(cust.ht) }}</td>
+            </tr>
+          {% endfor %}
+          <tr style="font-weight:700;"><td>TOTAL HT</td><td></td><td></td><td></td>
+            <td class="num">{{ "{:,.2f}".format(result.total_ht) }}</td></tr>
+          <tr style="font-weight:700;"><td>TVA ({{ "%g"|format(result.tva_rate) }}%)</td>
+            <td></td><td></td><td></td>
+            <td class="num">{{ "{:,.2f}".format(result.tva) }}</td></tr>
+          <tr style="font-weight:700;"><td></td><td>TOTAL</td><td></td><td></td>
+            <td class="num">{{ "{:,.2f}".format(result.total_ttc) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if eno_recent %}
+    <details class="meta-box" style="margin-top:14px;">
+      <summary>Recent ENEO allocations ({{ eno_recent|length }})</summary>
+      <div class="table-wrap" style="margin-top:8px;">
+        <table class="tx-table">
+          <thead><tr><th>Generated</th><th>Invoice</th><th class="num">Total TTC</th>
+            <th></th><th></th></tr></thead>
+          <tbody>
+            {% for a in eno_recent %}
+            <tr><td>{{ a.created_at }}</td><td>{{ a.invoice_no or '—' }}</td>
+              <td class="num">{{ "{:,.0f}".format(a.total_ttc) }}</td>
+              <td><a href="/tools/vendor-invoice-allocation/eno/export/{{ a.token }}">⬇ Excel</a></td>
+              <td>{% if a.has_pdf %}<a href="/tools/vendor-invoice-allocation/eno/invoice/{{ a.token }}" target="_blank">📄 invoice</a>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endif %}
+  </section>
+
+  <!-- ===== MTN ===== -->
+  <section class="panel">
+    <h2 class="section-title">📱 MTN</h2>
+    <p class="lead">Awaiting an MTN invoice example and its allocation template.
+      Send one and this section works like ENEO.</p>
+  </section>
+
+  <!-- ===== ORANGE ===== -->
+  <section class="panel">
+    <h2 class="section-title">🟠 ORANGE</h2>
+    <p class="lead">Awaiting an Orange invoice example and its allocation
+      template. Send one and this section works like ENEO.</p>
+  </section>
+{% endblock %}

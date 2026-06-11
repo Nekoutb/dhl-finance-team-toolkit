@@ -68,6 +68,18 @@ TOOLS = [
         ),
     },
     {
+        "slug": "vendor-invoice-allocation",
+        "name": "Vendor Invoice Allocation",
+        "category": R2R,
+        "icon": "🧮",
+        "status": "draft",
+        "description": (
+            "MTN, Orange and ENEO. Upload the vendor invoice, enter the amounts, "
+            "and the platform builds the cost-allocation sheet (e.g. REPARTITION "
+            "ENEO) ready to view and download as Excel."
+        ),
+    },
+    {
         "slug": "orange-cameroun",
         "name": "Orange Money → PDF",
         "category": R2R,
