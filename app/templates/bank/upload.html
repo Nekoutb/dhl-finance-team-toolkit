@@ -18,10 +18,10 @@
     <form class="upload-form" action="/tools/bank-statements/upload"
           method="post" enctype="multipart/form-data">
       <label class="filedrop">
-        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" multiple required>
-        <span class="filedrop-text">Choose the bank statement(s)
-          (.xlsx / .xls) — up to {{ max_files }} files at a time; each bank is
-          identified in the report.</span>
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" multiple required>
+        <span class="filedrop-text">Choose the bank statement(s) —
+          Excel (.xlsx / .xls) or PDF — up to {{ max_files }} files at a time;
+          each bank is identified in the report.</span>
       </label>
       <button class="btn btn-primary" type="submit">Analyse collections</button>
     </form>

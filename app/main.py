@@ -39,6 +39,7 @@ async def no_browser_cache(request: Request, call_next):
     return response
 
 ALLOWED_EXT = {".xlsx", ".xlsm", ".xls"}
+BANK_EXT = ALLOWED_EXT | {".pdf"}   # bank statements also arrive as PDFs
 
 
 def _resolve_upload(token):
@@ -478,7 +479,7 @@ async def ongoing_bank_match(request: Request, token: str,
     if result is None:
         return HTMLResponse("Analysis not found.", status_code=404)
     ext = Path(file.filename or "").suffix.lower()
-    if ext in ALLOWED_EXT:
+    if ext in BANK_EXT:
         dest = UPLOAD_DIR / f"bank_{token}{ext}"
         dest.write_bytes(await file.read())
         try:
@@ -851,10 +852,10 @@ async def bank_upload(request: Request, file: list[UploadFile] = File(...)):
     stored = []
     for f in files:
         ext = Path(f.filename or "").suffix.lower()
-        if ext not in ALLOWED_EXT:
+        if ext not in BANK_EXT:
             return _bank_home(request, error=f"Unsupported file type "
                               f"'{ext or 'unknown'}' in '{f.filename}' — upload "
-                              "Excel statements (.xlsx, .xlsm or .xls).",
+                              "statements as .xlsx, .xlsm, .xls or .pdf.",
                               status_code=400)
         dest = UPLOAD_DIR / f"bankstmt_{uuid.uuid4().hex[:8]}{ext}"
         dest.write_bytes(await f.read())

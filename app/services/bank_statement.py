@@ -55,12 +55,17 @@ def parse_amount(value):
 
 
 def read_bank(path):
-    """Return {lines, metadata, columns} from a bank statement.
+    """Return {lines, metadata, columns} from a bank statement (Excel or PDF).
 
     Each line: {date, description, amount (raw), credit (float >0 when money
     came IN), debit (float)}. Credits drive the collection-activity reports.
     """
-    parsed = excel_reader.read_transactions(path)
+    from pathlib import Path as _P
+    if _P(path).suffix.lower() == ".pdf":
+        from .pdf_table_reader import read_pdf_table
+        parsed = read_pdf_table(path)
+    else:
+        parsed = excel_reader.read_transactions(path)
     header = parsed["header"]
     lowered = {h: h.lower() for h in header}
 

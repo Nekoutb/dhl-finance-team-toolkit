@@ -166,8 +166,8 @@
       likely a payment received but not yet applied.</p>
     <form action="{{ base }}/bank" method="post" enctype="multipart/form-data" class="upload-form">
       <label class="filedrop">
-        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
-        <span class="filedrop-text">Choose the bank statement (.xlsx / .xls)</span>
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required>
+        <span class="filedrop-text">Choose the bank statement (.xlsx / .xls / .pdf)</span>
       </label>
       <button class="btn btn-primary" type="submit">Match against open AR</button>
     </form>

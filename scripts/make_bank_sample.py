@@ -52,3 +52,37 @@ for vdate, desc, cr, dr in ROWS2:
     ws2.append([vdate, desc, cr, dr, "XAF"])
 wb2.save(OUT2)
 print(f"Wrote {OUT2} ({len(ROWS2)} statement lines)")
+
+# ---- Third statement as a PDF (tests the PDF parsing path) -------------------
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+OUT3 = ROOT / "samples" / "bank_statement_sample3.pdf"
+styles = getSampleStyleSheet()
+doc = SimpleDocTemplate(str(OUT3), pagesize=A4, topMargin=16 * mm,
+                        leftMargin=14 * mm, rightMargin=14 * mm)
+story = [
+    Paragraph("AFRILAND FIRST BANK", styles["Title"]),
+    Paragraph("Releve de compte — DHL EXPRESS CM01", styles["Normal"]),
+    Paragraph("Periode: 01/06/2026 - 09/06/2026", styles["Normal"]),
+    Spacer(1, 8),
+]
+data = [["Value Date", "Description", "Credit Amount", "Debit Amount"]]
+data += [
+    ["2026-06-09", "VIREMENT DELTA CORP REGLEMENT", "800000", "0"],
+    ["2026-06-08", "DEPOT JUPITER VENTURES SARL", "250000", "0"],
+    ["2026-06-07", "AGIOS ET FRAIS", "0", "42000"],
+]
+table = Table(data, repeatRows=1)
+table.setStyle(TableStyle([
+    ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a5632")),
+    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+    ("FONTSIZE", (0, 0), (-1, -1), 8),
+]))
+story.append(table)
+doc.build(story)
+print(f"Wrote {OUT3} (PDF statement, 3 lines)")

@@ -70,29 +70,35 @@ m = ctp.load_master()
 check("masters merged (6 customers)", m and m["stats"]["customers"] == 6)
 check("merged source names both files", "master2.xlsx" in m.get("source", ""))
 
-# ---- Bank statements tool: MULTI-FILE upload + bank identification ----------
+# ---- Bank statements tool: MULTI-FILE upload (xlsx + PDF) + bank ID ---------
 BANK2 = ROOT / "samples" / "bank_statement_sample2.xlsx"
+BANK3 = ROOT / "samples" / "bank_statement_sample3.pdf"
 r = client.get("/tools/bank-statements")
 check("bank upload page 200", r.status_code == 200)
 check("multi-file input (max 10)", "multiple" in r.text and "10 files" in r.text)
+check("accepts pdf statements", ".pdf" in r.text)
 
-with open(BANK, "rb") as f1, open(BANK2, "rb") as f2:
+with open(BANK, "rb") as f1, open(BANK2, "rb") as f2, open(BANK3, "rb") as f3:
     r = client.post("/tools/bank-statements/upload",
                     files=[("file", ("bank_statement_sample.xlsx", f1, XLSX)),
-                           ("file", ("bank_statement_sample2.xlsx", f2, XLSX))],
+                           ("file", ("bank_statement_sample2.xlsx", f2, XLSX)),
+                           ("file", ("bank_statement_sample3.pdf", f3,
+                                     "application/pdf"))],
                     follow_redirects=False)
-check("two-statement upload -> redirect", r.status_code == 303)
+check("three-statement upload (incl PDF) -> redirect", r.status_code == 303)
 btoken = re.search(r"results/([0-9a-f]+)", r.headers["location"]).group(1)
 
 r = client.get(f"/tools/bank-statements/results/{btoken}")
 check("report 200", r.status_code == 200)
-check("both banks identified", "BANK OF CENTRAL AFRICA" in r.text
-      and "ECOBANK CAMEROUN" in r.text)
-check("combined total = 4,395,000", "4,395,000" in r.text)
+check("all three banks identified", "BANK OF CENTRAL AFRICA" in r.text
+      and "ECOBANK CAMEROUN" in r.text and "AFRILAND FIRST BANK" in r.text)
+check("combined total = 5,445,000", "5,445,000" in r.text)
 check("ACME matched (from Ecobank stmt)", "ACME LOGISTICS" in r.text)
+check("DELTA matched from the PDF statement",
+      "DELTA CORP" in r.text and "AFRILAND" in r.text)
 check("matched table has Bank(s) column", "Bank(s)" in r.text)
-check("unmatched lists both banks' strays", "EPSILON HOLDINGS" in r.text
-      and "OMEGA PARTNERS" in r.text)
+check("unmatched lists strays incl PDF's", "EPSILON HOLDINGS" in r.text
+      and "OMEGA PARTNERS" in r.text and "JUPITER VENTURES" in r.text)
 check("daily collections table", "Daily collections" in r.text)
 
 # Coverage sanity: BETA paid 500,000 vs AR 670,000 -> 75%
