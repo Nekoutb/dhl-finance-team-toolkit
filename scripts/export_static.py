@@ -62,6 +62,9 @@ REWRITES = [
     ('/tools/momo/customers', 'momo-customers.html'),
     ('/tools/momo', 'momo.html'),
     ('action="/tools/vendor-niu/paste"', 'action="#"'),
+    ('action="/tools/vendor-niu/upload"', 'action="#"'),
+    ('action="/tools/vendor-niu/update"', 'action="#"'),
+    ('action="/tools/vendor-niu/remind"', 'action="#"'),
     ('action="/tools/vendor-niu/verify"', 'action="#"'),
     ('action="/tools/vendor-niu/delete"', 'action="#"'),
     ('href="/tools/vendor-niu/export"', 'href="#"'),
@@ -342,8 +345,10 @@ def main():
     vjson = ROOT / "data" / "vendors.json"
     pre_vendors = vjson.read_text(encoding="utf-8") if vjson.exists() else None
     parsed, _rej = _vendors.parse_lines(
-        "SOCIETE GENERALE DES TRAVAUX; M012345678901A; ANR-2026-0042\n"
-        "CAMEROON SUPPLIES SARL; P098765432109B; ANR-2026-0117")
+        "SOCIETE GENERALE DES TRAVAUX; M012345678901A; ANR-2026-0042; "
+        "2026-05-12; compta@sgt-cm.example\n"
+        "CAMEROON SUPPLIES SARL; P098765432109B; ANR-2026-0117; "
+        "2026-02-20; finance@camsup.example")
     _vendors.upsert_many(parsed)
     _vendors.apply_result({
         "niu": "M012345678901A", "status": "active", "message": "",

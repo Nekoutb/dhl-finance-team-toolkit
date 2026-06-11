@@ -1110,11 +1110,28 @@ _VENDOR_TOOL = registry.by_slug("vendor-niu")
 @app.get("/tools/vendor-niu", response_class=HTMLResponse)
 def vendor_home(request: Request, message: str = "", error: str = ""):
     rows = vendors.all_vendors()
+    blocked = ok = 0
+    remindable = 0
+    for v in rows:
+        clearance = vendors.payment_clearance(v)
+        v["clearance"] = clearance
+        if clearance["ok"]:
+            ok += 1
+        else:
+            blocked += 1
+            if v.get("email"):
+                remindable += 1
+        # expiring-but-ok vendors with email also deserve a reminder
+        if clearance["ok"] and clearance["cert"]["state"] == "expiring" \
+                and v.get("email"):
+            remindable += 1
     return templates.TemplateResponse("vendor/index.html", {
         "request": request, "cfg": load_config(), "tool": _VENDOR_TOOL,
         "vendors": rows, "message": message, "error": error,
         "pending": sum(1 for v in rows if v["status"] == "pending"),
+        "ok_to_pay": ok, "blocked": blocked, "remindable": remindable,
         "dgi_url": dgi.LOGIN_URL,
+        "smtp_enabled": bool(load_config()["smtp"].get("enabled")),
     })
 
 
@@ -1127,6 +1144,106 @@ async def vendor_paste(request: Request):
     if rejected:
         msg += (f" {len(rejected)} line(s) skipped — no taxpayer ID recognised: "
                 + "; ".join(rejected[:3]))
+    return RedirectResponse(f"/tools/vendor-niu?message={msg}", status_code=303)
+
+
+@app.post("/tools/vendor-niu/upload")
+async def vendor_upload(request: Request, file: UploadFile = File(...)):
+    """Excel vendor list -> registry -> auto-verify -> the page IS the report."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXT:
+        return RedirectResponse(
+            f"/tools/vendor-niu?error=Unsupported file type '{ext}' — upload "
+            "an Excel vendor list (.xlsx, .xlsm or .xls).", status_code=303)
+    dest = UPLOAD_DIR / f"vendors_{uuid.uuid4().hex[:8]}{ext}"
+    dest.write_bytes(await file.read())
+    try:
+        parsed, rejected = vendors.parse_workbook(dest)
+    except Exception as exc:  # noqa: BLE001
+        return RedirectResponse(
+            f"/tools/vendor-niu?error=Could not read that file: {exc}",
+            status_code=303)
+    if not parsed:
+        return RedirectResponse(
+            "/tools/vendor-niu?error=No taxpayer IDs recognised in that file — "
+            "check the columns.", status_code=303)
+    added, updated = vendors.upsert_many(parsed)
+    msg = f"{added} vendor(s) added, {updated} updated from {file.filename}."
+    if rejected:
+        msg += f" {rejected} row(s) skipped (no taxpayer ID)."
+    # Issue the report: verify whatever is still unchecked on DGI Fiscalis.
+    nius = vendors.pending_nius()
+    if nius:
+        results = dgi.verify_many(nius)
+        for result in results:
+            vendors.apply_result(result)
+        msg += f" Checked {len(results)} NIU(s) on DGI Fiscalis."
+    msg += " Report below — see the OK-to-pay column; export to Excel anytime."
+    return RedirectResponse(f"/tools/vendor-niu?message={msg}", status_code=303)
+
+
+@app.post("/tools/vendor-niu/update")
+async def vendor_update(request: Request):
+    form = await request.form()
+    vendors.set_fields(form.get("niu") or "",
+                       cert_date=vendors.parse_date_token(form.get("cert_date"))
+                       or (form.get("cert_date") or "").strip(),
+                       email=form.get("email"))
+    return RedirectResponse("/tools/vendor-niu?message=Vendor details saved.",
+                            status_code=303)
+
+
+@app.post("/tools/vendor-niu/remind")
+async def vendor_remind(request: Request):
+    """Email vendors whose certificate is pending/expired or NIU not active:
+    overdue invoices will not be paid until the situation is regularised."""
+    cfg = load_config()
+    smtp = cfg["smtp"]
+    sent, eml_count, skipped = 0, 0, 0
+    for v in vendors.all_vendors():
+        clearance = vendors.payment_clearance(v)
+        needs = (not clearance["ok"]) or clearance["cert"]["state"] == "expiring"
+        if not needs:
+            continue
+        if not v.get("email"):
+            skipped += 1
+            continue
+        cert = clearance["cert"]
+        issues = "\n".join(f"  - {reason}" for reason in clearance["reasons"])
+        subject = f"Action required — tax compliance documents ({v['name'] or v['niu']})"
+        body = (
+            f"Dear {v['name'] or 'Supplier'},\n\n"
+            f"Our records show the following pending issue(s) on your tax "
+            f"compliance file (taxpayer ID {v['niu']}):\n\n{issues}\n\n"
+            "Please note that a tax clearance certificate is valid for three "
+            "(3) months from its date of issue, and payment requires a valid "
+            "certificate together with an ACTIVE taxpayer status on the DGI "
+            "platform.\n\n"
+            "As a result, your overdue invoices will NOT be paid until the "
+            "situation is regularised. Kindly send us your updated tax "
+            "clearance certificate and/or regularise your taxpayer status, "
+            f"{'before ' + cert['expires'] if cert['state'] == 'expiring' else 'as soon as possible'}.\n\n"
+            f"Kind regards,\n{cfg['organization']} — Finance")
+        if smtp.get("enabled"):
+            try:
+                emailer.send_via_smtp(smtp, v["email"], subject, body)
+                sent += 1
+                continue
+            except Exception:  # noqa: BLE001
+                pass
+        eml = OUTPUT_DIR / f"reminder_{v['niu']}.eml"
+        emailer.build_eml(eml, smtp.get("from_address", ""), v["email"],
+                          subject, body)
+        eml_count += 1
+    bits = []
+    if sent:
+        bits.append(f"{sent} reminder(s) emailed")
+    if eml_count:
+        bits.append(f"{eml_count} ready-to-send .eml file(s) created in outputs "
+                    "(reminder_<NIU>.eml)")
+    if skipped:
+        bits.append(f"{skipped} non-compliant vendor(s) have no email on file")
+    msg = "; ".join(bits) or "No vendor currently needs a reminder."
     return RedirectResponse(f"/tools/vendor-niu?message={msg}", status_code=303)
 
 
@@ -1166,20 +1283,30 @@ def vendor_export():
     status_labels = {"active": "ACTIVE", "inactive": "INACTIVE",
                      "not_found": "NOT FOUND", "error": "CHECK FAILED",
                      "pending": "Not yet checked"}
-    frame = pd.DataFrame([{
-        "Vendor name": v["name"],
-        "Taxpayer ID (NIU)": v["niu"],
-        "Tax clearance certificate": v["certificate"],
-        "Status (DGI)": status_labels.get(v["status"], v["status"]),
-        "Name on DGI file": v["raison_sociale"],
-        "Sigle": v["sigle"],
-        "CNI/RC": v["cni_rc"],
-        "Activity": v["activite"],
-        "Tax regime": v["regime"],
-        "Tax centre": v["centre"],
-        "DGI message": v["message"],
-        "Checked at": v["checked_at"],
-    } for v in rows]) if rows else pd.DataFrame(
+    def _row(v):
+        clearance = vendors.payment_clearance(v)
+        cert = clearance["cert"]
+        return {
+            "Vendor name": v["name"],
+            "Taxpayer ID (NIU)": v["niu"],
+            "Email": v.get("email", ""),
+            "Tax clearance certificate": v["certificate"],
+            "Certificate issued": cert["issued"],
+            "Certificate expires (3 months)": cert["expires"],
+            "Certificate status": cert["state"].upper(),
+            "Status (DGI)": status_labels.get(v["status"], v["status"]),
+            "OK TO PAY": "YES" if clearance["ok"] else "NO — DO NOT PAY",
+            "Reason(s)": "; ".join(clearance["reasons"]),
+            "Name on DGI file": v["raison_sociale"],
+            "Sigle": v["sigle"],
+            "CNI/RC": v["cni_rc"],
+            "Activity": v["activite"],
+            "Tax regime": v["regime"],
+            "Tax centre": v["centre"],
+            "DGI message": v["message"],
+            "Checked at": v["checked_at"],
+        }
+    frame = pd.DataFrame([_row(v) for v in rows]) if rows else pd.DataFrame(
         [{"Vendor name": "(no vendors yet)"}])
     out = OUTPUT_DIR / f"Vendor_NIU_status_{datetime.now():%Y%m%d_%H%M}.xlsx"
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:

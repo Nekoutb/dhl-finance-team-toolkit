@@ -4,31 +4,51 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Paste your vendors below — straight from Excel. The app
-      checks each taxpayer ID under <em>“Vérifier un NIU”</em> on the
+    <p class="lead">Each vendor's tax clearance certificate is valid for
+      <strong>3 months</strong> from its issue date. A vendor may only be paid
+      when the certificate is <strong>valid at the time of payment</strong> AND
+      the taxpayer ID is <strong>ACTIVE</strong> on the
       <a href="{{ dgi_url }}" target="_blank" rel="noopener">DGI Fiscalis
-      platform</a>, records the status, and the table can be exported to Excel
-      at any time.</p>
+      platform</a> — the <strong>OK to pay</strong> column applies both
+      controls.</p>
 
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
-    <form action="/tools/vendor-niu/paste" method="post">
-      <label class="field" style="max-width:680px;">
-        <span>One vendor per line:
-          <code>vendor name [tab/;/,] taxpayer ID (NIU) [tab/;/,] tax clearance
-          certificate</code> — the NIU is recognised automatically.</span>
-        <textarea name="vendors" rows="6" class="bulk-input"
-          placeholder="SOCIETE GENERALE DES TRAVAUX; M012345678901A; ANR-2026-0042&#10;CAMEROON SUPPLIES SARL&#9;P098765432109B&#9;ANR-2026-0117"></textarea>
-      </label>
-      <button class="btn btn-primary" type="submit" style="margin-top:8px;">
-        Add vendors to the table</button>
-    </form>
+    <div class="two-col">
+      <form action="/tools/vendor-niu/upload" method="post"
+            enctype="multipart/form-data">
+        <h2 class="section-title">Upload the vendor list (Excel)</h2>
+        <label class="filedrop">
+          <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
+          <span class="filedrop-text">Columns: vendor name, taxpayer ID (NIU),
+            tax clearance certificate, certificate issue date, email. The
+            report is issued automatically: NIU checked live on DGI + 3-month
+            certificate validity.</span>
+        </label>
+        <button class="btn btn-primary" type="submit" style="margin-top:8px;">
+          Upload &amp; issue report</button>
+      </form>
+
+      <form action="/tools/vendor-niu/paste" method="post">
+        <h2 class="section-title">Or paste vendors</h2>
+        <label class="field">
+          <span>One per line: <code>name; NIU; certificate; issue date;
+            email</code> — order flexible.</span>
+          <textarea name="vendors" rows="5" class="bulk-input"
+            placeholder="SOCIETE GENERALE DES TRAVAUX; M012345678901A; ANR-2026-0042; 15/05/2026; compta@sgt.cm"></textarea>
+        </label>
+        <button class="btn" type="submit" style="margin-top:8px;">
+          Add vendors to the table</button>
+      </form>
+    </div>
   </section>
 
   <section class="panel">
-    <h2 class="section-title">Vendor table — {{ vendors|length }} vendor(s),
-      {{ pending }} not yet checked</h2>
+    <h2 class="section-title">Vendor compliance report — {{ vendors|length }}
+      vendor(s) · <span style="color:var(--pos);">{{ ok_to_pay }} OK to pay</span> ·
+      <span style="color:var(--neg);">{{ blocked }} blocked</span> ·
+      {{ pending }} unchecked</h2>
 
     <div class="download-row">
       <form action="/tools/vendor-niu/verify" method="post" class="row-form">
@@ -42,41 +62,70 @@
         <button class="btn" type="submit"
                 {% if not vendors %}disabled{% endif %}>↻ Re-verify all</button>
       </form>
-      <a class="btn" href="/tools/vendor-niu/export">⬇ Export this version to Excel</a>
+      <form action="/tools/vendor-niu/remind" method="post" class="row-form"
+            onsubmit="return confirm('Send compliance reminders to all non-compliant vendors with an email on file?')">
+        <button class="btn" type="submit" {% if not remindable %}disabled{% endif %}>
+          📧 Send reminders ({{ remindable }})</button>
+      </form>
+      <a class="btn" href="/tools/vendor-niu/export">⬇ Export report to Excel</a>
     </div>
-    <p class="note-small">Each check queries fiscalis.dgi.cm live (about a
-      second per vendor) — large lists take a moment; leave the page loading.</p>
+    <p class="note-small">Reminders go to vendors whose certificate is expired,
+      missing or expiring, or whose NIU is not active — telling them overdue
+      invoices will not be paid until regularised.
+      {% if not smtp_enabled %}(SMTP off — reminders are created as
+      ready-to-send .eml files.){% endif %}</p>
 
     {% if vendors %}
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr>
-          <th>Vendor name</th><th>NIU</th><th>Tax clearance cert.</th>
-          <th>Status (DGI)</th><th>Name on DGI file</th><th>Tax regime</th>
-          <th>Tax centre</th><th>DGI message</th><th>Checked</th><th></th>
+          <th>Vendor</th><th>NIU</th><th>Cert. / issued / email</th>
+          <th>Cert. expires</th><th>Cert. status</th><th>Status (DGI)</th>
+          <th>OK to pay</th><th>Checked</th><th></th>
         </tr></thead>
         <tbody>
           {% for v in vendors %}
+          {% set c = v.clearance %}
           <tr>
-            <td><strong>{{ v.name or '—' }}</strong></td>
+            <td><strong>{{ v.name or '—' }}</strong>
+              <div class="key-hint">{{ v.raison_sociale or '' }}</div></td>
             <td>{{ v.niu }}</td>
-            <td>{{ v.certificate or '—' }}</td>
+            <td>
+              <form action="/tools/vendor-niu/update" method="post"
+                    class="row-form" style="display:flex;flex-direction:column;gap:3px;">
+                <input type="hidden" name="niu" value="{{ v.niu }}">
+                <span class="note-inline">{{ v.certificate or 'no cert. ref' }}</span>
+                <input type="date" name="cert_date" class="name-input"
+                       value="{{ c.cert.issued }}" title="Certificate issue date">
+                <input type="email" name="email" class="name-input"
+                       value="{{ v.email or '' }}" placeholder="vendor email…">
+                <button class="btn btn-small" type="submit">💾 Save</button>
+              </form>
+            </td>
+            <td>{{ c.cert.expires or '—' }}</td>
+            <td>
+              {% if c.cert.state == 'valid' %}<span class="pill pill-ok">VALID</span>
+              {% elif c.cert.state == 'expiring' %}<span class="pill pill-watch">EXPIRES IN {{ c.cert.days_left }}d</span>
+              {% elif c.cert.state == 'expired' %}<span class="pill pill-stop">EXPIRED</span>
+              {% else %}<span class="pill pill-auto">NO DATE</span>{% endif %}
+            </td>
             <td>
               {% if v.status == 'active' %}<span class="pill pill-ok">ACTIVE</span>
               {% elif v.status == 'inactive' %}<span class="pill pill-stop">INACTIVE</span>
               {% elif v.status == 'not_found' %}<span class="pill pill-hold">NOT FOUND</span>
               {% elif v.status == 'error' %}<span class="pill pill-watch">CHECK FAILED</span>
-              {% else %}<span class="pill pill-auto">Not yet checked</span>{% endif %}
+              {% else %}<span class="pill pill-auto">Not checked</span>{% endif %}
             </td>
-            <td>{{ v.raison_sociale or '—' }}</td>
-            <td>{{ v.regime or '—' }}</td>
-            <td>{{ v.centre or '—' }}</td>
-            <td class="msg-cell">{{ v.message or '—' }}</td>
+            <td>
+              {% if c.ok %}<span class="pill pill-ok" title="{{ c.reasons|join('; ') }}">✓ OK TO PAY</span>
+              {% else %}<span class="pill pill-stop" title="{{ c.reasons|join('; ') }}">✗ DO NOT PAY</span>
+              <div class="key-hint">{{ c.reasons|join('; ') }}</div>{% endif %}
+            </td>
             <td>{{ v.checked_at or '—' }}</td>
             <td>
               <form action="/tools/vendor-niu/delete" method="post" class="row-form">
                 <input type="hidden" name="niu" value="{{ v.niu }}">
-                <button class="btn btn-small" type="submit">Remove</button>
+                <button class="btn btn-small" type="submit">🗑</button>
               </form>
             </td>
           </tr>
@@ -85,7 +134,7 @@
       </table>
     </div>
     {% else %}
-      <p class="note-small">No vendors yet — paste them above.</p>
+      <p class="note-small">No vendors yet — upload the Excel list or paste them above.</p>
     {% endif %}
   </section>
 {% endblock %}
