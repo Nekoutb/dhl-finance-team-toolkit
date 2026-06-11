@@ -5,19 +5,22 @@
 
   /* ---- Theme -------------------------------------------------------------- */
   const root = document.documentElement;
+  const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+  const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 13A8.5 8.5 0 1 1 11 3a7 7 0 0 0 10 10Z"/></svg>';
+  function paintToggle(t) {
+    const btn = document.getElementById("themeToggle");
+    if (btn) btn.innerHTML = t === "dark" ? SUN : MOON;
+  }
   function setTheme(t) {
     root.setAttribute("data-theme", t);
     try { localStorage.setItem("ft-theme", t); } catch (e) { /* private mode */ }
-    const btn = document.getElementById("themeToggle");
-    if (btn) btn.textContent = t === "dark" ? "☀" : "☾";
+    paintToggle(t);
   }
   window.ftToggleTheme = function () {
     setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
   };
   document.addEventListener("DOMContentLoaded", function () {
-    const btn = document.getElementById("themeToggle");
-    if (btn) btn.textContent =
-      root.getAttribute("data-theme") === "dark" ? "☀" : "☾";
+    paintToggle(root.getAttribute("data-theme"));
   });
 
   /* ---- Command palette + go-to shortcuts ----------------------------------- */
@@ -30,6 +33,8 @@
     { ico: "🧮", label: "Vendor invoice allocation (MTN / Orange / ENEO)", href: "/tools/vendor-invoice-allocation", keys: "g i" },
     { ico: "📄", label: "Orange Cameroun → PDF", href: "/tools/orange-cameroun", keys: "g o" },
     { ico: "🛡️", label: "Vendor NIU verification", href: "/tools/vendor-niu", keys: "g v" },
+    { ico: "📊", label: "Variance analysis — CY vs PY", href: "/tools/variance-analysis", keys: "g a" },
+    { ico: "⚖️", label: "Vendor invoice compliance engine", href: "/tools/invoice-compliance", keys: "g e" },
     { ico: "🗂", label: "Credit-hold register", href: "/tools/ongoing-ctp-monitoring/holds", keys: "" },
     { ico: "👥", label: "Remittance customer contacts", href: "/tools/remittance-portal/contacts", keys: "" },
     { ico: "⚙️", label: "Remittance settings", href: "/tools/remittance-portal/settings", keys: "" },

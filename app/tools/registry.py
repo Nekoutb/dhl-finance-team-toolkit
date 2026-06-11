@@ -104,6 +104,32 @@ TOOLS = [
         ),
     },
     {
+        "slug": "variance-analysis",
+        "name": "Variance Analysis — CY vs PY",
+        "category": R2R,
+        "icon": "📊",
+        "status": "draft",
+        "description": (
+            "Upload prior-year and current-year trial balances + general "
+            "ledgers. Get expense and balance-sheet accounts compared year on "
+            "year — variance, % change, the journal descriptions driving each "
+            "move, and the questions to ask."
+        ),
+    },
+    {
+        "slug": "invoice-compliance",
+        "name": "Vendor Invoice Compliance Engine",
+        "category": R2R,
+        "icon": "⚖️",
+        "status": "draft",
+        "description": (
+            "Drop in up to 25 vendor invoices (scans included — AI reads "
+            "them). Each is checked against the CGI: Art. 150 (5) mandatory "
+            "mentions, DGI active-taxpayer status, the no-cash rule and more "
+            "— with a pass/fail verdict and the remediation to take."
+        ),
+    },
+    {
         "slug": "excel-to-pdf-generic",
         "name": "General Excel → PDF Converter",
         "category": R2R,

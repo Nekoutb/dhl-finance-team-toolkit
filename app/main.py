@@ -16,9 +16,9 @@ from fastapi.templating import Jinja2Templates
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
 from .services import (acf_reader, ai_ocr, ar_master, auth, bank_statement,
-                       ctp_dashboard, ctp_rules, customers, dgi, emailer,
-                       eno_allocation, holds, remittance_pdf, remittance_store,
-                       vendors, xlsx_report)
+                       compliance, ctp_dashboard, ctp_rules, customers, dgi,
+                       emailer, eno_allocation, holds, remittance_pdf,
+                       remittance_store, variance, vendors, xlsx_report)
 from .tools import bank, momo
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
@@ -1072,6 +1072,192 @@ def alloc_eno_invoice(token: str):
         return HTMLResponse("No invoice on file.", status_code=404)
     return FileResponse(path, media_type="application/pdf",
                         filename=f"ENEO_invoice_{token[:8]}.pdf")
+
+
+# --------------------------------------------------------------------------- #
+# Variance Analysis — expense & balance-sheet accounts, CY vs PY
+# --------------------------------------------------------------------------- #
+_VAR_TOOL = registry.by_slug("variance-analysis")
+
+
+def _variance_ctx(request, **extra):
+    ctx = {"request": request, "cfg": load_config(), "tool": _VAR_TOOL,
+           "result": None, "message": "", "error": "",
+           "recent": variance.list_recent()}
+    ctx.update(extra)
+    return ctx
+
+
+@app.get("/tools/variance-analysis", response_class=HTMLResponse)
+def variance_home(request: Request, message: str = "", error: str = ""):
+    return templates.TemplateResponse(
+        "variance/index.html",
+        _variance_ctx(request, message=message, error=error))
+
+
+@app.post("/tools/variance-analysis/analyze", response_class=HTMLResponse)
+async def variance_analyze(request: Request):
+    form = await request.form()
+    files = {}
+    for key in ("py_tb", "py_gl", "cy_tb", "cy_gl"):
+        up = form.get(key)
+        if up is None or not getattr(up, "filename", ""):
+            return templates.TemplateResponse(
+                "variance/index.html",
+                _variance_ctx(request, error="All four files are required — "
+                              "prior-year TB & GL plus current-year TB & GL."))
+        ext = Path(up.filename).suffix.lower()
+        if ext not in ALLOWED_EXT:
+            return templates.TemplateResponse(
+                "variance/index.html",
+                _variance_ctx(request, error=f"{up.filename}: upload Excel "
+                              "files (.xlsx/.xls)."))
+        dest = UPLOAD_DIR / f"var_{key}_{uuid.uuid4().hex[:8]}{ext}"
+        dest.write_bytes(await up.read())
+        files[key] = dest
+    try:
+        result = variance.build_analysis(
+            variance.parse_tb(files["py_tb"]), variance.parse_gl(files["py_gl"]),
+            variance.parse_tb(files["cy_tb"]), variance.parse_gl(files["cy_gl"]))
+    except Exception as exc:  # noqa: BLE001
+        return templates.TemplateResponse(
+            "variance/index.html",
+            _variance_ctx(request, error=f"Could not read the files: {exc}"))
+    if not result["expense"] and not result["balance"]:
+        return templates.TemplateResponse(
+            "variance/index.html",
+            _variance_ctx(request, error="No expense or balance-sheet "
+                          "accounts were recognised — check the trial "
+                          "balances have Account / Name / Balance columns."))
+    token = uuid.uuid4().hex[:12]
+    label = (form.get("label") or "").strip()
+    variance.save_result(token, result, {
+        "label": label,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    variance.build_excel(variance.OUT_DIR / f"{token}.xlsx", result, label)
+    n = len(result["expense"]) + len(result["balance"])
+    return templates.TemplateResponse("variance/index.html", _variance_ctx(
+        request, result=result, result_token=token,
+        message=f"Variance analysis ready — {n} account(s) compared."))
+
+
+@app.get("/tools/variance-analysis/view/{token}", response_class=HTMLResponse)
+def variance_view(request: Request, token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    saved = variance.load_result(token)
+    if not saved:
+        return HTMLResponse("Analysis not found.", status_code=404)
+    return templates.TemplateResponse("variance/index.html", _variance_ctx(
+        request, result=saved["result"], result_token=token,
+        message=f"Saved analysis {saved['meta'].get('label') or token[:8]}."))
+
+
+@app.get("/tools/variance-analysis/export/{token}")
+def variance_export(token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    path = variance.OUT_DIR / f"{token}.xlsx"
+    if not path.exists():
+        return HTMLResponse("Export not found.", status_code=404)
+    return FileResponse(path, filename=f"variance_analysis_{token[:8]}.xlsx",
+                        media_type="application/vnd.openxmlformats-officedocument"
+                                   ".spreadsheetml.sheet")
+
+
+# --------------------------------------------------------------------------- #
+# Vendor Invoice Compliance Engine — CGI checklist with AI OCR
+# --------------------------------------------------------------------------- #
+_COMP_TOOL = registry.by_slug("invoice-compliance")
+
+
+def _comp_ctx(request, **extra):
+    cfg = load_config()
+    ctx = {"request": request, "cfg": cfg, "tool": _COMP_TOOL,
+           "message": "", "error": "", "recent": compliance.list_recent(),
+           "ai_ready": ai_ocr.is_configured(cfg),
+           "max_invoices": compliance.MAX_INVOICES}
+    ctx.update(extra)
+    return ctx
+
+
+@app.get("/tools/invoice-compliance", response_class=HTMLResponse)
+def compliance_home(request: Request, message: str = "", error: str = ""):
+    return templates.TemplateResponse(
+        "compliance/index.html",
+        _comp_ctx(request, message=message, error=error))
+
+
+@app.post("/tools/invoice-compliance/upload")
+async def compliance_upload(request: Request):
+    cfg = load_config()
+    if not ai_ocr.is_configured(cfg):
+        return templates.TemplateResponse("compliance/index.html", _comp_ctx(
+            request, error="AI reading is not configured — paste your "
+            "Anthropic API key under Settings → AI document reading first."))
+    form = await request.form()
+    uploads = [u for u in form.getlist("invoices")
+               if u is not None and getattr(u, "filename", "")]
+    pdfs = [u for u in uploads
+            if Path(u.filename).suffix.lower() == ".pdf"]
+    if not pdfs:
+        return templates.TemplateResponse("compliance/index.html", _comp_ctx(
+            request, error="Choose at least one invoice PDF."))
+    if len(pdfs) > compliance.MAX_INVOICES:
+        return templates.TemplateResponse("compliance/index.html", _comp_ctx(
+            request, error=f"Maximum {compliance.MAX_INVOICES} invoices per "
+            "batch — split the upload."))
+    token = uuid.uuid4().hex[:12]
+    batch_dir = compliance.BATCH_DIR / token
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    names = []
+    for i, up in enumerate(pdfs):
+        (batch_dir / f"{i:03d}.pdf").write_bytes(await up.read())
+        names.append(Path(up.filename).name)
+    compliance.create_batch(token, names)
+    compliance.run_batch_async(token)
+    return RedirectResponse(f"/tools/invoice-compliance/batch/{token}",
+                            status_code=303)
+
+
+@app.get("/tools/invoice-compliance/batch/{token}", response_class=HTMLResponse)
+def compliance_batch(request: Request, token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    payload = compliance.load_batch(token)
+    if not payload:
+        return HTMLResponse("Batch not found.", status_code=404)
+    done = sum(1 for i in payload["invoices"] if i["status"] != "pending")
+    return templates.TemplateResponse("compliance/batch.html", {
+        "request": request, "cfg": load_config(), "tool": _COMP_TOOL,
+        "batch": payload, "token": token, "done": done,
+        "total": len(payload["invoices"]),
+        "running": payload["status"] != "done",
+    })
+
+
+@app.get("/tools/invoice-compliance/batch/{token}/export")
+def compliance_export(token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    payload = compliance.load_batch(token)
+    if not payload:
+        return HTMLResponse("Batch not found.", status_code=404)
+    out = compliance.BATCH_DIR / token / "report.xlsx"
+    compliance.build_excel(out, payload)
+    return FileResponse(out, filename=f"invoice_compliance_{token[:8]}.xlsx",
+                        media_type="application/vnd.openxmlformats-officedocument"
+                                   ".spreadsheetml.sheet")
+
+
+@app.get("/tools/invoice-compliance/batch/{token}/pdf/{idx}")
+def compliance_pdf(token: str, idx: int):
+    if not re.fullmatch(r"[0-9a-f]+", token or "") or idx < 0 or idx > 999:
+        return HTMLResponse("Invalid reference.", status_code=400)
+    path = compliance.BATCH_DIR / token / f"{idx:03d}.pdf"
+    if not path.exists():
+        return HTMLResponse("Invoice not found.", status_code=404)
+    return FileResponse(path, media_type="application/pdf")
 
 
 # --------------------------------------------------------------------------- #

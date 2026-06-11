@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v5.0 — 11 Jun 2026 · Panorama Glass redesign + AI invoice reading (ENEO)"
+APP_VERSION = "v5.1 — 12 Jun 2026 · Variance analysis (CY vs PY) + invoice compliance engine"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
