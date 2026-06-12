@@ -8,11 +8,35 @@
   <section class="panel">
     <h1>AR customer master file</h1>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+
+    <!-- ⭐ Priority customers — standing list, works with or without a master -->
+    <h2 class="section-title" style="margin-top:14px;">⭐ Priority customers
+      <span class="note-inline">({{ priority_count }} on the list
+        {%- if priority_updated %} · updated {{ priority_updated }}{% endif %})</span></h2>
+    <p class="select-hint">Mark your ~40 key accounts with the star in the
+      master table below (or paste the list at once). Every analysis — past
+      and future — then offers a <strong>⭐ Priority customers</strong> filter
+      that recomputes the whole dashboard and all controls for these
+      customers only.</p>
+    <details class="meta-box">
+      <summary>Paste the priority list (account numbers or customer names,
+        one per line)</summary>
+      <form action="/tools/ongoing-ctp-monitoring/priority/bulk" method="post"
+            style="margin-top:10px;">
+        <textarea name="keys" rows="8" class="bulk-input"
+          placeholder="1004727970&#10;BOURBON CAMEROUN&#10;…">{{ priority_keys|sort|join('\n') }}</textarea>
+        <button class="btn btn-primary" type="submit" style="margin-top:8px;">
+          Save priority list</button>
+        <span class="note-inline">replaces the whole list — lines are matched
+          to the master file by account, then by name</span>
+      </form>
+    </details>
+
     {% if not master %}
       <div class="alert alert-info">No master file uploaded yet. Add it from the
         <a href="/tools/ongoing-ctp-monitoring">CtP upload page</a> — it supplies
         each customer's segment (treatment plan), balance and credit-hold
-        position.</div>
+        position, and lets you star priority customers row by row.</div>
     {% else %}
     <p class="lead">{{ master.source }} · uploaded {{ master.uploaded_at }} ·
       {{ master.stats.customers }} customers ·
@@ -40,29 +64,6 @@
         <p class="note-small">General information columns kept:
           {{ master.info_columns|join(', ') }}</p>
       {% endif %}
-    </details>
-
-    <!-- ⭐ Priority customers -->
-    <h2 class="section-title" style="margin-top:20px;">⭐ Priority customers
-      <span class="note-inline">({{ priority_count }} on the list
-        {%- if priority_updated %} · updated {{ priority_updated }}{% endif %})</span></h2>
-    <p class="select-hint">Mark your ~40 key accounts with the star in the
-      table below (or paste the list at once). Every analysis — past and
-      future — then offers a <strong>⭐ Priority customers</strong> filter that
-      recomputes the whole dashboard and all controls for these customers
-      only.</p>
-    <details class="meta-box">
-      <summary>Paste the priority list (account numbers or customer names,
-        one per line)</summary>
-      <form action="/tools/ongoing-ctp-monitoring/priority/bulk" method="post"
-            style="margin-top:10px;">
-        <textarea name="keys" rows="8" class="bulk-input"
-          placeholder="1004727970&#10;BOURBON CAMEROUN&#10;…">{{ priority_keys|sort|join('\n') }}</textarea>
-        <button class="btn btn-primary" type="submit" style="margin-top:8px;">
-          Save priority list</button>
-        <span class="note-inline">replaces the whole list — lines are matched
-          to the master file by account, then by name</span>
-      </form>
     </details>
 
     <div class="download-row">
