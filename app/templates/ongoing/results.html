@@ -15,6 +15,26 @@
       {{ s.credit_count }} credits/payments on account ·
       {{ s.calls_suppressed }} calls suppressed (below value threshold)</p>
 
+    {% if priority_count %}
+    <div class="download-row">
+      {% if priority_on %}
+        <a class="btn btn-primary"
+           href="/tools/ongoing-ctp-monitoring/results/{{ token }}">★ Priority
+          only — show all customers</a>
+      {% else %}
+        <a class="btn"
+           href="/tools/ongoing-ctp-monitoring/results/{{ token }}?priority=1">⭐ Priority
+          customers ({{ priority_count }})</a>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if priority_on %}
+    <div class="alert alert-info">⭐ Showing <strong>priority customers
+      only</strong> — all controls, tables and the Excel report below are
+      recomputed for the {{ s.customer_count }} priority customer(s) found in
+      this analysis.</div>
+    {% endif %}
+
     {% if result.tb_check %}
       {% set tb = result.tb_check %}
       {% if tb.matches %}

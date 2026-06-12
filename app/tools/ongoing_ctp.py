@@ -565,6 +565,65 @@ def load_master():
         return None
 
 
+# --- Priority customers (~40 key accounts) -----------------------------------
+# A standing list of customer keys (account numbers / names) the team watches
+# most closely. The ⭐ filter on EVERY analysis (past and future) recomputes
+# the whole dashboard/controls for these customers only.
+PRIORITY_PATH = STORE_DIR / "priority.json"
+
+
+def load_priority():
+    if not PRIORITY_PATH.exists():
+        return {"keys": [], "updated_at": ""}
+    try:
+        data = json.loads(PRIORITY_PATH.read_text(encoding="utf-8"))
+        data.setdefault("keys", [])
+        return data
+    except (json.JSONDecodeError, OSError):
+        return {"keys": [], "updated_at": ""}
+
+
+def save_priority(keys):
+    STORE_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {"keys": sorted({str(k).strip() for k in keys if str(k).strip()}),
+               "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    PRIORITY_PATH.write_text(json.dumps(payload, ensure_ascii=False),
+                             encoding="utf-8")
+    return payload
+
+
+def toggle_priority(key):
+    """Add/remove one customer key. Returns True if it is now priority."""
+    key = str(key or "").strip()
+    if not key:
+        return False
+    keys = set(load_priority()["keys"])
+    now_on = key not in keys
+    (keys.add if now_on else keys.discard)(key)
+    save_priority(keys)
+    return now_on
+
+
+def priority_set():
+    return set(load_priority()["keys"])
+
+
+def filter_result_priority(result, keys):
+    """A copy of an analysis narrowed to the priority customers — controls
+    and summaries are recomputed so every dashboard section reflects only
+    those customers."""
+    keys = {str(k) for k in keys}
+    customers = [c for c in result["customers"] if str(c["key"]) in keys]
+    invoices = [i for i in result["invoices"]
+                if str(i.get("account") or i.get("customer")) in keys]
+    out = dict(result)
+    out["customers"] = customers
+    out["invoices"] = invoices
+    out["controls_summary"] = _controls_summary(invoices)
+    out["summary"] = _summary(invoices, customers)
+    return out
+
+
 def list_results(limit=10):
     """Recent stored analyses, newest first, for the upload page."""
     if not STORE_DIR.exists():

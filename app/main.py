@@ -406,9 +406,56 @@ async def ongoing_master_upload(request: Request,
 
 
 @app.get("/tools/ongoing-ctp-monitoring/master", response_class=HTMLResponse)
-def ongoing_master_view(request: Request):
+def ongoing_master_view(request: Request, priority: str = "", message: str = ""):
+    pri = ctp.load_priority()
     return templates.TemplateResponse("ongoing/master.html", _ongoing_ctx(
-        request, master=ctp.load_master()))
+        request, master=ctp.load_master(), priority_keys=set(pri["keys"]),
+        priority_count=len(pri["keys"]), priority_on=bool(priority),
+        priority_updated=pri.get("updated_at", ""), message=message))
+
+
+@app.post("/tools/ongoing-ctp-monitoring/priority/toggle")
+async def ongoing_priority_toggle(request: Request):
+    form = await request.form()
+    key = (form.get("key") or "").strip()
+    ctp.toggle_priority(key)
+    suffix = "?priority=1" if form.get("filtered") else ""
+    return RedirectResponse(f"/tools/ongoing-ctp-monitoring/master{suffix}",
+                            status_code=303)
+
+
+@app.post("/tools/ongoing-ctp-monitoring/priority/bulk")
+async def ongoing_priority_bulk(request: Request):
+    """Set the priority list from pasted account numbers / customer names —
+    lines are resolved against the master file (account first, then name)."""
+    form = await request.form()
+    lines = [ln.strip() for ln in (form.get("keys") or "").splitlines()
+             if ln.strip()]
+    master = ctp.load_master() or {}
+    by_account = {}
+    by_name = {}
+    for key, c in (master.get("customers") or {}).items():
+        if c.get("account"):
+            by_account[str(c["account"]).strip()] = key
+        if c.get("name"):
+            by_name[str(c["name"]).strip().lower()] = key
+    keys, unmatched = set(), []
+    for ln in lines:
+        key = by_account.get(ln) or by_name.get(ln.lower())
+        if key:
+            keys.add(key)
+        else:
+            keys.add(ln)            # keep as-is (matches analyses by key)
+            unmatched.append(ln)
+    ctp.save_priority(keys)
+    msg = f"Priority list saved — {len(keys)} customer(s)."
+    if unmatched:
+        msg += (f" {len(unmatched)} line(s) not found in the master file "
+                "(kept as typed — they match analyses by account/name): "
+                + ", ".join(unmatched[:5])
+                + ("…" if len(unmatched) > 5 else ""))
+    return RedirectResponse(
+        f"/tools/ongoing-ctp-monitoring/master?message={msg}", status_code=303)
 
 
 @app.post("/tools/ongoing-ctp-monitoring/analyze", response_class=HTMLResponse)
@@ -479,27 +526,34 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
         status_code=303)
 
 
-def _render_ctp_results(request, token, status_code=200):
+def _render_ctp_results(request, token, status_code=200, priority=""):
     """Render stored results, comparing against the current hold register and
-    regenerating the Excel report so hold toggles are always reflected."""
+    regenerating the Excel report so hold toggles are always reflected.
+    priority='1' narrows the WHOLE analysis to the priority customers."""
     result = ctp.load_result(token)
     if result is None:
         return templates.TemplateResponse("ongoing/upload.html", _ongoing_ctx(
             request, error="That analysis was not found — please upload the "
                            "file again."), status_code=404)
+    pri_keys = ctp.priority_set()
+    priority_on = bool(priority) and bool(pri_keys)
+    if priority_on:
+        result = ctp.filter_result_priority(result, pri_keys)
     hold_cmp = ctp.hold_compare(result["customers"])
-    report = OUTPUT_DIR / f"CtP_controls_{token[:8]}.xlsx"
+    report = OUTPUT_DIR / (f"CtP_controls_{token[:8]}_priority.xlsx"
+                           if priority_on else f"CtP_controls_{token[:8]}.xlsx")
     xlsx_report.build_ctp_report(report, result, hold_cmp)
     return templates.TemplateResponse("ongoing/results.html", _ongoing_ctx(
         request, result=result, hold_cmp=hold_cmp, token=token,
         report_name=report.name,
+        priority_on=priority_on, priority_count=len(pri_keys),
         recipient=load_config()["orange_cameroun"]["default_recipient"]),
         status_code=status_code)
 
 
 @app.get("/tools/ongoing-ctp-monitoring/results/{token}", response_class=HTMLResponse)
-def ongoing_results(request: Request, token: str):
-    return _render_ctp_results(request, token)
+def ongoing_results(request: Request, token: str, priority: str = ""):
+    return _render_ctp_results(request, token, priority=priority)
 
 
 @app.post("/tools/ongoing-ctp-monitoring/results/{token}/delete")
@@ -519,7 +573,8 @@ async def ongoing_master_delete():
 
 @app.get("/tools/ongoing-ctp-monitoring/results/{token}/dashboard",
          response_class=HTMLResponse)
-def ongoing_dashboard(request: Request, token: str, threshold: str = "100000"):
+def ongoing_dashboard(request: Request, token: str, threshold: str = "100000",
+                      priority: str = ""):
     result = ctp.load_result(token)
     if result is None:
         return templates.TemplateResponse("ongoing/upload.html", _ongoing_ctx(
@@ -529,6 +584,12 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000"):
         thr = float(str(threshold).replace(",", "").strip() or 100000)
     except ValueError:
         thr = 100000.0
+    # ⭐ Priority filter: rebuild EVERY dashboard section on the priority
+    # customers only — works on any analysis, past or future.
+    pri_keys = ctp.priority_set()
+    priority_on = bool(priority) and bool(pri_keys)
+    if priority_on:
+        result = ctp.filter_result_priority(result, pri_keys)
     hold_cmp = ctp.hold_compare(result["customers"])
     dash = ctp_dashboard.build(result, threshold=thr)
     # v5.4: focused control — customers ON CREDIT HOLD whose names appear in
@@ -536,7 +597,8 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000"):
     bank = ctp.load_bank_matches(token)
     return templates.TemplateResponse("ongoing/dashboard.html", _ongoing_ctx(
         request, result=result, dash=dash, hold_cmp=hold_cmp, token=token,
-        threshold=thr, bank=bank))
+        threshold=thr, bank=bank,
+        priority_on=priority_on, priority_count=len(pri_keys)))
 
 
 @app.post("/tools/ongoing-ctp-monitoring/results/{token}/bank")

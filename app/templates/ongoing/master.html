@@ -7,6 +7,7 @@
 
   <section class="panel">
     <h1>AR customer master file</h1>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if not master %}
       <div class="alert alert-info">No master file uploaded yet. Add it from the
         <a href="/tools/ongoing-ctp-monitoring">CtP upload page</a> — it supplies
@@ -41,16 +42,62 @@
       {% endif %}
     </details>
 
-    <div class="table-wrap" style="margin-top:14px;">
+    <!-- ⭐ Priority customers -->
+    <h2 class="section-title" style="margin-top:20px;">⭐ Priority customers
+      <span class="note-inline">({{ priority_count }} on the list
+        {%- if priority_updated %} · updated {{ priority_updated }}{% endif %})</span></h2>
+    <p class="select-hint">Mark your ~40 key accounts with the star in the
+      table below (or paste the list at once). Every analysis — past and
+      future — then offers a <strong>⭐ Priority customers</strong> filter that
+      recomputes the whole dashboard and all controls for these customers
+      only.</p>
+    <details class="meta-box">
+      <summary>Paste the priority list (account numbers or customer names,
+        one per line)</summary>
+      <form action="/tools/ongoing-ctp-monitoring/priority/bulk" method="post"
+            style="margin-top:10px;">
+        <textarea name="keys" rows="8" class="bulk-input"
+          placeholder="1004727970&#10;BOURBON CAMEROUN&#10;…">{{ priority_keys|sort|join('\n') }}</textarea>
+        <button class="btn btn-primary" type="submit" style="margin-top:8px;">
+          Save priority list</button>
+        <span class="note-inline">replaces the whole list — lines are matched
+          to the master file by account, then by name</span>
+      </form>
+    </details>
+
+    <div class="download-row">
+      {% if priority_on %}
+        <a class="btn btn-primary" href="/tools/ongoing-ctp-monitoring/master">★ Showing
+          priority only — show all customers</a>
+      {% else %}
+        <a class="btn" href="/tools/ongoing-ctp-monitoring/master?priority=1">⭐ Show
+          priority customers only ({{ priority_count }})</a>
+      {% endif %}
+    </div>
+
+    <div class="table-wrap" style="margin-top:6px;">
       <table class="tx-table">
         <thead><tr>
+          <th>⭐</th>
           <th>Account</th><th>Customer</th><th>Segment</th><th>Plan</th>
           <th>Balance</th><th>Credit hold</th>
           {% for col in master.info_columns[:4] %}<th>{{ col }}</th>{% endfor %}
         </tr></thead>
         <tbody>
           {% for key, c in master.customers.items() %}
-          <tr>
+          {% set is_pri = key in priority_keys %}
+          {% if not priority_on or is_pri %}
+          <tr{% if is_pri %} style="background:var(--warn-bg);"{% endif %}>
+            <td>
+              <form action="/tools/ongoing-ctp-monitoring/priority/toggle"
+                    method="post" class="row-form">
+                <input type="hidden" name="key" value="{{ key }}">
+                {% if priority_on %}<input type="hidden" name="filtered" value="1">{% endif %}
+                <button class="btn btn-small" type="submit"
+                        title="{{ 'Remove from' if is_pri else 'Add to' }} priority customers"
+                        style="padding:2px 8px;">{{ '★' if is_pri else '☆' }}</button>
+              </form>
+            </td>
             <td>{{ c.account }}</td>
             <td>{{ c.name }}</td>
             <td>{{ c.segment or '—' }}</td>
@@ -60,6 +107,7 @@
                 {% elif c.on_hold is none %}—{% else %}No{% endif %}</td>
             {% for col in master.info_columns[:4] %}<td>{{ c.info.get(col, '') }}</td>{% endfor %}
           </tr>
+          {% endif %}
           {% endfor %}
         </tbody>
       </table>

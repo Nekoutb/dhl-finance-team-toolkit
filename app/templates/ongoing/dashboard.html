@@ -33,9 +33,31 @@
       {{ result.summary.customer_count }} customers ·
       net AR {{ money(d.net_ar) }}</p>
     <div class="download-row">
-      <a class="btn" href="{{ base }}">Full controls &amp; invoice tables →</a>
+      <a class="btn" href="{{ base }}{% if priority_on %}?priority=1{% endif %}">Full controls &amp; invoice tables →</a>
       <a class="btn" href="/tools/ongoing-ctp-monitoring/holds">Hold register ({{ hold_cmp.register_size }})</a>
+      {% if priority_count %}
+        {% if priority_on %}
+          <a class="btn btn-primary"
+             href="{{ base }}/dashboard?threshold={{ '{:.0f}'.format(threshold) }}">★ Priority
+            only — show all customers</a>
+        {% else %}
+          <a class="btn"
+             href="{{ base }}/dashboard?threshold={{ '{:.0f}'.format(threshold) }}&priority=1">⭐ Priority
+            customers ({{ priority_count }})</a>
+        {% endif %}
+      {% else %}
+        <a class="btn" href="/tools/ongoing-ctp-monitoring/master"
+           title="Mark priority customers on the master page">⭐ Set up priority
+          customers</a>
+      {% endif %}
     </div>
+    {% if priority_on %}
+    <div class="alert alert-info" style="margin-top:10px;">⭐ Showing
+      <strong>priority customers only</strong> — every section below is
+      recomputed for the {{ result.summary.customer_count }} priority
+      customer(s) found in this analysis. Manage the list on the
+      <a href="/tools/ongoing-ctp-monitoring/master">master page</a>.</div>
+    {% endif %}
   </section>
 
   <!-- KPI strip -->
@@ -138,6 +160,7 @@
     <form action="{{ base }}/dashboard" method="get" class="threshold-form">
       <label class="field"><span>Show customers with total AR at or below ({{ cur }})</span>
         <input type="number" name="threshold" value="{{ "{:.0f}".format(threshold) }}" min="0" step="1000"></label>
+      {% if priority_on %}<input type="hidden" name="priority" value="1">{% endif %}
       <button class="btn btn-primary" type="submit">Update list</button>
     </form>
     <details class="drop">
