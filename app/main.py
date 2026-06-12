@@ -2157,6 +2157,22 @@ async def settings_change_password(request: Request):
                             status_code=303)
 
 
+@app.post("/settings/company")
+async def settings_company_save(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return blocked
+    form = await request.form()
+    save_user_config({"company": {
+        "niu": (form.get("niu") or "").strip().upper().replace(" ", ""),
+        "legal_name": (form.get("legal_name") or "").strip(),
+    }})
+    return RedirectResponse(
+        "/settings?message=Company identity saved — the compliance engine "
+        "now verifies every invoice is billed to this NIU and legal name.",
+        status_code=303)
+
+
 @app.post("/settings/ai")
 async def settings_ai_save(request: Request):
     blocked = _admin_block(request)

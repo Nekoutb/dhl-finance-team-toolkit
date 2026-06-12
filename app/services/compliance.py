@@ -73,15 +73,78 @@ FORM_CHECKS = [
 ]
 
 
-def evaluate(extraction, niu_status=None):
+def _norm_niu(value):
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _name_matches(printed, configured):
+    """Tolerant company-name comparison (OCR noise, punctuation, suffixes)."""
+    import difflib
+
+    def norm(s):
+        s = re.sub(r"[^A-Z0-9 ]", " ", str(s or "").upper())
+        return " ".join(s.split())
+
+    a, b = norm(printed), norm(configured)
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
+
+
+def evaluate(extraction, niu_status=None, company=None):
     """Apply the checklist to one AI-read invoice.
 
     extraction: dict from ai_ocr.extract_invoice_compliance.
     niu_status: dgi.verify_niu result for the supplier NIU (or None).
+    company: {'niu', 'legal_name'} — OUR identity (set by the admin in
+    Settings); when configured, the invoice's client NIU/name must match.
     Returns {verdict, failed, passed, review, foreign, ...}.
     """
     foreign = bool(extraction.get("is_foreign_supplier"))
     failed, passed, review = [], [], []
+    company = company or {}
+
+    # ---- Billed-to-us identity (applies to every supplier) -----------------
+    our_niu = _norm_niu(company.get("niu"))
+    if our_niu:
+        printed = (extraction.get("client_niu") or {})
+        if printed.get("present") and printed.get("value"):
+            if _norm_niu(printed["value"]) == our_niu:
+                passed.append({"item": "NIU client = NIU DHL (configuré)",
+                               "basis": "Art. 150 (5) tiret 1",
+                               "value": printed["value"][:40]})
+            else:
+                failed.append({
+                    "item": "NIU client ≠ NIU DHL",
+                    "basis": "Art. 150 (5) tiret 1",
+                    "why": f"The invoice shows client NIU "
+                           f"“{printed['value']}” but DHL's taxpayer ID on "
+                           f"file is “{company.get('niu')}”.",
+                    "action": "Ask the supplier to re-issue the invoice "
+                              "billed to DHL's correct NIU — share it from "
+                              "Settings → Company identity.",
+                })
+    our_name = (company.get("legal_name") or "").strip()
+    if our_name:
+        printed = (extraction.get("client_name") or {})
+        if printed.get("present") and printed.get("value"):
+            if _name_matches(printed["value"], our_name):
+                passed.append({"item": "Identité client = raison sociale DHL "
+                                       "(configurée)",
+                               "basis": "Art. 150 (5) tiret 3",
+                               "value": printed["value"][:60]})
+            else:
+                failed.append({
+                    "item": "Identité client ≠ raison sociale DHL",
+                    "basis": "Art. 150 (5) tiret 3",
+                    "why": f"The invoice is billed to "
+                           f"“{printed['value']}” but our legal name on "
+                           f"file is “{our_name}”.",
+                    "action": "Ask the supplier to invoice DHL's exact "
+                              "legal entity name as configured in Settings.",
+                })
 
     # ---- I. FORM — Art. 150 (5) -------------------------------------------
     if foreign:
@@ -300,7 +363,7 @@ def create_batch(token, filenames):
     return payload
 
 
-def _process_one(token, idx, ai_cfg):
+def _process_one(token, idx, ai_cfg, company=None):
     pdf = _batch_path(token) / f"{idx:03d}.pdf"
     try:
         extraction = ai_ocr.extract_invoice_compliance(pdf.read_bytes(), ai_cfg)
@@ -314,7 +377,7 @@ def _process_one(token, idx, ai_cfg):
                     niu_status = dgi.verify_niu(m.group(0).upper())
                 except Exception:  # noqa: BLE001 — never kill the batch
                     niu_status = None
-        result = evaluate(extraction, niu_status)
+        result = evaluate(extraction, niu_status, company=company)
         inv_update = {"status": "done", "result": result, "error": ""}
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
         inv_update = {"status": "error", "result": None, "error": str(exc)}
@@ -327,7 +390,9 @@ def _process_one(token, idx, ai_cfg):
 
 def run_batch_async(token):
     """Process every pending invoice in the batch on a background thread."""
-    ai_cfg = load_config().get("ai")
+    cfg = load_config()
+    ai_cfg = cfg.get("ai")
+    company = cfg.get("company") or {}
 
     def _runner():
         payload = load_batch(token)
@@ -335,7 +400,7 @@ def run_batch_async(token):
                 if i["status"] == "pending"]
         with ThreadPoolExecutor(max_workers=4) as pool:
             for idx in idxs:
-                pool.submit(_process_one, token, idx, ai_cfg)
+                pool.submit(_process_one, token, idx, ai_cfg, company)
         payload = load_batch(token)
         payload["status"] = "done"
         _save(token, payload)

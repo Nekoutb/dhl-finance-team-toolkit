@@ -89,6 +89,36 @@ r = compliance.evaluate(full_extraction(
 assert r["verdict"] == "PASSED", r["failed"]
 print("ok: 'Exonérée' satisfies the VAT mention")
 
+# --- rules: billed-to-DHL identity (v5.7) ------------------------------------
+COMPANY = {"niu": "M098765432109B", "legal_name": "DHL EXPRESS CAMEROON SARL"}
+# matching NIU + close-enough name (extraction says 'DHL EXPRESS CAMEROON')
+r = compliance.evaluate(full_extraction(), ACTIVE, company=COMPANY)
+assert r["verdict"] == "PASSED", r["failed"]
+assert any("NIU client = NIU DHL" in p["item"] for p in r["passed"])
+assert any("raison sociale DHL" in p["item"] for p in r["passed"])
+print("ok: invoice billed to DHL's NIU + legal name PASSES (fuzzy name ok)")
+
+# wrong client NIU on the invoice
+r = compliance.evaluate(full_extraction(
+    client_niu=mention(True, "M111111111111Z")), ACTIVE, company=COMPANY)
+assert r["verdict"] == "FAILED"
+assert any("NIU client ≠ NIU DHL" in f["item"] for f in r["failed"])
+print("ok: wrong client NIU FAILS against the configured DHL NIU")
+
+# wrong client name on the invoice
+r = compliance.evaluate(full_extraction(
+    client_name=mention(True, "SOME OTHER COMPANY LTD")), ACTIVE,
+    company=COMPANY)
+assert r["verdict"] == "FAILED"
+assert any("raison sociale DHL" in f["item"] for f in r["failed"])
+print("ok: wrong billed-to name FAILS against the configured legal name")
+
+# nothing configured -> checks skipped entirely
+r = compliance.evaluate(full_extraction(
+    client_niu=mention(True, "M111111111111Z")), ACTIVE, company={})
+assert r["verdict"] == "PASSED", r["failed"]
+print("ok: billed-to checks skipped when company identity not configured")
+
 # --- batch flow over HTTP with mocked extractor + DGI ------------------------
 client = TestClient(main.app)
 real_extract = ai_ocr.extract_invoice_compliance

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v5.6 — 12 Jun 2026 · Mobile Money & Orange Money moved to Order to Cash"
+APP_VERSION = "v5.7 — 12 Jun 2026 · compliance engine verifies invoices are billed to DHL's NIU & legal name"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -49,6 +49,13 @@ DEFAULT_CONFIG = {
     "ai": {
         "api_key": "",
         "model": "claude-opus-4-8",
+    },
+    # Our own identity, set by the admin in Settings. The invoice compliance
+    # engine verifies every vendor invoice is billed to THIS taxpayer ID and
+    # legal name.
+    "company": {
+        "niu": "",
+        "legal_name": "",
     },
     # Staff login. OFF locally (login-free dev); turned ON for public
     # deployment via scripts/set_password.py. secure_cookies -> True behind
