@@ -87,4 +87,53 @@ print("ok: HTTP analyze + Excel export")
 for p in variance.OUT_DIR.glob(f"{token}.*"):
     p.unlink()
 
+# --- regression: text balances with thousands separators (the proxy-error /
+#     data-corruption bug) parse correctly through the full HTTP route --------
+import openpyxl  # noqa: E402
+
+
+def _wb(path, header, rows):
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(header)
+    for r in rows:
+        ws.append(r)
+    wb.save(path)
+
+
+BIG = ROOT / "samples"
+# Balances stored as TEXT with comma thousands — what real exports produce.
+_wb(BIG / "vtxt_tb_py.xlsx", ["Account", "Account name", "Closing balance"],
+    [["611000", "Rent", "12,000,000"], ["641000", "Salaries", "60,000,000"],
+     ["411000", "Receivables", "45,000,000"]])
+_wb(BIG / "vtxt_tb_cy.xlsx", ["Account", "Account name", "Closing balance"],
+    [["611000", "Rent", "12,100,000"], ["641000", "Salaries", "63,500,000"],
+     ["411000", "Receivables", "61,000,000"]])
+_wb(BIG / "vtxt_gl_py.xlsx", ["Account", "Description", "Amount"],
+    [["611000", "Office rent", "12,000,000"], ["641000", "Payroll", "60,000,000"],
+     ["411000", "Invoices", "45,000,000"]])
+_wb(BIG / "vtxt_gl_cy.xlsx", ["Account", "Description", "Amount"],
+    [["611000", "Office rent", "12,100,000"],
+     ["641000", "Payroll + bonus", "63,500,000"],
+     ["411000", "Invoices", "61,000,000"]])
+
+with open(BIG / "vtxt_tb_py.xlsx", "rb") as f1, \
+     open(BIG / "vtxt_gl_py.xlsx", "rb") as f2, \
+     open(BIG / "vtxt_tb_cy.xlsx", "rb") as f3, \
+     open(BIG / "vtxt_gl_cy.xlsx", "rb") as f4:
+    resp = client.post("/tools/variance-analysis/analyze",
+                       data={"label": "TEXT SEP"},
+                       files={"py_tb": ("a.xlsx", f1), "py_gl": ("b.xlsx", f2),
+                              "cy_tb": ("c.xlsx", f3), "cy_gl": ("d.xlsx", f4)})
+assert resp.status_code == 200, resp.status_code
+# Salaries: 60,000,000 -> 63,500,000  (would be 60.0 -> 63.5 with the old bug)
+assert "63,500,000" in resp.text and "60,000,000" in resp.text, \
+    "thousands-separated text balances were not parsed correctly"
+assert "Variance analysis ready" in resp.text
+m2 = re.search(r"/tools/variance-analysis/export/([0-9a-f]+)", resp.text)
+for p in variance.OUT_DIR.glob(f"{m2.group(1)}.*"):
+    p.unlink()
+for p in BIG.glob("vtxt_*.xlsx"):
+    p.unlink()
+print("ok: text balances with thousands separators parse correctly (no zeroing)")
+
 print("\nALL VARIANCE TESTS PASSED")

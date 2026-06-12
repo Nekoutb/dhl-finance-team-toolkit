@@ -70,7 +70,9 @@
 
     <div class="side-foot">
       {% if request.state.user is defined and request.state.user %}
-        Signed in as {{ request.state.user }} · <a href="/logout">sign out</a>
+        Signed in as {{ request.state.user }} ·
+        <form action="/logout" method="post" class="logout-form">
+          <button type="submit" class="linklike">sign out</button></form>
       {% else %}No login required · local host{% endif %}
     </div>
   </aside>
@@ -109,8 +111,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 13A8.5 8.5 0 1 1 11 3a7 7 0 0 0 10 10Z"/></svg></button>
       {% if request.state.user is defined and request.state.user %}
         <span class="avatar" title="Signed in as {{ request.state.user }}">{{ request.state.user[:2]|upper }}</span>
-        <a class="icon-btn" href="/logout" title="Sign out ({{ request.state.user }})" aria-label="Sign out">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></a>
+        <form action="/logout" method="post" style="margin:0;">
+          <button class="icon-btn" type="submit" title="Sign out ({{ request.state.user }})" aria-label="Sign out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button></form>
       {% else %}
         <span class="avatar" title="Finance team">FT</span>
       {% endif %}

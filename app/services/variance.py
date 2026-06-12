@@ -27,14 +27,44 @@ _EXPENSE_WORDS = ("expense", "charge", "cost", "fee", "rent", "salar",
 
 
 def _num(value):
+    """Parse a balance/amount cell robustly across real-world number formats.
+
+    Handles thousands separators and decimal commas that the old logic
+    mangled (e.g. '1,000' became 1.0, zeroing real trial balances):
+      '1,234,567'  -> 1234567     '1.234.567'  -> 1234567
+      '664,508'    -> 664508      '1.000'      -> 1000
+      '1,234.56'   -> 1234.56     '1.234,56'   -> 1234.56   (European)
+      '1234.56'    -> 1234.56     '(1,500)'    -> -1500
+    """
     if value is None or value == "":
         return 0.0
     if isinstance(value, (int, float)):
         return float(value)
-    s = str(value).strip().replace(" ", "").replace(" ", "")
-    s = s.replace(",", "") if s.count(",") and s.count(".") else s.replace(",", ".")
-    neg = s.startswith("(") and s.endswith(")")
-    s = s.strip("()")
+    raw = str(value).strip()
+    neg = raw.startswith("-") or (raw.startswith("(") and raw.endswith(")"))
+    s = re.sub(r"[^0-9.,]", "", raw)          # digits + separators only
+    if not s:
+        return 0.0
+    has_comma, has_dot = "," in s, "." in s
+    if has_comma and has_dot:
+        # The separator that appears LAST is the decimal point.
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif has_comma:
+        parts = s.split(",")
+        # >1 group, or a single 3-digit trailing group, = thousands separator.
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
+            s = s.replace(",", "")
+        else:
+            s = s.replace(",", ".")           # decimal comma (e.g. '12,5')
+    elif has_dot:
+        parts = s.split(".")
+        # Multiple dots, or a single 3-digit trailing group, = thousands.
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
+            s = s.replace(".", "")
+        # else: genuine decimal point (e.g. '1234.56') -- leave as-is.
     try:
         n = float(s)
     except ValueError:

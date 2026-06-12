@@ -134,7 +134,7 @@ r = client.post("/settings/users/delete", data={"username": "amadou"},
 check("last user can't be removed", "amadou" in auth_admin.list_users())
 
 # Logout clears the cookie -> gated again
-client.get("/logout", follow_redirects=False)
+client.post("/logout", follow_redirects=False)   # logout is POST (CSRF-safe)
 client.cookies.clear()
 check("after logout: gated again",
       client.get("/", follow_redirects=False).status_code == 303)

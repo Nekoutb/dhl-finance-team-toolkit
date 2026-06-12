@@ -109,3 +109,12 @@ systemctl stop finance-toolkit
 tar -xzf /var/backups/finance-toolkit/finance-toolkit_<date>.tar.gz -C /opt/finance-toolkit
 systemctl start finance-toolkit
 ```
+
+## CSRF protection — proxy requirements (v6)
+The app rejects cross-site POSTs by comparing the browser Origin/Referer host
+against the Host header it receives. Two front-end rules keep this working:
+- The reverse proxy MUST preserve the client Host (Apache `ProxyPreserveHost On`,
+  already set; nginx `proxy_set_header Host $host`). A proxy that rewrites Host
+  to 127.0.0.1 would make every POST 403.
+- Keep any http->https redirect as **301/302** (certbot default), never 307/308.
+  A 307/308 replays the POST with `Origin: null`, which is (correctly) blocked.

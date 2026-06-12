@@ -91,12 +91,23 @@ print("ok: 'Exonérée' satisfies the VAT mention")
 
 # --- rules: billed-to-DHL identity (v5.7) ------------------------------------
 COMPANY = {"niu": "M098765432109B", "legal_name": "DHL EXPRESS CAMEROON SARL"}
-# matching NIU + close-enough name (extraction says 'DHL EXPRESS CAMEROON')
+# matching NIU + name (extraction says 'DHL EXPRESS CAMEROON' — SARL dropped)
 r = compliance.evaluate(full_extraction(), ACTIVE, company=COMPANY)
 assert r["verdict"] == "PASSED", r["failed"]
 assert any("NIU client = NIU DHL" in p["item"] for p in r["passed"])
-assert any("raison sociale DHL" in p["item"] for p in r["passed"])
-print("ok: invoice billed to DHL's NIU + legal name PASSES (fuzzy name ok)")
+assert any("raison sociale configurée" in p["item"] for p in r["passed"])
+# pass reveals no extra wording around the name
+assert all(p["value"] == "" for p in r["passed"]
+           if "raison sociale configurée" in p["item"])
+print("ok: invoice billed to DHL's NIU + legal name PASSES (clean confirm)")
+
+# v6: spacing-only differences must still PASS (exact match, ignore spacing)
+r = compliance.evaluate(full_extraction(
+    client_name=mention(True, "DHL   EXPRESS  CAMEROON   SARL")),
+    ACTIVE, company=COMPANY)
+assert r["verdict"] == "PASSED", r["failed"]
+assert any("raison sociale configurée" in p["item"] for p in r["passed"])
+print("ok: extra spacing in the destinator name still PASSES")
 
 # wrong client NIU on the invoice
 r = compliance.evaluate(full_extraction(

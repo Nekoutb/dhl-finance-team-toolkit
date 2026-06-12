@@ -143,6 +143,22 @@
     }
   });
 
+  /* ---- Downloads open in a new tab (don't interrupt the working page) ------- */
+  // Any link to a generated document (Excel exports, PDF receipts, invoices,
+  // certificates, reconciliations) opens in a separate tab so the current
+  // page — and any unsaved work on it — is never navigated away from.
+  var DL_RE = /\/(download|export|invoice|certificate)(\/|$)|\/[0-9a-f]+\/pdf\//i;
+  function markDownloads(scope) {
+    (scope || document).querySelectorAll('a[href]').forEach(function (a) {
+      var href = a.getAttribute("href") || "";
+      if (DL_RE.test(href) && !a.target) {
+        a.target = "_blank";
+        a.rel = "noopener";
+      }
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function () { markDownloads(); });
+
   /* ---- Busy state on every form submit (double-click guard) ----------------- */
   document.addEventListener("submit", function (e) {
     if (e.defaultPrevented) return;          // a validator cancelled it

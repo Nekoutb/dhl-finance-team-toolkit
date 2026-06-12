@@ -10,7 +10,7 @@ import re
 import uuid
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import http_exception_handler
@@ -57,6 +57,33 @@ async def gate_and_cache(request: Request, call_next):
     flow, static assets, customer portal links, downloads, health — are always
     open. The signed-cookie user is exposed on request.state.user for templates.
     """
+    # CSRF protection: a state-changing POST from a browser must originate
+    # from OUR own pages. Every modern browser attaches an Origin header to
+    # cross-site POSTs — reject any whose host differs from ours (Referer is
+    # the fallback for older browsers; the sandboxed "null" origin is always
+    # hostile). Non-browser clients send neither header and pass — they don't
+    # carry a victim's cookies, so CSRF doesn't apply to them.
+    if request.method == "POST":
+        origin = request.headers.get("origin", "")
+        source = origin or request.headers.get("referer", "")
+        if origin == "null":
+            csrf_blocked = True
+        elif source:
+            src_host = (urlparse(source).netloc or "").lower()
+            csrf_blocked = src_host != (request.headers.get("host", "")).lower()
+        else:
+            csrf_blocked = False
+        if csrf_blocked:
+            return templates.TemplateResponse("error.html", {
+                "request": request, "cfg": load_config(),
+                "icon": "🛡️", "heading": "Request blocked",
+                "detail": "This form submission came from another website "
+                          "(cross-site request), so it was rejected for your "
+                          "protection. Open the page on this site and submit "
+                          "again.",
+                "ref": "",
+            }, status_code=403)
+
     # Upload abuse guard: refuse oversized request bodies BEFORE reading them
     # into memory. Browsers always send Content-Length on form posts.
     if request.method == "POST":
@@ -204,8 +231,10 @@ async def login_submit(request: Request):
         "error": "Incorrect username or password."}, status_code=401)
 
 
-@app.get("/logout")
+@app.post("/logout")
 def logout():
+    # POST-only so the cross-site CSRF gate covers it — a malicious
+    # <img src=".../logout"> can no longer force-log-out a signed-in user.
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(auth.COOKIE)
     return resp
@@ -1457,10 +1486,16 @@ async def variance_analyze(request: Request):
                           "balances have Account / Name / Balance columns."))
     token = uuid.uuid4().hex[:12]
     label = (form.get("label") or "").strip()
-    variance.save_result(token, result, {
-        "label": label,
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
-    variance.build_excel(variance.OUT_DIR / f"{token}.xlsx", result, label)
+    try:
+        variance.save_result(token, result, {
+            "label": label,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        variance.build_excel(variance.OUT_DIR / f"{token}.xlsx", result, label)
+    except Exception as exc:  # noqa: BLE001 — never crash the worker
+        return templates.TemplateResponse(
+            "variance/index.html",
+            _variance_ctx(request, error=f"Analysis computed but could not be "
+                          f"saved/exported: {exc}"))
     n = len(result["expense"]) + len(result["balance"])
     return templates.TemplateResponse("variance/index.html", _variance_ctx(
         request, result=result, result_token=token,

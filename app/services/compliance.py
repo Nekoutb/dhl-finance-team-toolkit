@@ -78,19 +78,21 @@ def _norm_niu(value):
 
 
 def _name_matches(printed, configured):
-    """Tolerant company-name comparison (OCR noise, punctuation, suffixes)."""
-    import difflib
+    """Has the configured trading name been billed to on this invoice?
 
+    Exact match, ignoring spacing and letter case only (no fuzzy scoring —
+    that produced false failures). It passes as soon as the configured trading
+    name is seen within the invoice's destinator (or the destinator within the
+    configured name, e.g. when 'SARL' is dropped).
+    """
     def norm(s):
-        s = re.sub(r"[^A-Z0-9 ]", " ", str(s or "").upper())
-        return " ".join(s.split())
+        # Drop all whitespace + uppercase; keep the rest exactly.
+        return re.sub(r"\s+", "", str(s or "")).upper()
 
     a, b = norm(printed), norm(configured)
     if not a or not b:
         return False
-    if a in b or b in a:
-        return True
-    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
+    return b in a or a in b
 
 
 def evaluate(extraction, niu_status=None, company=None):
@@ -131,10 +133,12 @@ def evaluate(extraction, niu_status=None, company=None):
         printed = (extraction.get("client_name") or {})
         if printed.get("present") and printed.get("value"):
             if _name_matches(printed["value"], our_name):
-                passed.append({"item": "Identité client = raison sociale DHL "
-                                       "(configurée)",
+                # Trading name found on the invoice — confirm and move on,
+                # without echoing the extra wording around it.
+                passed.append({"item": f"Facturé à « {our_name} » (raison "
+                                       "sociale configurée)",
                                "basis": "Art. 150 (5) tiret 3",
-                               "value": printed["value"][:60]})
+                               "value": ""})
             else:
                 failed.append({
                     "item": "Identité client ≠ raison sociale DHL",
