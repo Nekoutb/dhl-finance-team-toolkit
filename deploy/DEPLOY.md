@@ -97,3 +97,15 @@ systemctl restart finance-toolkit
 - Back up `/opt/finance-toolkit/data/` and `config.json` (cron + offsite).
 - The `.bat` launchers and port-8801 notes are for local Windows use; on the
   VPS the systemd service owns the process.
+
+## Backups (installed 12 Jun 2026)
+`deploy/backup.sh` archives `data/` + `config.json` to
+`/var/backups/finance-toolkit/finance-toolkit_<date>.tar.gz` nightly at 02:30
+via `/etc/cron.d/finance-toolkit-backup`, keeping 14 days.
+
+Restore (stop the service first):
+```bash
+systemctl stop finance-toolkit
+tar -xzf /var/backups/finance-toolkit/finance-toolkit_<date>.tar.gz -C /opt/finance-toolkit
+systemctl start finance-toolkit
+```
