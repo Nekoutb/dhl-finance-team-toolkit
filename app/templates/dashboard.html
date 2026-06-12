@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block title %}Dashboard · {{ cfg.app_name }}{% endblock %}
 {% macro spark(seed) -%}
 <svg class="spark" viewBox="0 0 72 26" preserveAspectRatio="none" aria-hidden="true">
   {% if seed % 3 == 0 %}

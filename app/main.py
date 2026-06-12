@@ -10,6 +10,7 @@ import re
 import uuid
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import http_exception_handler
@@ -43,6 +44,10 @@ ASSET_V = hashlib.md5(APP_VERSION.encode()).hexdigest()[:8]
 templates.env.globals["asset_v"] = ASSET_V
 
 
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024            # 50 MB per request
+MAX_BATCH_UPLOAD_BYTES = 150 * 1024 * 1024     # compliance: up to 25 PDFs
+
+
 @app.middleware("http")
 async def gate_and_cache(request: Request, call_next):
     """Staff-login gate (when configured) + no-stale-cache header.
@@ -52,6 +57,22 @@ async def gate_and_cache(request: Request, call_next):
     flow, static assets, customer portal links, downloads, health — are always
     open. The signed-cookie user is exposed on request.state.user for templates.
     """
+    # Upload abuse guard: refuse oversized request bodies BEFORE reading them
+    # into memory. Browsers always send Content-Length on form posts.
+    if request.method == "POST":
+        limit = (MAX_BATCH_UPLOAD_BYTES
+                 if request.url.path == "/tools/invoice-compliance/upload"
+                 else MAX_UPLOAD_BYTES)
+        length = request.headers.get("content-length", "")
+        if length.isdigit() and int(length) > limit:
+            return templates.TemplateResponse("error.html", {
+                "request": request, "cfg": load_config(),
+                "icon": "📦", "heading": "Upload too large",
+                "detail": f"That upload is {int(length) / 1_048_576:,.0f} MB — "
+                          f"the limit is {limit // 1_048_576} MB per upload. "
+                          "Split the file(s) and try again.",
+                "ref": "",
+            }, status_code=413)
     cfg = load_config()
     auth_cfg = cfg.get("auth", {})
     user = None
@@ -79,6 +100,22 @@ async def gate_and_cache(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = \
             "max-age=31536000; includeSubDomains"
     return response
+
+
+def redirect_msg(path, message="", error="", status_code=303):
+    """303 redirect to ``path`` with a URL-encoded message/error param.
+
+    Use this whenever the banner text contains dynamic content (an exception,
+    a filename, a customer name…) so a stray '&' or '?' can't garble the URL.
+    """
+    params = {}
+    if message:
+        params["message"] = message
+    if error:
+        params["error"] = error
+    sep = "&" if "?" in path else "?"
+    target = f"{path}{sep}{urlencode(params)}" if params else path
+    return RedirectResponse(target, status_code=status_code)
 
 
 @app.get("/healthz")
@@ -525,8 +562,7 @@ async def ongoing_priority_bulk(request: Request):
                 "(kept as typed — they match analyses by account/name): "
                 + ", ".join(unmatched[:5])
                 + ("…" if len(unmatched) > 5 else ""))
-    return RedirectResponse(
-        f"/tools/ongoing-ctp-monitoring/master?message={msg}", status_code=303)
+    return redirect_msg("/tools/ongoing-ctp-monitoring/master", message=msg)
 
 
 @app.post("/tools/ongoing-ctp-monitoring/analyze", response_class=HTMLResponse)
@@ -888,21 +924,20 @@ async def remittance_forward(request: Request, token: str):
     if smtp.get("enabled"):
         try:
             emailer.send_via_smtp(smtp, to_addr, subject, body, attachment)
-            msg = f"Allocation for {stmt['customer_name']} forwarded to {to_addr}."
-            return RedirectResponse(
-                f"/tools/remittance-portal/allocations?message={msg}",
-                status_code=303)
+            return redirect_msg(
+                "/tools/remittance-portal/allocations",
+                message=f"Allocation for {stmt['customer_name']} forwarded "
+                        f"to {to_addr}.")
         except Exception as exc:  # noqa: BLE001
-            return RedirectResponse(
-                f"/tools/remittance-portal/allocations?error=SMTP failed: {exc}",
-                status_code=303)
+            return redirect_msg("/tools/remittance-portal/allocations",
+                                error=f"SMTP failed: {exc}")
     eml = OUTPUT_DIR / f"fwd_allocation_{token[:8]}.eml"
     emailer.build_eml(eml, smtp.get("from_address", ""), to_addr, subject,
                       body, attachment)
-    return RedirectResponse(
-        f"/tools/remittance-portal/allocations?message=SMTP not configured — "
-        f"ready-to-send email created: {eml.name} (in downloads).",
-        status_code=303)
+    return redirect_msg(
+        "/tools/remittance-portal/allocations",
+        message=f"SMTP not configured — ready-to-send email created: "
+                f"{eml.name} (in downloads).")
 
 
 @app.get("/tools/remittance-portal/settings", response_class=HTMLResponse)
@@ -927,8 +962,7 @@ async def remittance_settings_save(request: Request):
     settings["forward_default"] = forward_default if "@" in forward_default else ""
     remittance_store.save_settings(settings)
     msg = f"Saved — reconciliations will be sent to {len(recipients)} address(es)."
-    return RedirectResponse(f"/tools/remittance-portal/settings?message={msg}",
-                            status_code=303)
+    return redirect_msg("/tools/remittance-portal/settings", message=msg)
 
 
 @app.get("/tools/remittance-portal/contacts", response_class=HTMLResponse)
@@ -950,10 +984,10 @@ async def remittance_send_link(request: Request, token: str):
     to_addr = (form.get("email") or "").strip()
     batch_id = stmt.get("batch_id", "")
     if not to_addr or "@" not in to_addr:
-        return RedirectResponse(
-            f"/tools/remittance-portal/batch/{batch_id}?message=No valid email "
-            f"for {stmt['customer_name']} — type one in the row and retry.",
-            status_code=303)
+        return redirect_msg(
+            f"/tools/remittance-portal/batch/{batch_id}",
+            message=f"No valid email for {stmt['customer_name']} — type one "
+                    "in the row and retry.")
 
     link = f"{str(request.base_url).rstrip('/')}/portal/{token}"
     subject = f"Your account statement & payment allocation — {cfg['organization']}"
@@ -994,8 +1028,7 @@ async def remittance_send_link(request: Request, token: str):
                           body, html_body=html_body)
         msg = (f"SMTP not configured — a ready-to-send email was created: "
                f"download '{eml.name}' from the row and send it from Outlook.")
-    return RedirectResponse(
-        f"/tools/remittance-portal/batch/{batch_id}?message={msg}", status_code=303)
+    return redirect_msg(f"/tools/remittance-portal/batch/{batch_id}", message=msg)
 
 
 # --- Customer-facing portal ------------------------------------------------- #
@@ -1725,7 +1758,7 @@ async def momo_settings_save(request: Request):
     momo.save_settings(settings)
     msg = f"Saved — receipts will be emailed to {recipient}." if "@" in recipient \
         else "Recipient cleared."
-    return RedirectResponse(f"/tools/momo?message={msg}", status_code=303)
+    return redirect_msg("/tools/momo", message=msg)
 
 
 @app.post("/tools/momo/upload", response_class=HTMLResponse)
@@ -1932,8 +1965,7 @@ async def vendor_certificates(request: Request,
         bits.append("⚠ header/body issue dates differ on: " + ", ".join(mismatches))
     if skipped:
         bits.append("skipped: " + "; ".join(skipped[:4]))
-    return RedirectResponse(
-        f"/tools/vendor-niu?message={'; '.join(bits)}.", status_code=303)
+    return redirect_msg("/tools/vendor-niu", message="; ".join(bits) + ".")
 
 
 @app.get("/tools/vendor-niu/certificate/{niu}")
@@ -1962,9 +1994,8 @@ async def vendor_upload(request: Request, file: UploadFile = File(...)):
     try:
         parsed, rejected = vendors.parse_workbook(dest)
     except Exception as exc:  # noqa: BLE001
-        return RedirectResponse(
-            f"/tools/vendor-niu?error=Could not read that file: {exc}",
-            status_code=303)
+        return redirect_msg("/tools/vendor-niu",
+                            error=f"Could not read that file: {exc}")
     if not parsed:
         return RedirectResponse(
             "/tools/vendor-niu?error=No taxpayer IDs recognised in that file — "
@@ -1981,7 +2012,7 @@ async def vendor_upload(request: Request, file: UploadFile = File(...)):
             vendors.apply_result(result)
         msg += f" Checked {len(results)} NIU(s) on DGI Fiscalis."
     msg += " Report below — see the OK-to-pay column; export to Excel anytime."
-    return RedirectResponse(f"/tools/vendor-niu?message={msg}", status_code=303)
+    return redirect_msg("/tools/vendor-niu", message=msg)
 
 
 @app.post("/tools/vendor-niu/update")
@@ -2065,9 +2096,9 @@ async def vendor_verify(request: Request):
     for result in results:
         counts[result["status"]] = counts.get(result["status"], 0) + 1
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
-    return RedirectResponse(
-        f"/tools/vendor-niu?message=Checked {len(results)} NIU(s) on DGI Fiscalis: {summary}.",
-        status_code=303)
+    return redirect_msg(
+        "/tools/vendor-niu",
+        message=f"Checked {len(results)} NIU(s) on DGI Fiscalis: {summary}.")
 
 
 @app.post("/tools/vendor-niu/delete")
@@ -2177,9 +2208,9 @@ async def settings_user_add(request: Request):
                   secure_cookies=(request.url.scheme == "https"),
                   admin=make_admin)
     role = "administrator" if make_admin else "employee"
-    return RedirectResponse(
-        f"/settings?message=User '{username}' added as {role}. Staff login "
-        "is enabled.", status_code=303)
+    return redirect_msg(
+        "/settings",
+        message=f"User '{username}' added as {role}. Staff login is enabled.")
 
 
 @app.post("/settings/users/delete")
@@ -2194,8 +2225,8 @@ async def settings_user_delete(request: Request):
             "/settings?error=You can't delete the account you're signed in with.",
             status_code=303)
     if auth.delete_user(username):
-        return RedirectResponse(f"/settings?message=User '{username}' removed.",
-                                status_code=303)
+        return redirect_msg("/settings",
+                            message=f"User '{username}' removed.")
     return RedirectResponse(
         "/settings?error=Could not remove that user (the last user can't be removed).",
         status_code=303)
@@ -2276,8 +2307,7 @@ async def settings_ai_test(request: Request):
             "/settings?message=✓ Anthropic API key works — AI invoice "
             "reading is ready.", status_code=303)
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
-        return RedirectResponse(f"/settings?error=AI key test failed: {exc}",
-                                status_code=303)
+        return redirect_msg("/settings", error=f"AI key test failed: {exc}")
 
 
 @app.post("/settings/smtp")
@@ -2326,13 +2356,12 @@ async def app_settings_test(request: Request):
             f"Test — {cfg['app_name']}",
             "This is a test email from the Finance Team Toolkit. "
             "SMTP is configured correctly.")
-        return RedirectResponse(
-            f"/settings?message=✓ Test email sent to {to_addr} — SMTP works.",
-            status_code=303)
+        return redirect_msg(
+            "/settings",
+            message=f"✓ Test email sent to {to_addr} — SMTP works.")
     except Exception as exc:  # noqa: BLE001
-        return RedirectResponse(
-            f"/settings?error=Test failed: {type(exc).__name__}: {exc}",
-            status_code=303)
+        return redirect_msg(
+            "/settings", error=f"Test failed: {type(exc).__name__}: {exc}")
 
 
 # --------------------------------------------------------------------------- #
