@@ -5,15 +5,18 @@ Run with:  uvicorn app.main:app --reload
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import uuid
 from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
@@ -73,6 +76,40 @@ async def gate_and_cache(request: Request, call_next):
 @app.get("/healthz")
 def healthz():
     return {"status": "ok", "version": APP_VERSION}
+
+
+# --------------------------------------------------------------------------- #
+# Friendly error pages — never show users a bare "Internal Server Error".
+# --------------------------------------------------------------------------- #
+_log = logging.getLogger("uvicorn.error")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error_page(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404 and "text/html" in (request.headers.get("accept") or ""):
+        return templates.TemplateResponse("error.html", {
+            "request": request, "cfg": load_config(),
+            "icon": "🧭", "heading": "Page not found",
+            "detail": "That page doesn't exist (or the link has expired). "
+                      "Use the dashboard to find the tool you need.",
+            "ref": "",
+        }, status_code=404)
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_page(request: Request, exc: Exception):
+    ref = uuid.uuid4().hex[:8].upper()
+    _log.exception("Unhandled error %s on %s %s", ref, request.method,
+                   request.url.path)
+    return templates.TemplateResponse("error.html", {
+        "request": request, "cfg": load_config(),
+        "icon": "⚠️", "heading": "Something went wrong",
+        "detail": "The error has been logged and nothing you entered was "
+                  "lost on our side. Please go back and try again — if it "
+                  "keeps happening, report the reference below.",
+        "ref": ref,
+    }, status_code=500)
 
 
 @app.get("/login", response_class=HTMLResponse)

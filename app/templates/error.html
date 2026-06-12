@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ heading }} · {{ cfg.app_name }}</title>
+  <script>
+    (function () { try { var t = localStorage.getItem("ft-theme");
+      if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {} })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Albert+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v={{ asset_v }}">
+</head>
+<body>
+  <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
+    <section class="panel" style="width:min(460px,94vw);text-align:center;">
+      <div style="font-size:42px;margin-bottom:6px;">{{ icon }}</div>
+      <h1 style="margin:0 0 8px;">{{ heading }}</h1>
+      <p class="lead" style="margin-bottom:16px;">{{ detail }}</p>
+      {% if ref %}
+      <p class="note-small" style="margin-bottom:16px;">Error reference:
+        <code>{{ ref }}</code> — quote this code when reporting the issue and
+        we can find exactly what happened in the logs.</p>
+      {% endif %}
+      <a class="btn btn-primary" href="/">← Back to the dashboard</a>
+    </section>
+  </main>
+  <footer class="footer">
+    <span>{{ cfg.app_name }} · {{ app_version }}</span>
+  </footer>
+</body>
+</html>
