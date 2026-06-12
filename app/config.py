@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v5.10 — 12 Jun 2026 · static assets cached (faster page loads on every visit)"
+APP_VERSION = "v5.11 — 12 Jun 2026 · big tables capped with filter & show-more (snappy on 10k-row files)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

@@ -151,6 +151,15 @@
     const n = parseFloat(t.replace(/[\s,%]/g, "").replace(/[—–-]$/, ""));
     return isNaN(n) || !/[\d]/.test(t) ? t.toLowerCase() : n;
   }
+  function rowComparator(idx, asc) {
+    return (a, b) => {
+      const va = cellValue(a, idx), vb = cellValue(b, idx);
+      if (typeof va === "number" && typeof vb === "number")
+        return asc ? va - vb : vb - va;
+      return asc ? String(va).localeCompare(String(vb))
+                 : String(vb).localeCompare(String(va));
+    };
+  }
   document.addEventListener("click", function (e) {
     const th = e.target.closest(".tx-table thead th");
     if (!th || e.target.closest("input,button,a,form")) return;
@@ -162,15 +171,84 @@
     table.querySelectorAll("thead th").forEach(h =>
       h.classList.remove("sort-asc", "sort-desc"));
     th.classList.add(asc ? "sort-asc" : "sort-desc");
+    const cap = table._ftCap;
+    if (cap) {                       // capped table: sort the FULL row set
+      cap.rows.sort(rowComparator(idx, asc));
+      cap.render();
+      return;
+    }
     Array.from(tbody.rows)
-      .sort((a, b) => {
-        const va = cellValue(a, idx), vb = cellValue(b, idx);
-        if (typeof va === "number" && typeof vb === "number")
-          return asc ? va - vb : vb - va;
-        return asc ? String(va).localeCompare(String(vb))
-                   : String(vb).localeCompare(String(va));
-      })
+      .sort(rowComparator(idx, asc))
       .forEach(r => tbody.appendChild(r));
+  });
+
+  /* ---- Large-table cap: filter + "show more" so 10k-row files stay snappy --- */
+  const CAP_STEP = 200;
+  function enhanceTable(table) {
+    const tbody = table.tBodies[0];
+    if (!tbody || tbody.rows.length <= CAP_STEP || table._ftCap) return;
+    const inForm = !!table.closest("form");   // form rows must stay in the DOM
+    const cap = table._ftCap = {
+      rows: Array.from(tbody.rows),
+      shown: CAP_STEP,
+      query: "",
+      render: null,
+    };
+    const wrap = table.closest(".table-wrap") || table;
+    const foot = document.createElement("div");
+    foot.className = "table-foot";
+    foot.innerHTML =
+      '<input type="text" class="table-filter" placeholder="Filter rows…">' +
+      '<span class="table-count"></span>' +
+      '<button type="button" class="btn btn-small tf-more">Show ' + CAP_STEP + " more</button>" +
+      '<button type="button" class="btn btn-small tf-all">Show all</button>';
+    wrap.insertAdjacentElement("afterend", foot);
+    const countEl = foot.querySelector(".table-count");
+
+    cap.render = function () {
+      const q = cap.query;
+      const match = q
+        ? cap.rows.filter(r => r.textContent.toLowerCase().indexOf(q) !== -1)
+        : cap.rows;
+      const visible = match.slice(0, cap.shown);
+      if (inForm) {
+        const show = new Set(visible);
+        cap.rows.forEach(r => { r.style.display = show.has(r) ? "" : "none"; });
+        // keep DOM order in sync with sorted order
+        cap.rows.forEach(r => tbody.appendChild(r));
+      } else {
+        tbody.replaceChildren(...visible);
+      }
+      countEl.textContent = "Showing " + visible.length.toLocaleString() +
+        " of " + match.length.toLocaleString() +
+        (q ? " matching" : "") + " rows";
+      foot.querySelector(".tf-more").style.display =
+        visible.length < match.length ? "" : "none";
+      foot.querySelector(".tf-all").style.display =
+        visible.length < match.length ? "" : "none";
+    };
+    foot.querySelector(".tf-more").addEventListener("click", function () {
+      cap.shown += CAP_STEP; cap.render();
+    });
+    foot.querySelector(".tf-all").addEventListener("click", function () {
+      cap.shown = Infinity; cap.render();
+    });
+    let t = null;
+    foot.querySelector(".table-filter").addEventListener("input", function (e) {
+      clearTimeout(t);
+      t = setTimeout(function () {
+        cap.query = e.target.value.trim().toLowerCase();
+        cap.shown = CAP_STEP;
+        cap.render();
+      }, 150);
+    });
+    cap.render();
+  }
+  window.ftEnhanceTables = function (root_) {
+    (root_ || document).querySelectorAll(".tx-table").forEach(enhanceTable);
+  };
+  document.addEventListener("DOMContentLoaded", function () {
+    window.ftEnhanceTables();
   });
 
   /* ---- Floating bulk-select bar --------------------------------------------- */
