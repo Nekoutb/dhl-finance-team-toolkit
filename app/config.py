@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v5.12 — 12 Jun 2026 · friendly error & 404 pages with loggable reference codes"
+APP_VERSION = "v5.13 — 12 Jun 2026 · security headers + busy-state on every form submit"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

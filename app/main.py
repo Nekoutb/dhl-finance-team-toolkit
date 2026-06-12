@@ -70,6 +70,14 @@ async def gate_and_cache(request: Request, call_next):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
         response.headers["Cache-Control"] = "no-store, must-revalidate"
+    # Baseline security headers (HSTS only matters behind HTTPS; harmless
+    # locally). Frame-blocking protects the login & portal from clickjacking.
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.url.scheme == "https" or cfg.get("auth", {}).get("secure_cookies"):
+        response.headers["Strict-Transport-Security"] = \
+            "max-age=31536000; includeSubDomains"
     return response
 
 

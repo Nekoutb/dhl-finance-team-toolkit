@@ -20,8 +20,7 @@
     <h2 class="section-title">Run a compliance batch</h2>
     {% if ai_ready %}
     <form action="/tools/invoice-compliance/upload" method="post"
-          enctype="multipart/form-data" class="upload-form"
-          onsubmit="var b=this.querySelector('button[type=submit]');b.textContent='⏳ Starting the batch…';setTimeout(function(){b.disabled=true;},0);">
+          enctype="multipart/form-data" class="upload-form">
       <label class="filedrop" style="flex:1;">
         <input type="file" name="invoices" accept=".pdf" multiple required>
         <span class="filedrop-text">Select up to {{ max_invoices }} invoice

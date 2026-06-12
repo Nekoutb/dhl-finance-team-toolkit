@@ -143,6 +143,34 @@
     }
   });
 
+  /* ---- Busy state on every form submit (double-click guard) ----------------- */
+  document.addEventListener("submit", function (e) {
+    if (e.defaultPrevented) return;          // a validator cancelled it
+    const form = e.target;
+    const btn = e.submitter ||
+      form.querySelector('button[type="submit"], input[type="submit"]');
+    if (!btn || btn.disabled) return;
+    // Defer so the button's own name/value still serialize into the POST.
+    setTimeout(function () {
+      btn.disabled = true;
+      if (btn.classList.contains("btn-primary") && !btn.dataset.busyKeep) {
+        btn.dataset.orig = btn.textContent;
+        btn.textContent = "⏳ Working…";
+      }
+    }, 0);
+  });
+  // Back/forward cache restores the page with buttons still disabled — undo.
+  window.addEventListener("pageshow", function () {
+    document.querySelectorAll("button[disabled][data-orig]").forEach(function (b) {
+      b.disabled = false;
+      b.textContent = b.dataset.orig;
+      delete b.dataset.orig;
+    });
+    document.querySelectorAll('button[type="submit"][disabled]').forEach(function (b) {
+      b.disabled = false;
+    });
+  });
+
   /* ---- Sortable data tables ------------------------------------------------- */
   function cellValue(row, idx) {
     const cell = row.children[idx];

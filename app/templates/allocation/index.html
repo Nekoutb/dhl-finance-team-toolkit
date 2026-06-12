@@ -60,8 +60,7 @@
           scan, so AI vision reads the amounts for you)</span></h3>
       {% if ai_ready %}
       <form action="/tools/vendor-invoice-allocation/eno/extract" method="post"
-            enctype="multipart/form-data" class="upload-form"
-            onsubmit="var b=this.querySelector('button[type=submit]');b.textContent='⏳ Reading the invoice…';setTimeout(function(){b.disabled=true;},0);">
+            enctype="multipart/form-data" class="upload-form">
         <label class="filedrop" style="flex:1;">
           <input type="file" name="invoice_pdf" accept=".pdf" required>
           <span class="filedrop-text">Upload the ENEO invoice PDF — AI extracts
