@@ -11,9 +11,14 @@ Environment="PATH=/opt/finance-toolkit/.venv/bin"
 # --forwarded-allow-ips makes the uvicorn worker trust X-Forwarded-* from
 # Nginx (TLS termination), so scheme/secure cookies work. NB: --proxy-headers
 # is a uvicorn-CLI flag, NOT a gunicorn one — don't add it here.
+# -w 3: one more worker for concurrency headroom (the VPS is shared).
+# --timeout 180: a worker stuck on a slow upload / AI call (up to 4 min) is
+#   recycled rather than hanging forever; --graceful-timeout lets in-flight
+#   requests finish on restart.
 ExecStart=/opt/finance-toolkit/.venv/bin/gunicorn app.main:app \
     -k uvicorn.workers.UvicornWorker \
-    -w 2 -b 127.0.0.1:8801 \
+    -w 3 -b 127.0.0.1:8801 \
+    --timeout 300 --graceful-timeout 30 \
     --forwarded-allow-ips=127.0.0.1 \
     --access-logfile - --error-logfile -
 Restart=always
