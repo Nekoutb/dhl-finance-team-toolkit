@@ -24,6 +24,26 @@
   window.ftToggleTheme = function () {
     setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
   };
+
+  /* ---- Mobile navigation (off-canvas sidebar) ------------------------------ */
+  function paintNav(open) {
+    // Inline transform mirrors the CSS class so the drawer moves even on
+    // engines that lag class-driven transitions (see theme-toggle fix).
+    var sb = document.querySelector(".sidebar");
+    if (sb && window.matchMedia("(max-width: 820px)").matches)
+      sb.style.transform = open ? "none" : "";
+  }
+  window.ftToggleNav = function () {
+    paintNav(root.classList.toggle("nav-open"));
+  };
+  window.ftCloseNav = function () {
+    root.classList.remove("nav-open");
+    paintNav(false);
+  };
+  document.addEventListener("click", function (e) {
+    // Following a nav link closes the drawer so the page behind is visible.
+    if (e.target.closest(".sidebar .nav-item")) window.ftCloseNav();
+  });
   document.addEventListener("DOMContentLoaded", function () {
     paintToggle(root.getAttribute("data-theme"));
   });
@@ -103,6 +123,7 @@
   document.addEventListener("keydown", function (e) {
     const tag = (e.target.tagName || "").toLowerCase();
     const typing = tag === "input" || tag === "textarea" || tag === "select";
+    if (e.key === "Escape") window.ftCloseNav();
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault(); openPalette(); return;
     }

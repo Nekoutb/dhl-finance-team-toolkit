@@ -75,8 +75,14 @@
     </div>
   </aside>
 
+  <div class="nav-overlay" onclick="ftCloseNav()" aria-hidden="true"></div>
+
   <div class="main">
     <header class="topbar">
+      <button class="icon-btn nav-burger" onclick="ftToggleNav()"
+              title="Menu" aria-label="Open navigation menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
       <div class="search" onclick="ftOpenPalette()" title="Search & jump (Ctrl+K)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         Search or jump to… <kbd>Ctrl K</kbd>
