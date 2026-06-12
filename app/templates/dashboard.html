@@ -15,7 +15,12 @@
 {%- endmacro %}
 {% block content %}
   <section style="margin-bottom:14px;">
+    {% if welcome %}
+    <h1 style="margin:0 0 4px;font-size:22px;letter-spacing:-0.01em;">
+      Welcome {{ welcome|upper }} 👋</h1>
+    {% else %}
     <h1 style="margin:0 0 4px;font-size:22px;letter-spacing:-0.01em;">Good day 👋</h1>
+    {% endif %}
     <p class="lead" style="margin:0;">Operations overview
       {% if s.as_of %}· receivables as-of {{ s.as_of }}{% endif %}
       · press <kbd>Ctrl K</kbd> to jump anywhere</p>

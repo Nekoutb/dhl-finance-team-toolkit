@@ -13,7 +13,15 @@
 
   <!-- ===== ENEO ===== -->
   <section class="panel">
-    <h2 class="section-title">⚡ ENEO — electricity (REPARTITION ENEO)</h2>
+    <span class="brand-chip" title="ENEO — The energy of Cameroon">
+      <svg width="62" height="26" viewBox="0 0 62 26" role="img" aria-label="eneo">
+        <rect width="62" height="26" rx="5" fill="#76B82A"/>
+        <text x="31" y="18.5" font-family="Arial, sans-serif" font-size="15"
+              font-weight="800" text-anchor="middle" letter-spacing="-0.5"><tspan
+              fill="#1B75BB">e</tspan><tspan fill="#ffffff">neo</tspan></text>
+      </svg></span>
+    <h2 class="section-title" style="padding-right:78px;">ENEO — electricity
+      (REPARTITION ENEO)</h2>
 
     {% if eno_key %}
       <p class="note-small">Allocation key on file: <strong>{{ eno_key.customers|length }}</strong>
@@ -23,6 +31,12 @@
       <div class="alert alert-info">No allocation key yet — upload the
         REPARTITION-style Excel (customer → functions → %).</div>
     {% endif %}
+
+    <details class="drop" {% if result or extraction or error %}open{% endif %}>
+      <summary><span class="drop-title">Open the ENEO allocation workspace</span>
+        <span class="drop-val">{% if result %}répartition ready{% else %}click to
+          reveal{% endif %}</span></summary>
+      <div style="padding:4px 16px 16px;">
 
     <details class="meta-box">
       <summary>Upload / replace the allocation key (Excel)</summary>
@@ -151,6 +165,12 @@
       {% if invoice_no %}· {{ invoice_no }}{% endif %}</h3>
     <div class="download-row">
       <a class="btn btn-primary" href="/tools/vendor-invoice-allocation/eno/export/{{ result_token }}">⬇ Download Excel</a>
+      <form action="/tools/vendor-invoice-allocation/eno/email/{{ result_token }}"
+            method="post" class="send-link-form">
+        <input type="email" name="email" class="email-input" required
+               style="width:220px;" placeholder="send it to my email…">
+        <button class="btn" type="submit">✉️ Email me the répartition</button>
+      </form>
     </div>
     <div class="table-wrap">
       <table class="tx-table">
@@ -205,19 +225,46 @@
       </div>
     </details>
     {% endif %}
+
+      </div>
+    </details>
   </section>
 
   <!-- ===== MTN ===== -->
   <section class="panel">
-    <h2 class="section-title">📱 MTN</h2>
-    <p class="lead">Awaiting an MTN invoice example and its allocation template.
-      Send one and this section works like ENEO.</p>
+    <span class="brand-chip" title="MTN">
+      <svg width="52" height="26" viewBox="0 0 52 26" role="img" aria-label="MTN">
+        <rect width="52" height="26" rx="6" fill="#FFCB05"/>
+        <ellipse cx="26" cy="13" rx="19" ry="8.5" fill="none" stroke="#004F9F"
+                 stroke-width="2"/>
+        <text x="26" y="16.8" font-family="Arial, sans-serif" font-size="10"
+              font-weight="800" fill="#004F9F" text-anchor="middle">MTN</text>
+      </svg></span>
+    <h2 class="section-title" style="padding-right:68px;">MTN</h2>
+    <details class="drop">
+      <summary><span class="drop-title">Open the MTN allocation workspace</span>
+        <span class="drop-val">coming soon</span></summary>
+      <p class="lead" style="padding:10px 16px;">Awaiting your MTN invoice
+        example and its allocation template — share one and this section works
+        like ENEO.</p>
+    </details>
   </section>
 
   <!-- ===== ORANGE ===== -->
   <section class="panel">
-    <h2 class="section-title">🟠 ORANGE</h2>
-    <p class="lead">Awaiting an Orange invoice example and its allocation
-      template. Send one and this section works like ENEO.</p>
+    <span class="brand-chip" title="Orange">
+      <svg width="26" height="26" viewBox="0 0 26 26" role="img" aria-label="Orange">
+        <rect width="26" height="26" rx="3" fill="#FF7900"/>
+        <text x="13" y="22" font-family="Arial, sans-serif" font-size="6"
+              font-weight="700" fill="#ffffff" text-anchor="middle">orange™</text>
+      </svg></span>
+    <h2 class="section-title" style="padding-right:42px;">ORANGE</h2>
+    <details class="drop">
+      <summary><span class="drop-title">Open the Orange allocation workspace</span>
+        <span class="drop-val">coming soon</span></summary>
+      <p class="lead" style="padding:10px 16px;">Awaiting your Orange invoice
+        example and its allocation template — share one and this section works
+        like ENEO.</p>
+    </details>
   </section>
 {% endblock %}

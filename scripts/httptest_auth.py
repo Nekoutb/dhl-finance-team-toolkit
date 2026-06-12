@@ -81,9 +81,11 @@ r = client.get("/settings")
 check("settings shows staff users + your account",
       "Staff users" in r.text and "Your account" in r.text and "finance" in r.text)
 
-# Onboard a new user
+# Onboard a new user (as an administrator, so he can manage users below —
+# v5.4 made user management admin-only)
 r = client.post("/settings/users/add",
-                data={"username": "amadou", "password": "welcome123"},
+                data={"username": "amadou", "password": "welcome123",
+                      "is_admin": "on"},
                 follow_redirects=False)
 check("add user -> redirect", r.status_code == 303)
 check("new user persisted (hashed)", "amadou" in auth_admin.list_users())

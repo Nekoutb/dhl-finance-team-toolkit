@@ -48,6 +48,16 @@
         {% if r.readability == 'poor' %} · <span class="pill pill-watch">poor scan</span>{% endif %}
         · <a href="/tools/invoice-compliance/batch/{{ token }}/pdf/{{ inv.idx }}"
              target="_blank">📄 open invoice</a>
+        <br>Taxpayer ID (NIU): <strong>{{ r.supplier_niu or 'not readable' }}</strong>
+        · DGI Fiscalis:
+        {% if r.dgi_status == 'active' %}
+          <span class="pill pill-ok">ACTIVE</span>
+          {% if r.dgi_name %}<span class="note-inline">({{ r.dgi_name }})</span>{% endif %}
+        {% elif r.dgi_status in ('inactive', 'not_found') %}
+          <span class="pill pill-stop">{{ r.dgi_status | upper }}</span>
+        {% else %}
+          <span class="pill pill-watch">{{ r.dgi_status | upper }}</span>
+        {% endif %}
       </p>
 
       {% if r.failed %}

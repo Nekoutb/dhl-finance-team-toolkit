@@ -158,4 +158,45 @@
     </details>
   </section>
 
+  <!-- 7. On credit hold but paying — bank statement credits -->
+  <section class="panel">
+    <h2 class="section-title">On credit hold — possible payments on the bank
+      statement</h2>
+    <p class="lead">Upload a bank statement; customers currently <strong>on
+      credit hold</strong> whose names appear (or closely match) in the credit
+      transaction narrations are flagged — a possible payment has been made,
+      so review the hold before keeping it.</p>
+    <form action="{{ base }}/bank" method="post" enctype="multipart/form-data" class="upload-form">
+      <label class="filedrop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required>
+        <span class="filedrop-text">Choose the bank statement (.xlsx / .xls / .pdf)</span>
+      </label>
+      <button class="btn btn-primary" type="submit">Match held customers</button>
+    </form>
+    {% if bank %}
+    {% set held_matches = bank.matches | selectattr("currently_held") | list %}
+    <details class="drop" {% if held_matches %}open{% endif %}>
+      <summary><span class="drop-title">Held customers paying</span>
+        <span class="drop-val">{{ held_matches|length }} match(es) ·
+          {{ bank.lines }} bank credit lines</span></summary>
+      {% if held_matches %}
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer (on hold)</th><th>Account</th><th>Open AR</th>
+          <th>Match</th><th>Bank narration</th><th>Bank amount</th><th>Date</th></tr></thead>
+        <tbody>
+          {% for m in held_matches %}
+          <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td><td>{{ money(m.total_ar) }}</td>
+            <td>{{ "{:.0f}".format(m.score * 100) }}%</td>
+            <td>{{ m.bank_description }}</td><td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      <p class="note-small" style="padding:8px 16px;">Close matches included —
+        check the % column. A payment received is grounds to review/release the
+        hold once it is applied.</p>
+      {% else %}<p class="note-small" style="padding:10px 16px;">No customer on
+        credit hold matched the credit narrations on this statement.</p>{% endif %}
+    </details>
+    {% endif %}
+  </section>
 {% endblock %}

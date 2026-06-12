@@ -10,6 +10,15 @@
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
 
+  {% if not is_admin %}
+  <section class="panel">
+    <div class="alert alert-info">You are signed in as an
+      <strong>employee</strong> — user onboarding and system settings are
+      managed by an administrator. You can change your own password below.</div>
+  </section>
+  {% endif %}
+
+  {% if is_admin %}
   <!-- ===== Staff users (admin) ===== -->
   <section class="panel">
     <h2 class="section-title">👥 Staff users</h2>
@@ -22,12 +31,19 @@
     {% if users %}
     <div class="table-wrap" style="max-height:none;margin-bottom:14px;">
       <table class="tx-table">
-        <thead><tr><th>Username</th><th></th></tr></thead>
+        <thead><tr><th>Username</th><th>Role</th><th></th></tr></thead>
         <tbody>
           {% for u in users %}
           <tr>
             <td><strong>{{ u }}</strong>
               {% if u == current_user %}<span class="pill pill-ok">you</span>{% endif %}</td>
+            <td>
+              {% if admins is none or u in admins %}
+                <span class="pill pill-manual">administrator</span>
+              {% else %}
+                <span class="pill pill-auto">employee</span>
+              {% endif %}
+            </td>
             <td>
               {% if u != current_user %}
               <form action="/settings/users/delete" method="post" class="row-form"
@@ -52,12 +68,21 @@
         <label class="field"><span>Temporary password (min 6 chars)</span>
           <input type="text" name="password" autocomplete="off" required
                  minlength="6"></label>
+        <label class="field" style="min-width:170px;">
+          <span>Role</span>
+          <span style="padding-top:8px;"><label><input type="checkbox"
+            name="is_admin"> Administrator (sees Settings &amp;
+            onboarding)</label></span>
+        </label>
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top:8px;">Add user</button>
       <p class="note-small" style="margin-top:6px;">Share the temporary password
-        with the new user; they can change it here after signing in.</p>
+        with the new user; they can change it here after signing in. Employees
+        see the tools only — Settings stays admin-only. After signing in, the
+        dashboard welcomes them by name.</p>
     </form>
   </section>
+  {% endif %}
 
   <!-- ===== Your account ===== -->
   {% if current_user %}
@@ -77,6 +102,7 @@
   </section>
   {% endif %}
 
+  {% if is_admin %}
   <!-- ===== AI document reading ===== -->
   <section class="panel">
     <h2 class="section-title">🤖 AI document reading (Anthropic)</h2>
@@ -203,4 +229,5 @@
       at login.yahoo.com → Account Security → Generate app password; your
       normal Yahoo password will be rejected.</p>
   </section>
+  {% endif %}
 {% endblock %}

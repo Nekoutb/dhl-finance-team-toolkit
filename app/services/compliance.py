@@ -223,6 +223,11 @@ def evaluate(extraction, niu_status=None):
         "ttc": ttc,
         "currency": extraction.get("currency") or "",
         "readability": extraction.get("readability") or "",
+        # Taxpayer ID read off the invoice + the live Fiscalis verdict.
+        "supplier_niu": (extraction.get("supplier_niu") or {}).get("value", ""),
+        "dgi_status": ("n/a (foreign)" if foreign
+                       else (niu_status or {}).get("status") or "unchecked"),
+        "dgi_name": (niu_status or {}).get("raison_sociale", ""),
     }
 
 
@@ -353,9 +358,11 @@ def build_excel(out_path, payload):
     ws = wb.add_worksheet("Summary")
     ws.set_column(0, 0, 28)
     ws.set_column(1, 3, 16)
-    ws.set_column(4, 4, 10)
-    ws.set_column(5, 6, 50)
+    ws.set_column(4, 5, 17)
+    ws.set_column(6, 6, 10)
+    ws.set_column(7, 8, 50)
     for c, h in enumerate(["File", "Supplier", "Invoice no", "Date",
+                           "Taxpayer ID (NIU)", "DGI Fiscalis status",
                            "Verdict", "Failed items (why)",
                            "Remediation / review actions"]):
         ws.write(0, c, h, head)
@@ -364,21 +371,26 @@ def build_excel(out_path, payload):
         ws.write(r, 0, inv["filename"], cell)
         res = inv.get("result")
         if inv["status"] == "error" or not res:
-            ws.write(r, 4, "ERROR", ko_f)
-            ws.write(r, 5, inv.get("error", ""), wrap)
+            ws.write(r, 6, "ERROR", ko_f)
+            ws.write(r, 7, inv.get("error", ""), wrap)
             r += 1
             continue
         ws.write(r, 1, res["supplier"], cell)
         ws.write(r, 2, res["invoice_no"], cell)
         ws.write(r, 3, res["invoice_date"], cell)
-        ws.write(r, 4, res["verdict"],
+        ws.write(r, 4, res.get("supplier_niu", ""), cell)
+        dgi_st = res.get("dgi_status", "")
+        ws.write(r, 5, dgi_st.upper(),
+                 ok_f if dgi_st == "active"
+                 else (ko_f if dgi_st in ("inactive", "not_found") else cell))
+        ws.write(r, 6, res["verdict"],
                  ok_f if res["verdict"] == "PASSED" else ko_f)
-        ws.write(r, 5, "\n".join(f"• {f['item']} ({f['basis']}) — {f['why']}"
+        ws.write(r, 7, "\n".join(f"• {f['item']} ({f['basis']}) — {f['why']}"
                                  for f in res["failed"]), wrap)
         actions = [f"• {f['action']}" for f in res["failed"]]
         actions += [f"• [review] {v['item']}: {v['action']}"
                     for v in res["review"]]
-        ws.write(r, 6, "\n".join(actions), wrap)
+        ws.write(r, 8, "\n".join(actions), wrap)
         r += 1
     wb.close()
     return out_path

@@ -74,6 +74,23 @@ def enabled(auth_cfg):
     return bool(auth_cfg.get("enabled") and auth_cfg.get("users"))
 
 
+def is_admin(auth_cfg, user):
+    """Admins see Settings & user onboarding; employees don't.
+
+    Local no-auth mode is admin (login-free dev). Legacy configs without an
+    'admins' list treat every user as admin so nobody is locked out until
+    the list is set explicitly.
+    """
+    if not enabled(auth_cfg):
+        return True
+    if not user:
+        return False
+    admins = auth_cfg.get("admins")
+    if admins is None:
+        return True
+    return user in admins
+
+
 # --- User administration (writes config.json directly so deletions stick;
 #     config.save_user_config deep-merges, which can't remove a user) ---------
 def _load_raw():
@@ -94,15 +111,27 @@ def list_users():
     return sorted(_load_raw().get("auth", {}).get("users", {}).keys())
 
 
-def add_user(username, password, secure_cookies=None):
+def add_user(username, password, secure_cookies=None, admin=False):
     """Create/replace a user. Enables auth and ensures a secret key exists.
-    secure_cookies: set on first enable (True for HTTPS, False for local HTTP)."""
+    secure_cookies: set on first enable (True for HTTPS, False for local HTTP).
+    admin: grants access to Settings & onboarding. The first user (or any
+    pre-'admins'-era user) stays an admin — the list is materialised from the
+    existing users the first time a non-legacy user is added."""
     username = (username or "").strip()
     if not username or not password:
         return False
     cfg = _load_raw()
     a = cfg.setdefault("auth", {})
+    if "admins" not in a:
+        # Legacy users were all implicitly admins — keep them that way.
+        a["admins"] = sorted(a.get("users", {}).keys())
     a.setdefault("users", {})[username] = hash_password(password)
+    if admin and username not in a["admins"]:
+        a["admins"].append(username)
+    if not admin and username in a["admins"] and len(a["admins"]) > 1:
+        a["admins"].remove(username)   # re-adding an admin as employee demotes
+    if not a["admins"]:
+        a["admins"] = [username]       # never end up with zero admins
     a["enabled"] = True
     if not a.get("secret_key"):
         a["secret_key"] = secrets.token_urlsafe(48)
@@ -114,9 +143,12 @@ def add_user(username, password, secure_cookies=None):
 
 def delete_user(username):
     cfg = _load_raw()
-    users = cfg.get("auth", {}).get("users", {})
+    a = cfg.get("auth", {})
+    users = a.get("users", {})
     if username in users and len(users) > 1:   # never remove the last user
         del users[username]
+        if username in a.get("admins", []):
+            a["admins"].remove(username)
         _save_raw(cfg)
         return True
     return False
