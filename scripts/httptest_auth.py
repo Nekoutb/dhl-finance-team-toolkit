@@ -84,7 +84,7 @@ check("settings shows staff users + your account",
 # Onboard a new user (as an administrator, so he can manage users below —
 # v5.4 made user management admin-only)
 r = client.post("/settings/users/add",
-                data={"username": "amadou", "password": "welcome123",
+                data={"username": "amadou", "password": "welcome123456789",
                       "is_admin": "on"},
                 follow_redirects=False)
 check("add user -> redirect", r.status_code == 303)
@@ -93,25 +93,25 @@ check("new user persisted (hashed)", "amadou" in auth_admin.list_users())
 # Short password rejected
 r = client.post("/settings/users/add", data={"username": "x", "password": "12"},
                 follow_redirects=True)
-check("short password rejected", "at least 6" in r.text)
+check("short password rejected", "at least 12" in r.text)
 
 # New user can log in
 client.cookies.clear()
-r = client.post("/login", data={"username": "amadou", "password": "welcome123"},
+r = client.post("/login", data={"username": "amadou", "password": "welcome123456789"},
                 follow_redirects=False)
 check("new user can sign in", r.status_code == 303 and auth.COOKIE in r.cookies)
 client.cookies.set(auth.COOKIE, r.cookies[auth.COOKIE])
 
 # Change own password (wrong current -> rejected; correct -> changed)
 r = client.post("/settings/account/password", follow_redirects=True, data={
-    "current_password": "nope", "new_password": "newpass1", "confirm_password": "newpass1"})
+    "current_password": "nope", "new_password": "newpass1newpass1", "confirm_password": "newpass1newpass1"})
 check("wrong current password rejected", "current password is incorrect" in r.text)
 r = client.post("/settings/account/password", follow_redirects=True, data={
-    "current_password": "welcome123", "new_password": "newpass1",
-    "confirm_password": "newpass1"})
+    "current_password": "welcome123456789", "new_password": "newpass1newpass1",
+    "confirm_password": "newpass1newpass1"})
 check("password changed", "password has been changed" in r.text)
 check("old password no longer works",
-      not auth_admin.verify_password("welcome123",
+      not auth_admin.verify_password("welcome123456789",
           __import__("app.config", fromlist=["load_config"]).load_config()["auth"]["users"]["amadou"]))
 
 # Can't delete the account you're signed in as
@@ -126,7 +126,7 @@ check("delete other user works", "finance" not in auth_admin.list_users())
 
 # Now amadou is the last user -> can't be removed
 client.cookies.clear()
-r = client.post("/login", data={"username": "amadou", "password": "newpass1"},
+r = client.post("/login", data={"username": "amadou", "password": "newpass1newpass1"},
                 follow_redirects=False)
 client.cookies.set(auth.COOKIE, r.cookies[auth.COOKIE])
 r = client.post("/settings/users/delete", data={"username": "amadou"},

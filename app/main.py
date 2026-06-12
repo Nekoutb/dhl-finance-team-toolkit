@@ -2,6 +2,7 @@
 
 Run with:  uvicorn app.main:app --reload
 """
+import asyncio
 import json
 import re
 import uuid
@@ -80,9 +81,20 @@ async def login_submit(request: Request):
     nxt = form.get("next") or "/"
     if not nxt.startswith("/"):
         nxt = "/"
+
+    # Brute-force throttle: a locked username can't even attempt a login.
+    wait = auth.locked_for(username)
+    if wait:
+        return templates.TemplateResponse("login.html", {
+            "request": request, "cfg": load_config(), "next": nxt,
+            "error": f"Too many failed attempts — this account is locked for "
+                     f"another {max(1, wait // 60)} minute(s)."},
+            status_code=429)
+
     auth_cfg = load_config().get("auth", {})
     stored = auth_cfg.get("users", {}).get(username)
     if stored and auth.verify_password(password, stored):
+        auth.clear_failures(username)
         # One-time welcome banner on the page they land on.
         nxt = nxt + ("&" if "?" in nxt else "?") + "welcome=1"
         resp = RedirectResponse(nxt, status_code=303)
@@ -91,6 +103,10 @@ async def login_submit(request: Request):
             max_age=auth.MAX_AGE, httponly=True, samesite="lax",
             secure=bool(auth_cfg.get("secure_cookies")))
         return resp
+
+    client_ip = request.client.host if request.client else ""
+    auth.record_failure(username, ip=client_ip)
+    await asyncio.sleep(auth.FAIL_DELAY)   # slow down password guessing
     return templates.TemplateResponse("login.html", {
         "request": request, "cfg": load_config(), "next": nxt,
         "error": "Incorrect username or password."}, status_code=401)
@@ -2097,10 +2113,10 @@ async def settings_user_add(request: Request):
     if not username:
         return RedirectResponse("/settings?error=Username is required.",
                                 status_code=303)
-    if len(password) < 6:
+    if len(password) < auth.MIN_PASSWORD_LEN:
         return RedirectResponse(
-            "/settings?error=Password must be at least 6 characters.",
-            status_code=303)
+            f"/settings?error=Password must be at least "
+            f"{auth.MIN_PASSWORD_LEN} characters.", status_code=303)
     make_admin = form.get("is_admin") == "on"
     auth.add_user(username, password,
                   secure_cookies=(request.url.scheme == "https"),
@@ -2145,10 +2161,10 @@ async def settings_change_password(request: Request):
     if not auth.verify_password(current, stored):
         return RedirectResponse(
             "/settings?error=Your current password is incorrect.", status_code=303)
-    if len(new) < 6:
+    if len(new) < auth.MIN_PASSWORD_LEN:
         return RedirectResponse(
-            "/settings?error=New password must be at least 6 characters.",
-            status_code=303)
+            f"/settings?error=New password must be at least "
+            f"{auth.MIN_PASSWORD_LEN} characters.", status_code=303)
     if new != confirm:
         return RedirectResponse(
             "/settings?error=The new passwords don't match.", status_code=303)

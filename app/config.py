@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v5.7 — 12 Jun 2026 · compliance engine verifies invoices are billed to DHL's NIU & legal name"
+APP_VERSION = "v5.8 — 12 Jun 2026 · login brute-force lockout + 12-char password policy"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

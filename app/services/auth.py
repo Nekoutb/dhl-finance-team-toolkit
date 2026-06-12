@@ -2,7 +2,9 @@
 
 Self-contained signed-cookie auth (no external session store):
 - passwords are PBKDF2-HMAC-SHA256 hashes stored in config.json;
-- the session cookie is an itsdangerous-signed token with a 12h lifetime.
+- the session cookie is an itsdangerous-signed token with a 12h lifetime;
+- failed logins are throttled: 5 wrong passwords lock the username for
+  15 minutes (file-backed so it holds across all gunicorn workers).
 
 Auth is ENFORCED ONLY when config.auth.enabled is true and at least one user
 exists — so the local/dev experience stays login-free, while a public
@@ -14,14 +16,23 @@ import hmac
 import json
 import os
 import secrets
+import time
+from threading import Lock
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from ..config import CONFIG_PATH
+from ..config import CONFIG_PATH, DATA_DIR
 
 COOKIE = "ft_session"
 MAX_AGE = 60 * 60 * 12          # 12 hours
 _ROUNDS = 200_000
+
+MIN_PASSWORD_LEN = 12
+LOCKOUT_ATTEMPTS = 5            # wrong passwords before the username locks
+LOCKOUT_SECONDS = 15 * 60       # lock duration
+FAIL_DELAY = 0.8                # seconds added to every failed attempt
+_THROTTLE_PATH = DATA_DIR / "auth_throttle.json"
+_throttle_lock = Lock()
 
 # Paths reachable without logging in: the login flow, static assets, customer
 # remittance links (token-secured), generated-file downloads (token names),
@@ -68,6 +79,68 @@ def read_token(secret, token, max_age=MAX_AGE):
 def is_public(path):
     return path == "/login" or any(
         path == p.rstrip("/") or path.startswith(p) for p in PUBLIC_PREFIXES)
+
+
+# --- Brute-force throttle (file-backed: consistent across workers) -----------
+def _load_throttle():
+    try:
+        return json.loads(_THROTTLE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_throttle(data):
+    _THROTTLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _THROTTLE_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+
+def locked_for(username):
+    """Seconds the username stays locked, or 0 if it may attempt a login."""
+    key = (username or "").strip().lower()
+    if not key:
+        return 0
+    with _throttle_lock:
+        entry = _load_throttle().get(key)
+    if not entry:
+        return 0
+    remaining = entry.get("until", 0) - time.time()
+    return max(0, int(remaining))
+
+
+def record_failure(username, ip=""):
+    """Count a wrong password; lock the username after LOCKOUT_ATTEMPTS."""
+    key = (username or "").strip().lower()
+    if not key:
+        return
+    with _throttle_lock:
+        data = _load_throttle()
+        # Drop expired locks so the file never grows.
+        now = time.time()
+        data = {k: v for k, v in data.items()
+                if v.get("until", 0) > now or v.get("fails", 0) > 0}
+        entry = data.get(key, {"fails": 0, "until": 0})
+        if entry.get("until", 0) <= now:        # previous lock expired
+            entry["until"] = 0
+            if entry.get("locked"):
+                entry["fails"] = 0
+                entry["locked"] = False
+        entry["fails"] = entry.get("fails", 0) + 1
+        entry["ip"] = ip
+        if entry["fails"] >= LOCKOUT_ATTEMPTS:
+            entry["until"] = now + LOCKOUT_SECONDS
+            entry["locked"] = True
+            entry["fails"] = 0
+        data[key] = entry
+        _save_throttle(data)
+
+
+def clear_failures(username):
+    key = (username or "").strip().lower()
+    with _throttle_lock:
+        data = _load_throttle()
+        if key in data:
+            del data[key]
+            _save_throttle(data)
 
 
 def enabled(auth_cfg):
