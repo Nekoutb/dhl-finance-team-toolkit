@@ -527,33 +527,10 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000"):
         thr = 100000.0
     hold_cmp = ctp.hold_compare(result["customers"])
     dash = ctp_dashboard.build(result, threshold=thr)
-    bank = ctp.load_bank_matches(token)
+    # v5.2: bank-statement AR matching lives in the Bank Statements tool.
     return templates.TemplateResponse("ongoing/dashboard.html", _ongoing_ctx(
         request, result=result, dash=dash, hold_cmp=hold_cmp, token=token,
-        threshold=thr, bank=bank))
-
-
-@app.post("/tools/ongoing-ctp-monitoring/results/{token}/bank")
-async def ongoing_bank_match(request: Request, token: str,
-                             file: UploadFile = File(...)):
-    result = ctp.load_result(token)
-    if result is None:
-        return HTMLResponse("Analysis not found.", status_code=404)
-    ext = Path(file.filename or "").suffix.lower()
-    if ext in BANK_EXT:
-        dest = UPLOAD_DIR / f"bank_{token}{ext}"
-        dest.write_bytes(await file.read())
-        try:
-            bank = bank_statement.read_bank(dest)
-            matches = bank_statement.match_customers(result["customers"], bank)
-            ctp.save_bank_matches(token, {
-                "matches": matches, "lines": len(bank["lines"]),
-                "source": file.filename})
-        except Exception:  # noqa: BLE001
-            pass
-    return RedirectResponse(
-        f"/tools/ongoing-ctp-monitoring/results/{token}/dashboard",
-        status_code=303)
+        threshold=thr))
 
 
 @app.post("/tools/ongoing-ctp-monitoring/results/{token}/hold")
@@ -697,11 +674,71 @@ async def remittance_contact_delete(request: Request):
 
 
 @app.get("/tools/remittance-portal/allocations", response_class=HTMLResponse)
-def remittance_allocations(request: Request):
+def remittance_allocations(request: Request, message: str = "", error: str = ""):
+    cfg = load_config()
     return templates.TemplateResponse("remittance/allocations.html", {
-        "request": request, "cfg": load_config(), "tool": _REMIT_TOOL,
+        "request": request, "cfg": cfg, "tool": _REMIT_TOOL,
         "allocations": remittance_store.list_allocations(),
+        "forward_default": remittance_store.load_settings().get("forward_default", ""),
+        "smtp_enabled": bool(cfg["smtp"].get("enabled")),
+        "message": message, "error": error,
     })
+
+
+@app.post("/tools/remittance-portal/forward/{token}")
+async def remittance_forward(request: Request, token: str):
+    """Forward a customer's confirmed allocation (summary + PDF) by email."""
+    cfg = load_config()
+    stmt = remittance_store.load_statement(token)
+    if stmt is None or stmt.get("status") != "allocated":
+        return HTMLResponse("Allocation not found.", status_code=404)
+    form = await request.form()
+    to_addr = (form.get("email") or "").strip() \
+        or remittance_store.load_settings().get("forward_default", "")
+    if not to_addr or "@" not in to_addr:
+        return RedirectResponse(
+            "/tools/remittance-portal/allocations?error=Type a valid email "
+            "address (or set a default under Settings).", status_code=303)
+    alloc = stmt["allocation"]
+    deposit_line = ""
+    if alloc.get("deposit_confirmed"):
+        deposit_line = (f"Deposit confirmed: {alloc['deposit_amount']:,.2f} "
+                        "kept on account to offset future invoices\n")
+    subject = (f"FWD: Remittance allocation — {stmt['customer_name']} — "
+               f"{alloc['allocated_at']}")
+    body = (f"Forwarded from the Finance Team Toolkit.\n\n"
+            f"{stmt['customer_name']} (Account N° {stmt.get('customer_key', '')}) "
+            f"confirmed this payment allocation via the portal on "
+            f"{alloc['allocated_at']}.\n\n"
+            f"Payments: {alloc['total_payments']:,.2f}\n"
+            f"Invoices: {alloc['total_invoices']:,.2f}\n"
+            f"Difference: {alloc['difference']:,.2f}\n"
+            f"{deposit_line}"
+            f"Confirmed by: {alloc['confirmed_by']} ({alloc.get('role', '')}, "
+            f"{alloc.get('email', '')}, {alloc.get('phone', '')})\n"
+            f"Customer note: {alloc.get('note') or '—'}\n\n"
+            "Reconciliation PDF attached.")
+    pdf = OUTPUT_DIR / stmt.get("pdf_name", "") if stmt.get("pdf_name") else None
+    attachment = pdf if (pdf and pdf.exists()) else None
+    smtp = cfg["smtp"]
+    if smtp.get("enabled"):
+        try:
+            emailer.send_via_smtp(smtp, to_addr, subject, body, attachment)
+            msg = f"Allocation for {stmt['customer_name']} forwarded to {to_addr}."
+            return RedirectResponse(
+                f"/tools/remittance-portal/allocations?message={msg}",
+                status_code=303)
+        except Exception as exc:  # noqa: BLE001
+            return RedirectResponse(
+                f"/tools/remittance-portal/allocations?error=SMTP failed: {exc}",
+                status_code=303)
+    eml = OUTPUT_DIR / f"fwd_allocation_{token[:8]}.eml"
+    emailer.build_eml(eml, smtp.get("from_address", ""), to_addr, subject,
+                      body, attachment)
+    return RedirectResponse(
+        f"/tools/remittance-portal/allocations?message=SMTP not configured — "
+        f"ready-to-send email created: {eml.name} (in downloads).",
+        status_code=303)
 
 
 @app.get("/tools/remittance-portal/settings", response_class=HTMLResponse)
@@ -722,6 +759,8 @@ async def remittance_settings_save(request: Request):
                   if line.strip() and "@" in line]
     settings = remittance_store.load_settings()
     settings["recipients"] = recipients
+    forward_default = (form.get("forward_default") or "").strip()
+    settings["forward_default"] = forward_default if "@" in forward_default else ""
     remittance_store.save_settings(settings)
     msg = f"Saved — reconciliations will be sent to {len(recipients)} address(es)."
     return RedirectResponse(f"/tools/remittance-portal/settings?message={msg}",
@@ -754,21 +793,41 @@ async def remittance_send_link(request: Request, token: str):
 
     link = f"{str(request.base_url).rstrip('/')}/portal/{token}"
     subject = f"Your account statement & payment allocation — {cfg['organization']}"
-    body = (f"Dear {stmt['customer_name']},\n\n"
+    greeting = (f"Hi {stmt['customer_name']}"
+                + (f" (Account N° {stmt['customer_key']})"
+                   if stmt.get("customer_key") else "") + ",")
+    body = (f"{greeting}\n\n"
             f"Please use your private link below to view your account statement, "
             f"select the payments you have made and match them with the invoices "
             f"they settle. You will receive a reconciliation for your records.\n\n"
             f"{link}\n\nKind regards,\n{cfg['organization']}")
+    html_body = (
+        f"<html><body style=\"font-family:Segoe UI,Arial,sans-serif;"
+        f"font-size:14px;color:#16203a;line-height:1.6;\">"
+        f"<p>{greeting}</p>"
+        f"<p>Please use your private link below to view your account "
+        f"statement, select the payments you have made and match them with "
+        f"the invoices they settle. You will receive a reconciliation for "
+        f"your records.</p>"
+        f"<p><a href=\"{link}\" style=\"display:inline-block;background:"
+        f"#3e5fe0;color:#ffffff;text-decoration:none;padding:10px 22px;"
+        f"border-radius:8px;font-weight:600;\">Open my statement &amp; "
+        f"allocate payments</a></p>"
+        f"<p style=\"font-size:12px;color:#54627c;\">Or copy this link into "
+        f"your browser: <a href=\"{link}\">{link}</a></p>"
+        f"<p>Kind regards,<br>{cfg['organization']}</p></body></html>")
     smtp = cfg["smtp"]
     if smtp.get("enabled"):
         try:
-            emailer.send_via_smtp(smtp, to_addr, subject, body)
+            emailer.send_via_smtp(smtp, to_addr, subject, body,
+                                  html_body=html_body)
             msg = f"Link emailed to {to_addr}."
         except Exception as exc:  # noqa: BLE001
             msg = f"SMTP failed ({exc}) — configure SMTP in config.json."
     else:
         eml = OUTPUT_DIR / f"link_{stmt['customer_key'] or token[:8]}.eml"
-        emailer.build_eml(eml, smtp.get("from_address", ""), to_addr, subject, body)
+        emailer.build_eml(eml, smtp.get("from_address", ""), to_addr, subject,
+                          body, html_body=html_body)
         msg = (f"SMTP not configured — a ready-to-send email was created: "
                f"download '{eml.name}' from the row and send it from Outlook.")
     return RedirectResponse(
@@ -781,6 +840,10 @@ def _balance_note(alloc, currency):
     if abs(diff) < 0.005:
         return "Fully matched — payments equal the invoices settled."
     if diff > 0:
+        if alloc.get("deposit_confirmed"):
+            return (f"Excess payment of {diff:,.2f} {currency} is recorded as "
+                    "a deposit on your account, to be offset against future "
+                    "invoices.").strip()
         return f"Payment on account (unallocated credit): {diff:,.2f} {currency}".strip()
     return f"Invoices not fully covered (short): {-diff:,.2f} {currency}".strip()
 
@@ -817,14 +880,30 @@ async def portal_allocate(request: Request, token: str):
     email = (form.get("email") or "").strip()
     phone = (form.get("phone") or "").strip()
     note = (form.get("note") or "").strip()
+    deposit_confirmed = form.get("deposit_confirm") == "on"
 
     # Name, role, email and phone are obligatory for a valid confirmation.
     missing = [label for label, value in
                (("name", confirmed_by), ("role", role),
                 ("email", email), ("phone", phone)) if not value]
+    reason = ""
     if missing or "@" not in email:
         reason = ("Please provide your " + ", ".join(missing) + "."
                   if missing else "Please provide a valid email address.")
+    else:
+        # Excess payment must be explicitly accepted as a deposit.
+        check = remittance_store.load_statement(token)
+        if check is None:
+            return HTMLResponse("This link is invalid or has expired.",
+                                status_code=404)
+        _, _, diff = remittance.selection_totals(check, payment_ids,
+                                                 invoice_ids)
+        if diff > 0.005 and not deposit_confirmed:
+            reason = (f"Your selected payments exceed the selected invoices "
+                      f"by {diff:,.2f}. Please tick the box confirming the "
+                      f"excess is kept as a deposit on your account, to be "
+                      f"offset against future invoices.")
+    if reason:
         stmt = remittance_store.load_statement(token)
         if stmt is None:
             return HTMLResponse("This link is invalid or has expired.", status_code=404)
@@ -837,7 +916,8 @@ async def portal_allocate(request: Request, token: str):
 
     stmt = remittance.apply_allocation(
         token, payment_ids, invoice_ids, confirmed_by, note,
-        contact={"role": role, "email": email, "phone": phone})
+        contact={"role": role, "email": email, "phone": phone},
+        deposit_confirmed=deposit_confirmed)
     if stmt is None:
         return HTMLResponse("This link is invalid or has expired.", status_code=404)
 
@@ -854,10 +934,15 @@ async def portal_allocate(request: Request, token: str):
     if not recipients and cfg["orange_cameroun"]["default_recipient"]:
         recipients = [cfg["orange_cameroun"]["default_recipient"]]
     subject = f"Remittance allocation — {stmt['customer_name']} — {stmt['allocated_at']}"
+    deposit_line = ""
+    if stmt["allocation"].get("deposit_confirmed"):
+        deposit_line = (f"Deposit confirmed: {stmt['allocation']['deposit_amount']:,.2f} "
+                        "kept on account to offset future invoices\n")
     body = (f"{stmt['customer_name']} confirmed a payment allocation via the portal.\n\n"
             f"Payments: {stmt['allocation']['total_payments']:,.2f}\n"
             f"Invoices: {stmt['allocation']['total_invoices']:,.2f}\n"
             f"Difference: {stmt['allocation']['difference']:,.2f}\n"
+            f"{deposit_line}"
             f"Confirmed by: {confirmed_by} ({role}, {email}, {phone})\n\n"
             "Reconciliation attached.")
     smtp = cfg["smtp"]

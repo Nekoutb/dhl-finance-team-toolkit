@@ -51,7 +51,7 @@
   <!-- 1 & 6. Ageing + top offenders -->
   <section class="panel">
     <h2 class="section-title">Ageing by document date &amp; top offenders</h2>
-    <details class="drop" open>
+    <details class="drop">
       <summary><span class="drop-title">Receivables over 60 days</span>
         <span class="drop-val">{{ "{:.1f}".format(d.aging.over60_pct) }}% · {{ money(d.aging.over60) }} {{ cur }}</span></summary>
       {{ offender_table(d.over60_customers, "over60") }}
@@ -88,7 +88,7 @@
     <h2 class="section-title">On credit hold but net-negative balance</h2>
     <p class="lead">Customers who have <strong>overpaid</strong> (payments exceed invoices)
       yet are still on credit hold — candidates for immediate release.</p>
-    <details class="drop" {% if d.held_negative %}open{% endif %}>
+    <details class="drop">
       <summary><span class="drop-title">On hold &amp; overpaid</span>
         <span class="drop-val">{{ d.held_negative|length }} customer(s)</span></summary>
       {% if d.held_negative %}
@@ -112,7 +112,7 @@
     <p class="lead">Not yet on hold, but an open invoice reaches the segment's
       stop-credit day within the window (per the treatment plan).</p>
     {% for label, rows in d.upcoming.bands.items() %}
-    <details class="drop" {% if rows and loop.first %}open{% endif %}>
+    <details class="drop">
       <summary><span class="drop-title">{{ label }}</span>
         <span class="drop-val">{{ rows|length }} customer(s)</span></summary>
       {% if rows %}
@@ -140,7 +140,7 @@
         <input type="number" name="threshold" value="{{ "{:.0f}".format(threshold) }}" min="0" step="1000"></label>
       <button class="btn btn-primary" type="submit">Update list</button>
     </form>
-    <details class="drop" open>
+    <details class="drop">
       <summary><span class="drop-title">≤ {{ money(threshold) }} {{ cur }}</span>
         <span class="drop-val">{{ d.below.count }} customer(s) · {{ money(d.below.total) }} {{ cur }}</span></summary>
       {% if d.below.customers %}
@@ -158,38 +158,4 @@
     </details>
   </section>
 
-  <!-- 7. Bank statement match -->
-  <section class="panel">
-    <h2 class="section-title">Open AR appearing on the bank statement</h2>
-    <p class="lead">Upload a bank statement; the app flags customers who still
-      owe but whose name (or a close variant) appears on the statement —
-      likely a payment received but not yet applied.</p>
-    <form action="{{ base }}/bank" method="post" enctype="multipart/form-data" class="upload-form">
-      <label class="filedrop">
-        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required>
-        <span class="filedrop-text">Choose the bank statement (.xlsx / .xls / .pdf)</span>
-      </label>
-      <button class="btn btn-primary" type="submit">Match against open AR</button>
-    </form>
-    {% if bank %}
-    <details class="drop" open>
-      <summary><span class="drop-title">Possible unapplied payments</span>
-        <span class="drop-val">{{ bank.matches|length }} match(es) · {{ bank.lines }} bank lines</span></summary>
-      {% if bank.matches %}
-      <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Open AR</th><th>On hold?</th>
-          <th>Match</th><th>Bank narration</th><th>Bank amount</th><th>Date</th></tr></thead>
-        <tbody>
-          {% for m in bank.matches %}
-          <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td><td>{{ money(m.total_ar) }}</td>
-            <td>{% if m.currently_held %}Yes{% else %}—{% endif %}</td>
-            <td>{{ "{:.0f}".format(m.score * 100) }}%</td>
-            <td>{{ m.bank_description }}</td><td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table></div>
-      {% else %}<p class="note-small">No customer names matched the bank statement narration.</p>{% endif %}
-    </details>
-    {% endif %}
-  </section>
 {% endblock %}

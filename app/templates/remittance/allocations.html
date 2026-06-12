@@ -8,7 +8,11 @@
   <section class="panel">
     <h1>Confirmed allocations on file</h1>
     <p class="lead">{{ allocations|length }} customer allocation(s) kept for future
-      reference. Each is evidence the customer matched their payments to invoices.</p>
+      reference. Each is evidence the customer matched their payments to invoices —
+      forward any response by email straight from here.</p>
+
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     {% if not allocations %}
       <div class="alert alert-info">No allocations confirmed yet.</div>
@@ -17,7 +21,9 @@
       <table class="tx-table">
         <thead><tr>
           <th>Confirmed</th><th>Customer</th><th>Confirmed by</th>
-          <th>Payments</th><th>Invoices</th><th>Difference</th><th>PDF</th>
+          <th class="num">Payments</th><th class="num">Invoices</th>
+          <th class="num">Difference</th><th>Deposit</th><th>PDF</th>
+          <th>Forward to</th>
         </tr></thead>
         <tbody>
           {% for a in allocations %}
@@ -25,17 +31,38 @@
             <td>{{ a.allocated_at }}</td>
             <td>{{ a.customer_name }}</td>
             <td>{{ a.allocation.confirmed_by }}</td>
-            <td>{{ "{:,.0f}".format(a.allocation.total_payments) }}</td>
-            <td>{{ "{:,.0f}".format(a.allocation.total_invoices) }}</td>
-            <td>{{ "{:,.0f}".format(a.allocation.difference) }}</td>
+            <td class="num">{{ "{:,.0f}".format(a.allocation.total_payments) }}</td>
+            <td class="num">{{ "{:,.0f}".format(a.allocation.total_invoices) }}</td>
+            <td class="num">{{ "{:,.0f}".format(a.allocation.difference) }}</td>
+            <td>
+              {% if a.allocation.deposit_confirmed %}
+                <span class="pill pill-ok" title="Customer confirmed the excess as a deposit against future invoices">✓ {{ "{:,.0f}".format(a.allocation.deposit_amount) }}</span>
+              {% else %}—{% endif %}
+            </td>
             <td>
               {% if a.pdf_name %}<a href="/download/{{ a.pdf_name }}">Download</a>{% else %}—{% endif %}
+            </td>
+            <td>
+              <form action="/tools/remittance-portal/forward/{{ a.token }}"
+                    method="post" class="send-link-form">
+                <input type="email" name="email" class="email-input"
+                       placeholder="email address…"
+                       value="{{ forward_default }}">
+                <button class="btn btn-small" type="submit">
+                  {% if smtp_enabled %}Forward{% else %}Make email{% endif %}
+                </button>
+              </form>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    <p class="note-small">The forward email contains the full response (who
+      confirmed, totals, deposit confirmation, note) with the reconciliation
+      PDF attached. Set a default forward address under
+      <a href="/tools/remittance-portal/settings">Settings</a> — it prefills
+      the box on every row.</p>
     {% endif %}
   </section>
 {% endblock %}

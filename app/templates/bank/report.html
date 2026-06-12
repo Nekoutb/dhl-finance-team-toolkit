@@ -7,7 +7,8 @@
   </nav>
 
   <section class="panel">
-    <h1>Collection activity — {{ s.statement_count or 1 }} statement(s)</h1>
+    <h1>Bank statements — Open AR appearing on the bank statements
+      <span class="note-inline">({{ s.statement_count or 1 }} statement(s))</span></h1>
     <p class="lead">Analysed {{ r.created_at }}
       {% if s.first_date %}· period {{ s.first_date }} → {{ s.last_date }}{% endif %}
       {% if r.ar_link %}· receivables position per analysis as-of

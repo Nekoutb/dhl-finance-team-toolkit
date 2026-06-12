@@ -98,6 +98,7 @@ _SETTINGS = _BASE / "settings.json"
 def load_settings():
     data = _read(_SETTINGS) or {}
     data.setdefault("recipients", [])
+    data.setdefault("forward_default", "")
     return data
 
 

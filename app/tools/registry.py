@@ -43,7 +43,7 @@ TOOLS = [
     },
     {
         "slug": "bank-statements",
-        "name": "Bank Statements — Collection Activity",
+        "name": "Bank Statements — Open AR Appearing on the Bank Statements",
         "category": O2C,
         "icon": "🏦",
         "status": "draft",

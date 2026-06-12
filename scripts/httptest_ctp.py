@@ -56,7 +56,8 @@ check("KPI: unapplied cash", "Unapplied cash" in r.text)
 check("ageing section", "Ageing by document date" in r.text)
 check("going on hold section", "Projected to go on credit hold" in r.text)
 check("below-threshold form", 'name="threshold"' in r.text)
-check("bank match section", "appearing on the bank statement" in r.text)
+# v5.2: the bank-match section moved to the Bank Statements tool.
+check("bank match section removed", "appearing on the bank statement" not in r.text)
 check("customer names shown", "ACME LOGISTICS" in r.text)
 
 # Threshold update changes the list
@@ -66,14 +67,8 @@ n1 = r1.text.count("<tr>")
 n2 = r2.text.count("<tr>")
 check("threshold update changes listing", n2 >= n1)
 
-# Bank statement matching
-with open(BANK, "rb") as fh:
-    r = client.post(f"/tools/ongoing-ctp-monitoring/results/{token}/bank",
-                    files={"file": ("bank_statement_sample.xlsx", fh, XLSX)},
-                    follow_redirects=False)
-check("bank upload -> redirect", r.status_code == 303)
-r = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}/dashboard")
-check("bank matches shown", "BETA TRADING SARL" in r.text and "Possible unapplied" in r.text)
+# v5.2: bank-statement AR matching moved to the Bank Statements tool — the
+# CtP /bank route and dashboard section were removed.
 
 # Full results page (control summary, hold exceptions, names, automated dunning)
 r = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}")

@@ -76,6 +76,24 @@
         <label class="field"><span>Note (optional)</span>
           <input type="text" name="note" placeholder="e.g. May invoices"></label>
       </div>
+
+      <div class="alert alert-warn" id="depositBox" style="display:none;background:var(--warn-bg);color:var(--warn);">
+        <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;">
+          <input type="checkbox" name="deposit_confirm" id="depositConfirm"
+                 style="margin-top:3px;width:16px;height:16px;">
+          <span>Your selected payments exceed the selected invoices by
+            <strong id="depositAmt">0.00</strong>. I confirm this excess
+            payment should be kept as a <strong>deposit on our account</strong>,
+            to be offset against future invoices.</span>
+        </label>
+      </div>
+
+      <div class="alert alert-info">
+        By confirming, you approve that {{ cfg.organization }} applies the
+        selected payment(s) against the selected invoice(s). Your confirmation
+        is kept on record and will serve as the reconciliation reference
+        whenever required.
+      </div>
       <button class="btn btn-primary" type="submit">Confirm allocation</button>
     </form>
     {% endif %}
@@ -98,6 +116,13 @@
       const td = document.getElementById('td');
       td.textContent = fmt(d);
       td.style.color = Math.abs(d) < 0.005 ? '#1b7f4b' : '#b06f00';
+      // Excess payment → ask the customer to confirm the deposit.
+      const box = document.getElementById('depositBox');
+      if (box) {
+        box.style.display = d > 0.005 ? '' : 'none';
+        document.getElementById('depositAmt').textContent = fmt(d);
+        if (d <= 0.005) document.getElementById('depositConfirm').checked = false;
+      }
     }
     document.addEventListener('change', (e) => {
       if (e.target.matches('.pay-cb, .inv-cb')) recompute();
@@ -120,6 +145,14 @@
       if (sum('.pay-cb') === 0 && sum('.inv-cb') === 0) {
         e.preventDefault();
         alert('Please select at least one payment and the invoice(s) it settles.');
+        return;
+      }
+      const d = sum('.pay-cb') - sum('.inv-cb');
+      if (d > 0.005 && !document.getElementById('depositConfirm').checked) {
+        e.preventDefault();
+        alert('Your payments exceed the invoices selected — please tick the box '
+              + 'confirming the excess is kept as a deposit to be offset against '
+              + 'future invoices.');
       }
     });
     recompute();

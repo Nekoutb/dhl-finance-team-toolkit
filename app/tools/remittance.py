@@ -174,6 +174,12 @@ def build_statements_from_gl(path, source_name):
             "status": "pending",
         })
 
+    # Follow-up flags: a customer who already CONFIRMED an allocation on an
+    # earlier statement but still shows unallocated payments of the same or a
+    # higher amount in this fresh data = the allocation was likely never
+    # posted in the ledger — flag it for follow-up.
+    _flag_untreated_allocations(batch)
+
     # Highest open payments first (most cash waiting to be allocated on top).
     batch["customers"].sort(
         key=lambda c: (-c["total_payments"], c["customer_name"].lower()))
@@ -181,12 +187,53 @@ def build_statements_from_gl(path, source_name):
     return batch
 
 
+def _flag_untreated_allocations(batch):
+    """Mark batch customers whose earlier confirmed allocation looks untreated."""
+    latest = {}
+    for stmt in remittance_store.list_allocations():
+        key = str(stmt.get("customer_key") or "").strip()
+        alloc = stmt.get("allocation") or {}
+        if not key or not alloc.get("payments"):
+            continue
+        when = alloc.get("allocated_at", "")
+        if key not in latest or when > latest[key]["allocated_at"]:
+            latest[key] = {
+                "allocated_at": when,
+                "total_payments": alloc.get("total_payments", 0.0),
+                "confirmed_by": alloc.get("confirmed_by", ""),
+            }
+    for c in batch["customers"]:
+        prior = latest.get(str(c["customer_key"]).strip())
+        if not prior or prior["total_payments"] <= 0:
+            continue
+        # Same or higher unallocated payments than what the customer already
+        # allocated → potential allocation not yet implemented.
+        if c["total_payments"] >= prior["total_payments"] - 0.005:
+            c["followup"] = {
+                "allocated_at": prior["allocated_at"],
+                "amount": prior["total_payments"],
+                "confirmed_by": prior["confirmed_by"],
+            }
+
+
+def selection_totals(statement, payment_ids, invoice_ids):
+    """(total_payments, total_invoices, difference) for a selection."""
+    inv_by = {i["id"]: i for i in statement["invoices"]}
+    pay_by = {p["id"]: p for p in statement["payments"]}
+    total_inv = round(sum(inv_by[i]["amount"] for i in invoice_ids
+                          if i in inv_by), 2)
+    total_pay = round(sum(pay_by[p]["amount"] for p in payment_ids
+                          if p in pay_by), 2)
+    return total_pay, total_inv, round(total_pay - total_inv, 2)
+
+
 def apply_allocation(token, payment_ids, invoice_ids, confirmed_by, note,
-                     contact=None):
+                     contact=None, deposit_confirmed=False):
     """Record the customer's allocation onto the statement; return the statement.
 
     ``contact`` = {role, email, phone} captured at confirmation (obligatory in
-    the portal). It is stored on the allocation and remembered per customer.
+    the portal). ``deposit_confirmed`` records the customer's agreement that
+    any excess payment is kept as a deposit offset against future invoices.
     """
     statement = remittance_store.load_statement(token)
     if statement is None:
@@ -209,6 +256,9 @@ def apply_allocation(token, payment_ids, invoice_ids, confirmed_by, note,
         "total_payments": total_pay,
         "total_invoices": total_inv,
         "difference": difference,
+        "deposit_confirmed": bool(deposit_confirmed and difference > 0.005),
+        "deposit_amount": difference if (deposit_confirmed
+                                         and difference > 0.005) else 0.0,
         "confirmed_by": confirmed_by,
         "role": contact.get("role", ""),
         "email": contact.get("email", ""),

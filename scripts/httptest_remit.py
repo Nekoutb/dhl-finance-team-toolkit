@@ -49,8 +49,11 @@ check("batch shows names AND accounts", "ACME Logistics" in r.text and "C1001" i
 check("copy buttons present", "copy-btn" in r.text)
 check("send-link form present", "send-link" in r.text)
 
-# Sorted by open payments desc: Beta (8,000) before ACME (4,700) before Gamma (3,000)
-order = [r.text.index(n) for n in ("Beta Trading", "ACME Logistics", "Gamma SARL")]
+# Sorted by open payments desc: Beta (8,000) before ACME (4,700) before Gamma
+# (3,000). Search inside the table body only — the v5.2 follow-up banner may
+# name flagged customers above the table.
+table = r.text[r.text.index("<tbody>"):]
+order = [table.index(n) for n in ("Beta Trading", "ACME Logistics", "Gamma SARL")]
 check("sorted by highest open payments", order == sorted(order))
 
 batch_id = re.search(r"Batch ([0-9a-f]+)", r.text).group(1)

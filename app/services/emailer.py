@@ -29,13 +29,20 @@ def _to_header(to_addr):
     return to_addr or ""
 
 
-def send_via_smtp(smtp_cfg, to_addr, subject, body, attachment_path=None):
-    """Send directly via SMTP. Raises on failure so the caller can report it."""
+def send_via_smtp(smtp_cfg, to_addr, subject, body, attachment_path=None,
+                  html_body=None):
+    """Send directly via SMTP. Raises on failure so the caller can report it.
+
+    ``html_body`` adds an HTML alternative (e.g. for clickable links); the
+    plain-text ``body`` stays as the fallback for text-only clients.
+    """
     msg = EmailMessage()
     msg["From"] = smtp_cfg.get("from_address") or smtp_cfg.get("username") or ""
     msg["To"] = _to_header(to_addr)
     msg["Subject"] = subject
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
     if attachment_path:
         _attach(msg, attachment_path)
 
@@ -57,13 +64,16 @@ def send_via_smtp(smtp_cfg, to_addr, subject, body, attachment_path=None):
             server.send_message(msg)
 
 
-def build_eml(out_path, from_addr, to_addr, subject, body, attachment_path=None):
+def build_eml(out_path, from_addr, to_addr, subject, body, attachment_path=None,
+              html_body=None):
     """Write a .eml file (double-click opens it in Outlook ready to send)."""
     msg = EmailMessage()
     msg["From"] = from_addr or ""
     msg["To"] = _to_header(to_addr)
     msg["Subject"] = subject
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
     if attachment_path:
         _attach(msg, attachment_path)
     Path(out_path).write_bytes(bytes(msg))
