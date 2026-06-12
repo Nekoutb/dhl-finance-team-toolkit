@@ -12,9 +12,14 @@
     if (btn) btn.innerHTML = t === "dark" ? SUN : MOON;
   }
   function setTheme(t) {
+    // Suspend transitions while the theme vars flip — otherwise every
+    // surface cross-fades at its own pace (and some engines leave stale
+    // backgrounds behind on var-driven transitions).
+    root.classList.add("no-anim");
     root.setAttribute("data-theme", t);
     try { localStorage.setItem("ft-theme", t); } catch (e) { /* private mode */ }
     paintToggle(t);
+    setTimeout(function () { root.classList.remove("no-anim"); }, 80);
   }
   window.ftToggleTheme = function () {
     setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
