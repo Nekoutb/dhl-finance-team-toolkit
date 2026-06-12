@@ -3,6 +3,7 @@
 Run with:  uvicorn app.main:app --reload
 """
 import asyncio
+import hashlib
 import json
 import re
 import uuid
@@ -33,6 +34,10 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "app" / "static")), na
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
 templates.env.globals["app_version"] = APP_VERSION
 templates.env.globals["plan_labels"] = ctp_rules.PLAN_LABELS
+# Cache-buster for static assets: changes with every release, so /static/
+# files can be cached for a year and still update instantly on deploy.
+ASSET_V = hashlib.md5(APP_VERSION.encode()).hexdigest()[:8]
+templates.env.globals["asset_v"] = ASSET_V
 
 
 @app.middleware("http")
@@ -56,7 +61,12 @@ async def gate_and_cache(request: Request, call_next):
     request.state.user = user
     request.state.is_admin = auth.is_admin(auth_cfg, user)
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store, must-revalidate"
+    if request.url.path.startswith("/static/"):
+        # Versioned URLs (?v=<release hash>) make long caching safe: a new
+        # release changes the URL, so browsers fetch fresh files instantly.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
 
 
