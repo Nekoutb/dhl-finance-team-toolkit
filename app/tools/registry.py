@@ -57,7 +57,7 @@ TOOLS = [
     {
         "slug": "momo",
         "name": "Mobile Money Payments (Orange & MTN) → PDF",
-        "category": R2R,
+        "category": O2C,
         "icon": "📱",
         "status": "draft",
         "description": (
@@ -82,7 +82,7 @@ TOOLS = [
     {
         "slug": "orange-cameroun",
         "name": "Orange Money → PDF",
-        "category": R2R,
+        "category": O2C,
         "icon": "📄",
         "status": "live",
         "description": (

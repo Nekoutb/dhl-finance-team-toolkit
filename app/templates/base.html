@@ -40,17 +40,17 @@
     <a class="nav-item {% if 'bank-statements' in path %}active{% endif %}" href="/tools/bank-statements">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 9.5 12 4l8.5 5.5"/><path d="M5.5 10.5V17M10 10.5V17M14 10.5V17M18.5 10.5V17"/><path d="M3.5 20h17"/></svg></span>
       <span class="nav-label">Bank statements</span></a>
-
-    <div class="nav-section">Record to Report</div>
     <a class="nav-item {% if path.startswith('/tools/momo') %}active{% endif %}" href="/tools/momo">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M10.8 17.5h2.4"/></svg></span>
       <span class="nav-label">Mobile Money → PDF</span></a>
-    <a class="nav-item {% if 'vendor-invoice-allocation' in path %}active{% endif %}" href="/tools/vendor-invoice-allocation">
-      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-3-2-3 2-3-2-3 2"/><path d="M9.5 8h5M9.5 12h5"/></svg></span>
-      <span class="nav-label">Invoice allocation</span></a>
     <a class="nav-item {% if 'orange-cameroun' in path %}active{% endif %}" href="/tools/orange-cameroun">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5"/><path d="M12 11.5v5"/><path d="m9.8 14.3 2.2 2.2 2.2-2.2"/></svg></span>
       <span class="nav-label">Orange Money → PDF</span></a>
+
+    <div class="nav-section">Record to Report</div>
+    <a class="nav-item {% if 'vendor-invoice-allocation' in path %}active{% endif %}" href="/tools/vendor-invoice-allocation">
+      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-3-2-3 2-3-2-3 2"/><path d="M9.5 8h5M9.5 12h5"/></svg></span>
+      <span class="nav-label">Invoice allocation</span></a>
     <a class="nav-item {% if 'variance-analysis' in path %}active{% endif %}" href="/tools/variance-analysis">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5V18a2 2 0 0 0 2 2h14"/><path d="m7.5 14.5 3.5-4 3 3 4.5-6"/></svg></span>
       <span class="nav-label">Variance analysis</span></a>

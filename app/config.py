@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v5.5 — 12 Jun 2026 · priority customers (⭐ filter on every CtP analysis)"
+APP_VERSION = "v5.6 — 12 Jun 2026 · Mobile Money & Orange Money moved to Order to Cash"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
