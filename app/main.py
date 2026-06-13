@@ -2299,6 +2299,8 @@ def app_settings(request: Request, message: str = "", error: str = ""):
         "ai": cfg.get("ai", {}),
         "ai_ready": ai_ocr.is_configured(cfg),
         "imap": cfg.get("imap", {}),
+        # The resolved IMAP account (with SMTP fallback) — None if not usable.
+        "imap_resolved": inbox.effective_cfg(cfg),
     })
 
 

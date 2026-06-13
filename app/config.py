@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v6.3 — 13 Jun 2026 · auto-read vendor email replies & apply newer tax certificates (IMAP)"
+APP_VERSION = "v6.4 — 13 Jun 2026 · inbox auto-read activated (Settings shows the live mailbox & status)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

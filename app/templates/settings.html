@@ -277,10 +277,17 @@
       Leave the username/password blank to reuse the SMTP mailbox (same
       account).</p>
 
-    <div class="alert alert-{{ 'ok' if imap.enabled else 'info' }}">
+    <div class="alert alert-{{ 'ok' if (imap.enabled and imap_resolved) else ('error' if imap.enabled else 'info') }}">
       Current status:
-      {% if imap.enabled %}<strong>ENABLED</strong> — vendor replies are
-        auto-read{% if imap.host %} via {{ imap.host }}:{{ imap.port }}{% endif %}.
+      {% if imap.enabled and imap_resolved %}<strong>ENABLED &amp; ACTIVE</strong>
+        — reading <strong>{{ imap_resolved.username }}</strong> on
+        {{ imap_resolved.host }}:{{ imap_resolved.port }}
+        (mailbox {{ imap_resolved.mailbox }}). Vendor replies are auto-read by
+        the scheduled job; certificates that extend validity are applied
+        automatically.
+      {% elif imap.enabled %}<strong>ENABLED but not usable</strong> — no host
+        or credentials resolved. Set the host, or fill SMTP first so it can be
+        reused.
       {% else %}<strong>disabled</strong> — turn it on to automate certificate
         renewals.{% endif %}
     </div>
