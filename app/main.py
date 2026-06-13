@@ -23,7 +23,7 @@ from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
 from .services import (acf_reader, ai_ocr, ar_master, auth, bank_statement,
                        compliance, ctp_dashboard, ctp_rules, customers, dgi,
-                       emailer, eno_allocation, holds, remittance_pdf,
+                       emailer, eno_allocation, holds, inbox, remittance_pdf,
                        remittance_store, variance, vendors, xlsx_report)
 from .tools import bank, momo
 from .tools import ongoing_ctp as ctp
@@ -1930,14 +1930,18 @@ def vendor_home(request: Request, message: str = "", error: str = ""):
     # Certificate validity tracking: vendors that have a certificate on file.
     tracked = [v for v in rows if v["cert"]["state"] != "none"]
     awaiting = sum(1 for v in rows if v.get("awaiting_update"))
+    cfg = load_config()
     return templates.TemplateResponse("vendor/index.html", {
-        "request": request, "cfg": load_config(), "tool": _VENDOR_TOOL,
+        "request": request, "cfg": cfg, "tool": _VENDOR_TOOL,
         "vendors": rows, "tracked": tracked, "awaiting": awaiting,
         "message": message, "error": error,
         "pending": sum(1 for v in rows if v["status"] == "pending"),
         "ok_to_pay": ok, "blocked": blocked, "remindable": remindable,
         "dgi_url": dgi.LOGIN_URL,
-        "smtp_enabled": bool(load_config()["smtp"].get("enabled")),
+        "smtp_enabled": bool(cfg["smtp"].get("enabled")),
+        "inbox_on": bool((cfg.get("imap") or {}).get("enabled")),
+        "inbox_last": inbox.last_checked(),
+        "inbox_events": inbox.recent_events(8),
     })
 
 
@@ -1991,8 +1995,30 @@ async def vendor_paste(request: Request):
     return RedirectResponse(f"/tools/vendor-niu?message={msg}", status_code=303)
 
 
-_CERT_DIR = (BASE_DIR / "data" / "certificates")
+_CERT_DIR = vendors.CERT_DIR
 _NIU_STRICT = __import__("re").compile(r"^[PM]\d{12}[A-Z]$")
+
+
+@app.post("/tools/vendor-niu/check-inbox")
+async def vendor_check_inbox(request: Request):
+    """Read the mailbox now and auto-apply any newer certificates vendors
+    have emailed back — the same job the scheduled poller runs."""
+    cfg = load_config()
+    summary = inbox.check_now(cfg, verify_niu=dgi.verify_niu)
+    if not summary["ok"]:
+        return redirect_msg("/tools/vendor-niu",
+                            error=f"Inbox check failed: {summary['error']}")
+    bits = [f"{summary['applied']} certificate(s) auto-applied"]
+    if summary["not_newer"]:
+        bits.append(f"{summary['not_newer']} not newer (kept the one on file)")
+    if summary["unmatched"]:
+        bits.append(f"{summary['unmatched']} from unknown taxpayer ID(s)")
+    if summary["unreadable"]:
+        bits.append(f"{summary['unreadable']} unreadable")
+    if summary["scanned"] == 0:
+        bits = ["no new certificate attachments found"]
+    return redirect_msg("/tools/vendor-niu",
+                        message="Inbox checked — " + "; ".join(bits) + ".")
 
 
 @app.post("/tools/vendor-niu/certificates")
@@ -2272,6 +2298,7 @@ def app_settings(request: Request, message: str = "", error: str = ""):
         "is_admin": getattr(request.state, "is_admin", True),
         "ai": cfg.get("ai", {}),
         "ai_ready": ai_ocr.is_configured(cfg),
+        "imap": cfg.get("imap", {}),
     })
 
 
@@ -2395,6 +2422,40 @@ async def settings_ai_test(request: Request):
             "reading is ready.", status_code=303)
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
         return redirect_msg("/settings", error=f"AI key test failed: {exc}")
+
+
+@app.post("/settings/imap")
+async def settings_imap_save(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return blocked
+    form = await request.form()
+    cfg = load_config()
+    password = form.get("password") or ""
+    save_user_config({"imap": {
+        "enabled": form.get("enabled") == "on",
+        "host": (form.get("host") or "").strip(),
+        "port": int(form.get("port") or 993),
+        "username": (form.get("username") or "").strip(),
+        # Blank password keeps the stored one (and falls back to SMTP).
+        "password": password if password else cfg.get("imap", {}).get("password", ""),
+        "mailbox": (form.get("mailbox") or "INBOX").strip(),
+        "since_days": int(form.get("since_days") or 30),
+    }})
+    state = "ENABLED — vendor replies are auto-read" \
+        if form.get("enabled") == "on" else "saved but disabled"
+    return redirect_msg("/settings", message=f"Inbox auto-read {state}.")
+
+
+@app.post("/settings/imap/test")
+async def settings_imap_test(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return blocked
+    ok, msg = inbox.test_connection(load_config())
+    if ok:
+        return redirect_msg("/settings", message=f"✓ {msg}")
+    return redirect_msg("/settings", error=f"IMAP test failed: {msg}")
 
 
 @app.post("/settings/smtp")

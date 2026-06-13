@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v6.2 — 13 Jun 2026 · tax-certificate validity tracking + EN/FR renewal reminders"
+APP_VERSION = "v6.3 — 13 Jun 2026 · auto-read vendor email replies & apply newer tax certificates (IMAP)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -49,6 +49,18 @@ DEFAULT_CONFIG = {
     "ai": {
         "api_key": "",
         "model": "claude-opus-4-8",
+    },
+    # Inbound mailbox (IMAP) — lets the SaaS read vendors' email replies and
+    # auto-apply updated tax certificates without manual upload. Username /
+    # password default to the SMTP mailbox (same account) when left blank.
+    "imap": {
+        "enabled": False,
+        "host": "",
+        "port": 993,
+        "username": "",
+        "password": "",
+        "mailbox": "INBOX",
+        "since_days": 30,
     },
     # Our own identity, set by the admin in Settings. The invoice compliance
     # engine verifies every vendor invoice is billed to THIS taxpayer ID and

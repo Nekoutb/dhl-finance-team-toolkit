@@ -20,7 +20,16 @@ from threading import Lock
 from ..config import DATA_DIR
 
 _PATH = DATA_DIR / "vendors.json"
+CERT_DIR = DATA_DIR / "certificates"      # stored certificate PDFs (evidence)
 _lock = Lock()
+
+
+def save_cert_file(niu, raw_bytes):
+    """Persist a certificate PDF as the evidence on file for this vendor."""
+    CERT_DIR.mkdir(parents=True, exist_ok=True)
+    path = CERT_DIR / f"{str(niu).strip().upper()}.pdf"
+    path.write_bytes(raw_bytes)
+    return path.name
 
 NIU_RE = re.compile(r"^[A-Za-z][0-9]{8,12}[A-Za-z]?$")
 DATE_RE = re.compile(r"^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$")

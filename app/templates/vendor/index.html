@@ -72,9 +72,49 @@
       tracked here. A certificate is valid for <strong>3 months</strong> from
       its issue date; use the reminder buttons to ask a vendor — in English or
       French — for an updated version, without which payment cannot be
-      processed in compliance with tax laws. When the vendor sends a newer
-      certificate, upload it above: it replaces the old one only if its
-      validity extends beyond it, and the “awaiting” flag clears automatically.</p>
+      processed in compliance with tax laws.
+      {% if inbox_on %}When a vendor <strong>replies by email</strong> with a
+      newer certificate attached, the SaaS reads it automatically, checks it
+      extends the validity period, replaces the old one and clears the
+      “awaiting” flag — no manual upload needed.{% else %}When the vendor sends
+      a newer certificate, upload it above (or enable automatic inbox reading
+      under <a href="/settings">Settings → Inbox</a>): a newer certificate
+      replaces the old one and clears the “awaiting” flag.{% endif %}</p>
+
+    <div class="download-row" style="align-items:center;">
+      <form action="/tools/vendor-niu/check-inbox" method="post" class="row-form">
+        <button class="btn {% if inbox_on %}btn-primary{% endif %}" type="submit"
+                {% if not inbox_on %}disabled title="Enable inbox auto-read under Settings → Inbox"{% endif %}>
+          🔄 Check inbox now</button>
+      </form>
+      <span class="note-inline">
+        {% if inbox_on %}Auto-read ON
+          {%- if inbox_last %} · last checked {{ inbox_last }}{% endif %}.
+          A scheduled job also runs in the background.
+        {% else %}Auto-read is off — set it up under
+          <a href="/settings">Settings → Inbox</a>.{% endif %}</span>
+    </div>
+    {% if inbox_events %}
+    <details class="meta-box">
+      <summary>Recent automatic certificate updates ({{ inbox_events|length }})</summary>
+      <div class="table-wrap" style="margin-top:8px;max-height:none;">
+        <table class="tx-table">
+          <thead><tr><th>When</th><th>Taxpayer ID</th><th>From</th>
+            <th>Outcome</th><th>New validity end</th></tr></thead>
+          <tbody>
+            {% for e in inbox_events %}
+            <tr><td>{{ e.at }}</td><td>{{ e.niu }}</td>
+              <td class="msg-cell">{{ e.from }}</td>
+              <td>{% if e.outcome == 'applied' %}<span class="pill pill-ok">applied</span>
+                  {% elif e.outcome == 'not_newer' %}<span class="pill pill-watch">not newer</span>
+                  {% else %}<span class="pill pill-auto">{{ e.outcome }}</span>{% endif %}</td>
+              <td>{{ e.new_expiry or '—' }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endif %}
 
     {% if tracked %}
     <div class="table-wrap">
