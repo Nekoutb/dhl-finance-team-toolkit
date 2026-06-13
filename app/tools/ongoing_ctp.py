@@ -663,23 +663,3 @@ def delete_result(token):
 
 def delete_master():
     MASTER_PATH.unlink(missing_ok=True)
-
-
-def save_bank_matches(token, payload):
-    if not re.fullmatch(r"[0-9a-f]+", token or ""):
-        return
-    STORE_DIR.mkdir(parents=True, exist_ok=True)
-    (STORE_DIR / f"{token}_bank.json").write_text(
-        json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-
-
-def load_bank_matches(token):
-    if not re.fullmatch(r"[0-9a-f]+", token or ""):
-        return None
-    path = STORE_DIR / f"{token}_bank.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None

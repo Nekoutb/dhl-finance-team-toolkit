@@ -7,41 +7,40 @@
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
     <p class="lead">Upload the <strong>scanned cheques</strong> you have received
       from customers — the app reads each cheque (cheque number, customer name,
-      amount and date) and presents them in a table. Add your
-      <strong>bank statement(s)</strong> and, for every cheque number, the app
-      scans all the statements and shows the <strong>bank</strong>, the
-      <strong>amount</strong> and the <strong>transaction date</strong> where
-      that cheque cleared.</p>
+      amount and date) and presents them in a table. For every cheque number it
+      then scans the <strong>bank statements you uploaded in the
+      <a href="/tools/bank-statements">Bank Statements</a> section</strong> and
+      shows the <strong>bank</strong>, the <strong>amount</strong> and the
+      <strong>transaction date</strong> where that cheque cleared.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
 
   <section class="panel">
     <h2 class="section-title">Process a batch of cheques</h2>
+    {% if bank_lines %}
+    <div class="alert alert-ok">Matching against <strong>{{ bank_lines }}</strong>
+      bank-statement line(s) on file{% if bank_banks %} —
+      {% for b in bank_banks %}{{ b.bank }} ({{ b.lines }}){% if not loop.last %} · {% endif %}{% endfor %}{% endif %}.
+      Add or update statements in the
+      <a href="/tools/bank-statements">Bank Statements</a> section.</div>
+    {% else %}
+    <div class="alert alert-info">No bank statements are on file yet — upload them
+      in the <a href="/tools/bank-statements">Bank Statements</a> section to
+      match cheque numbers. You can still read the cheques now; the bank-match
+      columns will be empty.</div>
+    {% endif %}
     {% if ai_ready %}
     <form action="/tools/cheque-processing/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="field">
-        <span>1 · Scanned cheques (up to {{ max_cheques }} — JPG, PNG, WEBP or PDF)</span>
+        <span>Scanned cheques (up to {{ max_cheques }} — JPG, PNG, WEBP or PDF)</span>
         <label class="filedrop">
           <input type="file" name="cheques"
                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
           <span class="filedrop-text">Select the cheque scans — hold Ctrl to
             pick several. Each cheque is read by AI (a few seconds each, in
-            parallel).</span>
-        </label>
-      </label>
-      <label class="field">
-        <span>2 · Bank statement(s) to search <em>(optional)</em> — up to
-          {{ max_banks }}; Excel or PDF</span>
-        <label class="filedrop">
-          <input type="file" name="statements"
-                 accept=".xlsx,.xlsm,.xls,.pdf" multiple>
-          <span class="filedrop-text">Optional — add them to match cheque
-            numbers against the bank; leave empty to just read the cheques.
-            Each statement is searched for every cheque number. Name the file
-            after the bank (e.g. <em>Afriland.xlsx</em>) so the bank column
-            reads clearly.</span>
+            parallel) and matched against the bank statements on file.</span>
         </label>
       </label>
       <button class="btn btn-primary" type="submit">💵 Read cheques &amp; match</button>
@@ -58,8 +57,9 @@
         <li>Each cheque scan is read for its <strong>cheque number</strong>,
           <strong>customer name</strong> (the drawer/account holder),
           <strong>amount</strong> and <strong>date</strong>.</li>
-        <li>Each cheque number is searched across <strong>all</strong> the
-          bank statements you upload.</li>
+        <li>Each cheque number is searched across <strong>all</strong> the bank
+          statements held in the
+          <a href="/tools/bank-statements">Bank Statements</a> section.</li>
         <li>Where it appears, you see the <strong>bank</strong>, the
           <strong>amount per statement</strong> and the
           <strong>transaction date</strong> — so you can confirm the cheque

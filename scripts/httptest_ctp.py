@@ -67,15 +67,16 @@ n1 = r1.text.count("<tr>")
 n2 = r2.text.count("<tr>")
 check("threshold update changes listing", n2 >= n1)
 
-# v5.4: focused bank-statement control — held customers appearing on credits.
-with open(BANK, "rb") as fh:
-    r = client.post(f"/tools/ongoing-ctp-monitoring/results/{token}/bank",
-                    files={"file": ("bank_statement_sample.xlsx", fh, XLSX)},
-                    follow_redirects=False)
-check("held-vs-bank upload -> redirect", r.status_code == 303)
+# Bank statements are uploaded ONLY in the Bank Statements section now: the CtP
+# dashboard no longer has its own upload — it references the central data.
 r = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}/dashboard")
-check("held-vs-bank section shown", "On credit hold" in r.text
-      and "Held customers paying" in r.text)
+check("no bank-upload form on the dashboard",
+      f"/results/{token}/bank" not in r.text)
+check("held control references the Bank Statements section",
+      "On credit hold" in r.text and "/tools/bank-statements" in r.text)
+r = client.post(f"/tools/ongoing-ctp-monitoring/results/{token}/bank",
+                files={"file": ("x.xlsx", b"x", XLSX)}, follow_redirects=False)
+check("old CtP bank route removed", r.status_code in (404, 405))
 
 # Full results page (control summary, hold exceptions, names, automated dunning)
 r = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}")

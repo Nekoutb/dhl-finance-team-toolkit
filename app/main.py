@@ -739,39 +739,24 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000",
     # invoice date to month-end (e.g. 30 Jun) instead of to the analysis date.
     me = ctp_dashboard.month_end(result["as_of"])
     dash_me = ctp_dashboard.build(result, threshold=thr, as_of=me) if me else None
-    # v5.4: focused control — customers ON CREDIT HOLD whose names appear in
-    # the bank statement credit narrations (possible payments received).
-    bank = ctp.load_bank_matches(token)
+    # Focused control — customers ON CREDIT HOLD whose names appear in the bank
+    # statement credit narrations (possible payments received). The statements
+    # come from the single Bank Statements section (no upload on this page).
+    bank_rows, _bank_banks = bank.all_statement_lines()
+    held_paying = []
+    if bank_rows:
+        pseudo = {"lines": [{"description": r["text"], "amount": r["amount"],
+                             "credit": r["amount"], "debit": 0.0,
+                             "date": r["date"], "bank": r["bank"]}
+                            for r in bank_rows]}
+        held_paying = [m for m in bank_statement.match_customers(
+            result["customers"], pseudo) if m.get("currently_held")]
     return templates.TemplateResponse("ongoing/dashboard.html", _ongoing_ctx(
         request, result=result, dash=dash, dash_me=dash_me, month_end=me,
-        hold_cmp=hold_cmp, token=token,
-        threshold=thr, bank=bank,
+        hold_cmp=hold_cmp, token=token, threshold=thr,
+        held_paying=held_paying, bank_available=bool(bank_rows),
+        bank_line_count=len(bank_rows),
         priority_on=priority_on, priority_count=len(pri_keys)))
-
-
-@app.post("/tools/ongoing-ctp-monitoring/results/{token}/bank")
-async def ongoing_bank_match(request: Request, token: str,
-                             file: UploadFile = File(...)):
-    """Match a bank statement's credit narrations against open AR customers
-    (the dashboard shows the on-credit-hold matches — possible payments)."""
-    result = ctp.load_result(token)
-    if result is None:
-        return HTMLResponse("Analysis not found.", status_code=404)
-    ext = Path(file.filename or "").suffix.lower()
-    if ext in BANK_EXT:
-        dest = UPLOAD_DIR / f"bank_{token}{ext}"
-        dest.write_bytes(await file.read())
-        try:
-            bank = bank_statement.read_bank(dest)
-            matches = bank_statement.match_customers(result["customers"], bank)
-            ctp.save_bank_matches(token, {
-                "matches": matches, "lines": len(bank["lines"]),
-                "source": file.filename})
-        except Exception:  # noqa: BLE001
-            pass
-    return RedirectResponse(
-        f"/tools/ongoing-ctp-monitoring/results/{token}/dashboard",
-        status_code=303)
 
 
 @app.post("/tools/ongoing-ctp-monitoring/results/{token}/hold")
@@ -1626,19 +1611,18 @@ def compliance_pdf(token: str, idx: int):
 # Cheque Payment Processing
 # --------------------------------------------------------------------------- #
 _CHEQUE_TOOL = registry.by_slug("cheque-processing")
-_CHEQUE_BANK_EXT = {".xlsx", ".xlsm", ".xls", ".pdf"}
-# Per-file caps (the middleware already bounds the whole request to 50 MB).
+# Per-file cap (the middleware already bounds the whole request to 50 MB).
 _MAX_CHEQUE_FILE_BYTES = 15 * 1024 * 1024
-_MAX_BANK_FILE_BYTES = 30 * 1024 * 1024
 
 
 def _cheque_ctx(request, **extra):
     cfg = load_config()
+    _rows, bank_banks = bank.all_statement_lines()
     ctx = {"request": request, "cfg": cfg, "tool": _CHEQUE_TOOL,
            "message": "", "error": "", "recent": cheques.list_recent(),
            "ai_ready": ai_ocr.is_configured(cfg),
            "max_cheques": cheques.MAX_CHEQUES,
-           "max_banks": cheques.MAX_BANK_FILES}
+           "bank_lines": len(_rows), "bank_banks": bank_banks}
     ctx.update(extra)
     return ctx
 
@@ -1670,12 +1654,7 @@ async def cheque_upload(request: Request):
             request, error=f"Maximum {cheques.MAX_CHEQUES} cheques per batch — "
             "split the upload."))
 
-    bank_uploads = [u for u in form.getlist("statements")
-                    if u is not None and getattr(u, "filename", "")
-                    and Path(u.filename).suffix.lower() in _CHEQUE_BANK_EXT]
-    bank_uploads = bank_uploads[:cheques.MAX_BANK_FILES]
-
-    # Read + size-check every file before writing anything, so an oversized
+    # Read + size-check every cheque before writing anything, so an oversized
     # file is rejected without leaving a half-written batch on disk.
     cheque_blobs = []
     for up, media in valid:
@@ -1685,15 +1664,10 @@ async def cheque_upload(request: Request):
                 request, error=f"“{Path(up.filename).name}” is too large — max "
                 f"{_MAX_CHEQUE_FILE_BYTES // 1048576} MB per cheque scan."))
         cheque_blobs.append((Path(up.filename).name, media, data))
-    bank_blobs = []
-    for up in bank_uploads:
-        data = await up.read()
-        if len(data) > _MAX_BANK_FILE_BYTES:
-            return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
-                request, error=f"“{Path(up.filename).name}” is too large — max "
-                f"{_MAX_BANK_FILE_BYTES // 1048576} MB per statement."))
-        bank_blobs.append((Path(up.filename).name,
-                           Path(up.filename).suffix.lower(), data))
+
+    # Bank statements are NOT uploaded here — they come from the single Bank
+    # Statements section. Snapshot the current lines into this batch.
+    bank_rows, bank_summary = bank.all_statement_lines()
 
     token = uuid.uuid4().hex[:12]
     batch_dir = cheques.BATCH_DIR / token
@@ -1704,13 +1678,6 @@ async def cheque_upload(request: Request):
         stored = f"{i:03d}{Path(name).suffix.lower()}"
         (batch_dir / stored).write_bytes(data)
         cheque_meta.append({"filename": name, "stored": stored, "media": media})
-
-    bank_files = []
-    for i, (name, ext, data) in enumerate(bank_blobs):
-        dest = batch_dir / f"bank_{i:02d}{ext}"
-        dest.write_bytes(data)
-        bank_files.append((dest, name))
-    bank_rows, bank_summary = cheques.parse_bank_files(bank_files)
 
     cheques.create_batch(token, cheque_meta, bank_rows, bank_summary)
     cheques.run_batch_async(token)

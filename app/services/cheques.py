@@ -1,42 +1,28 @@
 """Cheque payment processing.
 
 Read scanned cheques received from customers (cheque number, customer name,
-amount, date) via the AI document reader, then scan every uploaded bank
-statement for each cheque number to confirm where — and for how much, on what
-date — the cheque appears (i.e. cleared) on the bank statements.
+amount, date) via the AI document reader, then scan the bank-statement lines
+for each cheque number to confirm where — and for how much, on what date — the
+cheque appears (i.e. cleared) on the bank statements.
 
-Cheques are AI-read on a background thread (mirrors the compliance engine) so a
-batch of scans can be ingested at once; results.json updates as each completes.
-Bank statements are parsed once at upload (no AI) and kept in banks.json.
+Bank statements are NOT uploaded here: the rows come from the single Bank
+Statements section (bank.all_statement_lines()) and are snapshotted into the
+batch (banks.json) at creation so the result stays reproducible. Cheques are
+AI-read on a background thread (mirrors the compliance engine) so a batch of
+scans can be ingested at once; results.json updates as each completes.
 """
 import json
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
 
 from ..config import DATA_DIR, load_config
-from . import ai_ocr, bank_statement
+from . import ai_ocr
 
 BATCH_DIR = DATA_DIR / "cheques"
 MAX_CHEQUES = 25
-MAX_BANK_FILES = 10
 MIN_CHEQUE_DIGITS = 4          # below this a "cheque number" is too short to match
-
-# Bank letterheads we recognise in a statement's header lines (else file name).
-_BANK_WORDS = ("BANK", "BANQUE", "ECOBANK", "AFRILAND", "BICEC", "SGBC",
-               "SOCIETE GENERALE", "UBA", "BGFI", "SCB", "CCA", "CITIBANK",
-               "STANDARD CHARTERED", "ACCESS", "NFC", "CBC")
-
-
-def detect_bank(metadata, filename=""):
-    """Identify the bank from the statement header lines, else the file name."""
-    for line in metadata or []:
-        if any(w in str(line).upper() for w in _BANK_WORDS):
-            return str(line).strip()[:60]
-    return Path(filename).stem or (str(metadata[0]).strip()[:60] if metadata
-                                   else "Unknown bank")
 
 
 def _digit_runs(text):
@@ -66,35 +52,6 @@ def find_appearances(cheque_no, bank_rows):
         out.append({"bank": r.get("bank", ""), "amount": r.get("amount"),
                     "date": r.get("date", "")})
     return out
-
-
-def parse_bank_files(files):
-    """``files`` = list of (path, source_name). Returns (rows, summary).
-
-    rows: flat list of {bank, text, amount, date} across all statements, used
-    to search for cheque numbers. summary: per-file {bank, source, lines, error}.
-    """
-    rows, summary = [], []
-    for path, source in list(files)[:MAX_BANK_FILES]:
-        try:
-            parsed = bank_statement.read_bank(path)
-        except Exception as exc:  # noqa: BLE001 — a bad file must not block the batch
-            summary.append({"bank": Path(source).stem or "statement",
-                            "source": source, "lines": 0,
-                            "error": f"{type(exc).__name__}: {exc}"})
-            continue
-        bank = detect_bank(parsed.get("metadata"), source)
-        n = 0
-        for ln in parsed["lines"]:
-            amt = ln["credit"] if ln["credit"] > 0 else (
-                ln["debit"] if ln["debit"] > 0
-                else bank_statement.parse_amount(ln["amount"]))
-            rows.append({"bank": bank,
-                         "text": ln.get("text") or ln["description"],
-                         "amount": round(amt, 2), "date": ln["date"]})
-            n += 1
-        summary.append({"bank": bank, "source": source, "lines": n, "error": ""})
-    return rows, summary
 
 
 # --------------------------------------------------------------------------- #

@@ -208,33 +208,31 @@
     </details>
   </section>
 
-  <!-- 7. On credit hold but paying — bank statement credits -->
+  <!-- 7. On credit hold but paying — from the central Bank Statements section -->
   <section class="panel">
     <h2 class="section-title">On credit hold — possible payments on the bank
       statement</h2>
-    <p class="lead">Upload a bank statement; customers currently <strong>on
-      credit hold</strong> whose names appear (or closely match) in the credit
-      transaction narrations are flagged — a possible payment has been made,
-      so review the hold before keeping it.</p>
-    <form action="{{ base }}/bank" method="post" enctype="multipart/form-data" class="upload-form">
-      <label class="filedrop">
-        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required>
-        <span class="filedrop-text">Choose the bank statement (.xlsx / .xls / .pdf)</span>
-      </label>
-      <button class="btn btn-primary" type="submit">Match held customers</button>
-    </form>
-    {% if bank %}
-    {% set held_matches = bank.matches | selectattr("currently_held") | list %}
-    <details class="drop" {% if held_matches %}open{% endif %}>
+    <p class="lead">Customers currently <strong>on credit hold</strong> whose
+      names appear (or closely match) in the credit narrations of the bank
+      statements held in the
+      <a href="/tools/bank-statements">Bank Statements</a> section — a possible
+      payment has been made, so review the hold before keeping it. Bank
+      statements are uploaded once, in that section.</p>
+    {% if not bank_available %}
+    <div class="alert alert-info">No bank statements are on file — upload them in
+      the <a href="/tools/bank-statements">Bank Statements</a> section to surface
+      held customers who may have paid.</div>
+    {% else %}
+    <details class="drop" {% if held_paying %}open{% endif %}>
       <summary><span class="drop-title">Held customers paying</span>
-        <span class="drop-val">{{ held_matches|length }} match(es) ·
-          {{ bank.lines }} bank credit lines</span></summary>
-      {% if held_matches %}
+        <span class="drop-val">{{ held_paying|length }} match(es) ·
+          {{ bank_line_count }} bank lines on file</span></summary>
+      {% if held_paying %}
       <div class="table-wrap"><table class="tx-table">
         <thead><tr><th>Customer (on hold)</th><th>Account</th><th>Open AR</th>
           <th>Match</th><th>Bank narration</th><th>Bank amount</th><th>Date</th></tr></thead>
         <tbody>
-          {% for m in held_matches %}
+          {% for m in held_paying %}
           <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td><td>{{ money(m.total_ar) }}</td>
             <td>{{ "{:.0f}".format(m.score * 100) }}%</td>
             <td>{{ m.bank_description }}</td><td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
@@ -245,7 +243,7 @@
         check the % column. A payment received is grounds to review/release the
         hold once it is applied.</p>
       {% else %}<p class="note-small" style="padding:10px 16px;">No customer on
-        credit hold matched the credit narrations on this statement.</p>{% endif %}
+        credit hold matched the credit narrations on file.</p>{% endif %}
     </details>
     {% endif %}
   </section>

@@ -101,8 +101,6 @@ REGEX_REWRITES = [
      'href="bank-report.html"'),
     (re.compile(r'(href|action)="/tools/ongoing-ctp-monitoring/results/[0-9a-f]+/dashboard"'),
      r'\1="ongoing-dashboard.html"'),
-    (re.compile(r'action="/tools/ongoing-ctp-monitoring/results/[0-9a-f]+/bank"'),
-     'action="#"'),
     (re.compile(r'action="/tools/ongoing-ctp-monitoring/results/[0-9a-f]+/hold"'),
      'action="#"'),
     (re.compile(r'href="/tools/ongoing-ctp-monitoring/results/[0-9a-f]+"'),
@@ -261,11 +259,8 @@ def main():
                      follow_redirects=False)
     ctp_token = re.search(r"results/([0-9a-f]+)/dashboard", rr.headers["location"]).group(1)
 
-    # Bank match so the dashboard preview shows the matching section populated.
-    client.post(f"/tools/ongoing-ctp-monitoring/results/{ctp_token}/bank",
-                files={"file": (BANK_SAMPLE.name, BANK_SAMPLE.open("rb"), XLSX_MIME)},
-                follow_redirects=False)
-
+    # Bank statements are uploaded in the Bank Statements section (below); the
+    # CtP dashboard references that central data — no per-dashboard upload.
     write_page("ongoing-dashboard.html",
                get(f"/tools/ongoing-ctp-monitoring/results/{ctp_token}/dashboard"))
     write_page("ongoing-results.html",
