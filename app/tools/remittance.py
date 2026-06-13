@@ -228,12 +228,16 @@ def selection_totals(statement, payment_ids, invoice_ids):
 
 
 def apply_allocation(token, payment_ids, invoice_ids, confirmed_by, note,
-                     contact=None, deposit_confirmed=False):
+                     contact=None):
     """Record the customer's allocation onto the statement; return the statement.
 
     ``contact`` = {role, email, phone} captured at confirmation (obligatory in
-    the portal). ``deposit_confirmed`` records the customer's agreement that
-    any excess payment is kept as a deposit offset against future invoices.
+    the portal). Any excess payment (payments exceeding the invoices settled)
+    is classified AUTOMATICALLY as a deposit on the customer's account, to be
+    offset against future invoices — the customer is informed, not asked to
+    opt in. ``deposit_confirmed`` below therefore means "an excess exists and
+    is being held as a deposit", kept under the same key so downstream
+    readers (reconciliation PDF, evidence email, done page) are unchanged.
     """
     statement = remittance_store.load_statement(token)
     if statement is None:
@@ -246,6 +250,7 @@ def apply_allocation(token, payment_ids, invoice_ids, confirmed_by, note,
     total_inv = round(sum(i["amount"] for i in sel_inv), 2)
     total_pay = round(sum(p["amount"] for p in sel_pay), 2)
     difference = round(total_pay - total_inv, 2)
+    is_deposit = difference > 0.005
 
     contact = contact or {}
     statement["status"] = "allocated"
@@ -256,9 +261,8 @@ def apply_allocation(token, payment_ids, invoice_ids, confirmed_by, note,
         "total_payments": total_pay,
         "total_invoices": total_inv,
         "difference": difference,
-        "deposit_confirmed": bool(deposit_confirmed and difference > 0.005),
-        "deposit_amount": difference if (deposit_confirmed
-                                         and difference > 0.005) else 0.0,
+        "deposit_confirmed": is_deposit,
+        "deposit_amount": difference if is_deposit else 0.0,
         "confirmed_by": confirmed_by,
         "role": contact.get("role", ""),
         "email": contact.get("email", ""),

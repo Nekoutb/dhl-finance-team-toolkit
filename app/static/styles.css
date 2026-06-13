@@ -518,6 +518,10 @@ kbd {
   background: var(--glass-grid);
   box-shadow: inset 0 1px 0 var(--highlight);
 }
+/* A tighter, dedicated scroll box (e.g. the customer-links list) so a long
+   list scrolls on its own and the surrounding page stays compact. The sticky
+   thead from .tx-table keeps the header visible while scrolling. */
+.table-wrap.links-scroll { max-height: 460px; scroll-behavior: smooth; }
 .tx-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.8px; }
 .tx-table th, .tx-table td {
   border-bottom: 1px solid var(--border-soft);

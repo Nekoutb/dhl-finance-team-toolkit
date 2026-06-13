@@ -44,26 +44,23 @@ assert eml, "link .eml not created"
 raw = eml.read_text(encoding="utf-8", errors="ignore")
 assert f"Hi Gamma SARL (Account N" in raw, "greeting missing"
 assert "text/html" in raw and "<a href=" in raw, "clickable HTML link missing"
+assert "oldest" in raw.lower(), "oldest-invoices-first reminder missing from email"
 eml.unlink()
-print("ok: email greeting 'Hi <name> (Account N°…)' + clickable HTML link")
+print("ok: email greeting + clickable link + 'oldest invoices first' reminder")
 
-# --- 2. excess without deposit confirmation is refused ------------------------
+# --- 2. excess payment is auto-classified as a deposit (no opt-in) ------------
+# The customer is informed, not asked to tick a box: an excess goes straight
+# to the allocation as a deposit to be offset against future invoices.
 form = {"payment": ["0"], "invoice": ["0"],
         "confirmed_by": "Test User", "role": "AP Manager",
         "email": "tu@gamma.cm", "phone": "+237650111222", "note": ""}
-r = client.post(f"/portal/{token}/allocate", data=form)
-assert r.status_code == 400 and "deposit" in r.text.lower(), r.status_code
-print("ok: excess payment without deposit tick is refused (400)")
-
-# --- 3. with deposit confirmation it records the deposit ----------------------
-form["deposit_confirm"] = "on"
 r = client.post(f"/portal/{token}/allocate", data=form)
 assert r.status_code == 200, r.text[:300]
 assert "deposit" in r.text.lower() and "future invoices" in r.text.lower()
 stmt = remittance_store.load_statement(token)
 assert stmt["allocation"]["deposit_confirmed"] is True
 assert stmt["allocation"]["deposit_amount"] == 500.0
-print("ok: deposit confirmed and recorded (500.00 offset against future invoices)")
+print("ok: excess auto-classified as a deposit (500.00), no tick required")
 
 # --- 4. portal page carries the approval/reconciliation notice ----------------
 # (fetch another pending statement)
@@ -88,7 +85,7 @@ assert r.status_code == 303 and "message=" in r.headers["location"]
 fwd = next(main.OUTPUT_DIR.glob(f"fwd_allocation_{token[:8]}.eml"), None)
 assert fwd, "forward .eml not created"
 raw = fwd.read_text(encoding="utf-8", errors="ignore")
-assert "Gamma SARL" in raw and "Deposit confirmed" in raw
+assert "Gamma SARL" in raw and "Deposit (excess held on account)" in raw
 fwd.unlink()
 print("ok: response forwarded (admin default prefilled + per-send address)")
 

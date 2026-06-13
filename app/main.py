@@ -938,8 +938,8 @@ async def remittance_forward(request: Request, token: str):
     alloc = stmt["allocation"]
     deposit_line = ""
     if alloc.get("deposit_confirmed"):
-        deposit_line = (f"Deposit confirmed: {alloc['deposit_amount']:,.2f} "
-                        "kept on account to offset future invoices\n")
+        deposit_line = (f"Deposit (excess held on account): {alloc['deposit_amount']:,.2f} "
+                        "to offset future invoices\n")
     subject = (f"FWD: Remittance allocation — {stmt['customer_name']} — "
                f"{alloc['allocated_at']}")
     body = (f"Forwarded from the Finance Team Toolkit.\n\n"
@@ -1033,7 +1033,8 @@ async def remittance_send_link(request: Request, token: str):
     body = (f"{greeting}\n\n"
             f"Please use your private link below to view your account statement, "
             f"select the payments you have made and match them with the invoices "
-            f"they settle. You will receive a reconciliation for your records.\n\n"
+            f"they settle. Kindly apply your payments to your OLDEST outstanding "
+            f"invoices first. You will receive a reconciliation for your records.\n\n"
             f"{link}\n\nKind regards,\n{cfg['organization']}")
     html_body = (
         f"<html><body style=\"font-family:Segoe UI,Arial,sans-serif;"
@@ -1041,8 +1042,9 @@ async def remittance_send_link(request: Request, token: str):
         f"<p>{greeting}</p>"
         f"<p>Please use your private link below to view your account "
         f"statement, select the payments you have made and match them with "
-        f"the invoices they settle. You will receive a reconciliation for "
-        f"your records.</p>"
+        f"the invoices they settle. Kindly apply your payments to your "
+        f"<strong>oldest outstanding invoices first</strong>. You will receive "
+        f"a reconciliation for your records.</p>"
         f"<p><a href=\"{link}\" style=\"display:inline-block;background:"
         f"#3e5fe0;color:#ffffff;text-decoration:none;padding:10px 22px;"
         f"border-radius:8px;font-weight:600;\">Open my statement &amp; "
@@ -1113,9 +1115,10 @@ async def portal_allocate(request: Request, token: str):
     email = (form.get("email") or "").strip()
     phone = (form.get("phone") or "").strip()
     note = (form.get("note") or "").strip()
-    deposit_confirmed = form.get("deposit_confirm") == "on"
 
-    # Name, role, email and phone are obligatory for a valid confirmation.
+    # Name, role, email and phone are obligatory for a valid confirmation. Any
+    # excess payment is classified as a deposit AUTOMATICALLY (see
+    # apply_allocation) — the customer is informed, not asked to opt in.
     missing = [label for label, value in
                (("name", confirmed_by), ("role", role),
                 ("email", email), ("phone", phone)) if not value]
@@ -1123,19 +1126,6 @@ async def portal_allocate(request: Request, token: str):
     if missing or "@" not in email:
         reason = ("Please provide your " + ", ".join(missing) + "."
                   if missing else "Please provide a valid email address.")
-    else:
-        # Excess payment must be explicitly accepted as a deposit.
-        check = remittance_store.load_statement(token)
-        if check is None:
-            return HTMLResponse("This link is invalid or has expired.",
-                                status_code=404)
-        _, _, diff = remittance.selection_totals(check, payment_ids,
-                                                 invoice_ids)
-        if diff > 0.005 and not deposit_confirmed:
-            reason = (f"Your selected payments exceed the selected invoices "
-                      f"by {diff:,.2f}. Please tick the box confirming the "
-                      f"excess is kept as a deposit on your account, to be "
-                      f"offset against future invoices.")
     if reason:
         stmt = remittance_store.load_statement(token)
         if stmt is None:
@@ -1149,8 +1139,7 @@ async def portal_allocate(request: Request, token: str):
 
     stmt = remittance.apply_allocation(
         token, payment_ids, invoice_ids, confirmed_by, note,
-        contact={"role": role, "email": email, "phone": phone},
-        deposit_confirmed=deposit_confirmed)
+        contact={"role": role, "email": email, "phone": phone})
     if stmt is None:
         return HTMLResponse("This link is invalid or has expired.", status_code=404)
 
@@ -1169,8 +1158,8 @@ async def portal_allocate(request: Request, token: str):
     subject = f"Remittance allocation — {stmt['customer_name']} — {stmt['allocated_at']}"
     deposit_line = ""
     if stmt["allocation"].get("deposit_confirmed"):
-        deposit_line = (f"Deposit confirmed: {stmt['allocation']['deposit_amount']:,.2f} "
-                        "kept on account to offset future invoices\n")
+        deposit_line = (f"Deposit (excess held on account): {stmt['allocation']['deposit_amount']:,.2f} "
+                        "to offset future invoices\n")
     body = (f"{stmt['customer_name']} confirmed a payment allocation via the portal.\n\n"
             f"Payments: {stmt['allocation']['total_payments']:,.2f}\n"
             f"Invoices: {stmt['allocation']['total_invoices']:,.2f}\n"

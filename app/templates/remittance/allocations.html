@@ -37,7 +37,7 @@
             <td class="num">{{ "{:,.0f}".format(a.allocation.difference) }}</td>
             <td>
               {% if a.allocation.deposit_confirmed %}
-                <span class="pill pill-ok" title="Customer confirmed the excess as a deposit against future invoices">✓ {{ "{:,.0f}".format(a.allocation.deposit_amount) }}</span>
+                <span class="pill pill-ok" title="Excess payment held as a deposit on account, to offset future invoices">✓ {{ "{:,.0f}".format(a.allocation.deposit_amount) }}</span>
               {% else %}—{% endif %}
             </td>
             <td>

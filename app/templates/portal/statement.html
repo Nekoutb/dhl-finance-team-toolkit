@@ -5,7 +5,8 @@
     <h1>Statement for {{ stmt.customer_name }}</h1>
     <p class="lead">Account {{ stmt.customer_key }} · as at {{ stmt.created_at }}{% if stmt.currency %} · {{ stmt.currency }}{% endif %}</p>
     <p class="lead">Please select the <strong>payment(s)</strong> you have made and
-      tick the <strong>invoice(s)</strong> they settle, then confirm. We'll
+      tick the <strong>invoice(s)</strong> they settle, then confirm. Kindly
+      settle your <strong>oldest outstanding invoices first</strong>. We'll
       produce a reconciliation for your records and send it to our finance team
       as your remittance confirmation.</p>
 
@@ -77,15 +78,11 @@
           <input type="text" name="note" placeholder="e.g. May invoices"></label>
       </div>
 
-      <div class="alert alert-warn" id="depositBox" style="display:none;background:var(--warn-bg);color:var(--warn);">
-        <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;">
-          <input type="checkbox" name="deposit_confirm" id="depositConfirm"
-                 style="margin-top:3px;width:16px;height:16px;">
-          <span>Your selected payments exceed the selected invoices by
-            <strong id="depositAmt">0.00</strong>. I confirm this excess
-            payment should be kept as a <strong>deposit on our account</strong>,
-            to be offset against future invoices.</span>
-        </label>
+      <div class="alert alert-info" id="depositBox" style="display:none;">
+        <span>ℹ️ Your selected payments exceed the selected invoices by
+          <strong id="depositAmt">0.00</strong>. The remaining excess will be
+          <strong>automatically classified as a deposit on your account</strong>
+          and offset against your future invoices — no action needed.</span>
       </div>
 
       <div class="alert alert-info">
@@ -116,12 +113,11 @@
       const td = document.getElementById('td');
       td.textContent = fmt(d);
       td.style.color = Math.abs(d) < 0.005 ? '#1b7f4b' : '#b06f00';
-      // Excess payment → ask the customer to confirm the deposit.
+      // Excess payment → inform the customer it becomes a deposit (no opt-in).
       const box = document.getElementById('depositBox');
       if (box) {
         box.style.display = d > 0.005 ? '' : 'none';
         document.getElementById('depositAmt').textContent = fmt(d);
-        if (d <= 0.005) document.getElementById('depositConfirm').checked = false;
       }
     }
     document.addEventListener('change', (e) => {
@@ -145,14 +141,6 @@
       if (sum('.pay-cb') === 0 && sum('.inv-cb') === 0) {
         e.preventDefault();
         alert('Please select at least one payment and the invoice(s) it settles.');
-        return;
-      }
-      const d = sum('.pay-cb') - sum('.inv-cb');
-      if (d > 0.005 && !document.getElementById('depositConfirm').checked) {
-        e.preventDefault();
-        alert('Your payments exceed the invoices selected — please tick the box '
-              + 'confirming the excess is kept as a deposit to be offset against '
-              + 'future invoices.');
       }
     });
     recompute();

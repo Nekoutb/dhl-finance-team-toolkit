@@ -29,7 +29,9 @@
     </div>
     {% endif %}
 
-    <div class="table-wrap">
+    <p class="note-small" style="margin:6px 0;">{{ batch.customers|length }} customer
+      link(s) — scroll within the list below; the header stays in view.</p>
+    <div class="table-wrap links-scroll">
       <table class="tx-table">
         <thead><tr>
           <th>Customer</th><th>Account</th><th>Open payments</th>
