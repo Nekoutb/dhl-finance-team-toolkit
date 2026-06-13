@@ -225,5 +225,11 @@ def check_now(cfg, verify_niu=None, limit=MAX_PER_RUN):
                 pass
         log["processed_ids"] = list(processed)
         log["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        _save_log(log)
+        try:
+            _save_log(log)
+        except OSError as exc:
+            # Applied certificates are already saved in vendors.json; only the
+            # audit log couldn't be written. Don't fail the whole run.
+            if summary["ok"] and not summary["error"]:
+                summary["error"] = f"(audit log not saved: {exc})"
     return summary
