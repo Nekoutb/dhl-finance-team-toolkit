@@ -345,9 +345,10 @@ def reminder_text(vendor, lang, organization, as_of=None):
             "fiscale est valable trois (3) mois à compter de sa date de "
             "délivrance, et nous ne sommes pas en mesure de traiter le moindre "
             "paiement sans une attestation en cours de validité.\n\n"
-            "Merci de nous faire parvenir votre attestation actualisée dans "
-            "les meilleurs délais afin que nous puissions reprendre le "
-            "traitement de vos paiements.\n\n"
+            "Pour la renouveler rapidement, il vous suffit de RÉPONDRE à ce "
+            "courriel en y joignant votre attestation à jour (PDF) — votre "
+            "réponse est traitée automatiquement afin que vos paiements "
+            "puissent reprendre sans délai.\n\n"
             f"Cordialement,\n{organization} — Service Financier")
     else:
         if cert["state"] == "expired":
@@ -368,8 +369,9 @@ def reminder_text(vendor, lang, organization, as_of=None):
             "is valid for three (3) months from its date of issue, and we are "
             "unable to process any payment without a currently valid "
             "certificate.\n\n"
-            "Please send us your updated tax clearance certificate as soon as "
-            "possible so that we can resume processing your payments.\n\n"
+            "To renew it quickly, simply REPLY to this email with your updated "
+            "certificate (PDF) attached — your reply is processed automatically "
+            "so your payments can resume without delay.\n\n"
             f"Kind regards,\n{organization} — Finance")
     return subject, body
 

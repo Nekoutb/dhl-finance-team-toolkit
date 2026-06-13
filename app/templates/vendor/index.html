@@ -146,6 +146,14 @@
               {% elif v.responded_at %}<div class="key-hint" style="color:var(--pos);">✓ renewed {{ v.responded_at }}</div>{% endif %}
             </td>
             <td>
+              <form action="/tools/vendor-niu/email" method="post"
+                    class="row-form" style="display:flex;gap:4px;margin-bottom:4px;">
+                <input type="hidden" name="niu" value="{{ v.niu }}">
+                <input type="email" name="email" class="name-input"
+                       value="{{ v.email or '' }}" placeholder="vendor email…"
+                       style="max-width:190px;" title="Amend the reminder email">
+                <button class="btn btn-small" type="submit" title="Save this email">💾</button>
+              </form>
               {% if v.email %}
               <div style="display:flex;gap:5px;">
                 <form action="/tools/vendor-niu/remind-one" method="post" class="row-form">
@@ -159,7 +167,7 @@
                   <button class="btn btn-small" type="submit" title="Envoyer un rappel en français à {{ v.email }}">📧 FR</button>
                 </form>
               </div>
-              {% else %}<span class="note-inline">no email</span>{% endif %}
+              {% else %}<span class="note-inline">add an email above, then remind</span>{% endif %}
             </td>
           </tr>
           {% endfor %}

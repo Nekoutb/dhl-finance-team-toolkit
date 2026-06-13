@@ -1945,6 +1945,23 @@ def vendor_home(request: Request, message: str = "", error: str = ""):
     })
 
 
+@app.post("/tools/vendor-niu/email")
+async def vendor_set_email(request: Request):
+    """Amend ONLY the reminder email for a vendor (emails change over time);
+    leaves the certificate date and everything else untouched."""
+    form = await request.form()
+    niu = (form.get("niu") or "").strip().upper()
+    email = (form.get("email") or "").strip()
+    if email and "@" not in email:
+        return redirect_msg("/tools/vendor-niu",
+                            error="That doesn't look like a valid email address.")
+    if not vendors.set_fields(niu, email=email):
+        return redirect_msg("/tools/vendor-niu", error="Vendor not found.")
+    note = (f"Reminder email for {niu} set to {email}." if email
+            else f"Reminder email for {niu} cleared.")
+    return redirect_msg("/tools/vendor-niu", message=note)
+
+
 @app.post("/tools/vendor-niu/remind-one")
 async def vendor_remind_one(request: Request):
     """Email ONE vendor a renewal reminder in English or French, and flag them

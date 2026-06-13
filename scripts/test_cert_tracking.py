@@ -53,10 +53,11 @@ try:
     assert eml.exists()
     raw = eml.read_text(encoding="utf-8", errors="ignore")
     assert "tax clearance certificate" in raw and "unable to process" in raw
+    assert "REPLY to this email" in raw, "EN reminder must ask the vendor to reply"
     v = next(x for x in vendors.all_vendors() if x["niu"] == NIU)
     assert v.get("awaiting_update") and v.get("reminded_lang") == "en"
     assert NIU in [x["niu"] for x in vendors.reminded_awaiting()]
-    print("ok: EN reminder sent, vendor flagged 'awaiting update'")
+    print("ok: EN reminder sent (asks vendor to reply), 'awaiting update' set")
 
     r = client.post("/tools/vendor-niu/remind-one",
                     data={"niu": NIU, "lang": "fr"}, follow_redirects=False)
@@ -64,7 +65,23 @@ try:
     assert fr.exists()
     raw = fr.read_text(encoding="utf-8", errors="ignore")
     assert "Attestation de Conformit" in raw and "paiement" in raw
-    print("ok: FR reminder sent (bilingual content confirmed)")
+    assert ("PONDRE" in raw or "pondre" in raw), "FR reminder must ask to reply"
+    print("ok: FR reminder sent (asks to reply; bilingual content confirmed)")
+
+    # --- 2b. amend the reminder email WITHOUT wiping the certificate date ----
+    r = client.post("/tools/vendor-niu/email",
+                    data={"niu": NIU, "email": "newcontact@beta.cm"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    v = next(x for x in vendors.all_vendors() if x["niu"] == NIU)
+    assert v["email"] == "newcontact@beta.cm", "email not amended"
+    assert vendors.cert_info(v)["issued"] == older, \
+        "amending the email must NOT touch the certificate date"
+    r = client.post("/tools/vendor-niu/email",
+                    data={"niu": NIU, "email": "not-an-email"},
+                    follow_redirects=False)
+    assert "valid email" in r.headers["location"].replace("+", " ").replace("%20", " ")
+    print("ok: reminder email amendable (validated; cert date preserved)")
 
     # --- 3. an OLDER / same certificate is rejected (must extend validity) ---
     assert vendors.apply_certificate(cert(NIU, middle)) == "updated"  # middle > older, ok
