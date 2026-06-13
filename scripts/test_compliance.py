@@ -109,6 +109,31 @@ assert r["verdict"] == "PASSED", r["failed"]
 assert any("raison sociale configurée" in p["item"] for p in r["passed"])
 print("ok: extra spacing in the destinator name still PASSES")
 
+# v6.1: the REAL-WORLD case from production — a multi-name 'billed to' blob
+# with the French CAMEROUN spelling vs configured English CAMEROON. The name
+# IS present, so the check must PASS (was wrongly FAILING).
+DHL_INTL = {"niu": "M057400001633D",
+            "legal_name": "DHL INTERNATIONAL CAMEROON SARL"}
+BLOB = ("DHL INTERNATIONAL SARL / DHL INTERNATIONAL CAMEROUN SARL (DHL SARL) "
+        "/ FELIX-ENTREPRISE S/C FLORENCE GUEMJO DONGUI / DHL / DHL EXPRESS "
+        "/ DHL CAMEROUN")
+r = compliance.evaluate(full_extraction(
+    client_niu=mention(True, "M057400001633D"),
+    client_name=mention(True, BLOB)), ACTIVE, company=DHL_INTL)
+assert any("raison sociale configurée" in p["item"] for p in r["passed"]), \
+    "real-world billed-to blob with CAMEROUN spelling should PASS the name check"
+assert not any("raison sociale DHL" in f["item"] for f in r["failed"]), \
+    "name check must no longer appear in the failures"
+print("ok: real production blob (CAMEROUN spelling, multi-name) PASSES name check")
+
+# true negative: a genuinely different entity still FAILS
+r = compliance.evaluate(full_extraction(
+    client_name=mention(True, "ACME TRADING NIGERIA LTD")),
+    ACTIVE, company=DHL_INTL)
+assert any("raison sociale DHL" in f["item"] for f in r["failed"]), \
+    "an unrelated company must still FAIL the name check"
+print("ok: unrelated company still FAILS the name check (no false positive)")
+
 # wrong client NIU on the invoice
 r = compliance.evaluate(full_extraction(
     client_niu=mention(True, "M111111111111Z")), ACTIVE, company=COMPANY)

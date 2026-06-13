@@ -77,22 +77,48 @@ def _norm_niu(value):
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
+# Legal-form / connector words that don't identify the company itself.
+_LEGAL_FORMS = {
+    "SARL", "SARLU", "SA", "SAS", "SASU", "EURL", "SCS", "SNC", "SCI",
+    "LTD", "LIMITED", "PLC", "LLC", "INC", "CORP", "CO", "GMBH", "CIE",
+    "ETS", "ETABLISSEMENT", "ETABLISSEMENTS", "GROUP", "GROUPE", "AND", "ET",
+}
+
+
+def _name_tokens(s):
+    return [t for t in re.sub(r"[^A-Z0-9]+", " ", str(s or "").upper()).split() if t]
+
+
 def _name_matches(printed, configured):
-    """Has the configured trading name been billed to on this invoice?
+    """Is the configured trading name present in the invoice's 'billed to'?
 
-    Exact match, ignoring spacing and letter case only (no fuzzy scoring —
-    that produced false failures). It passes as soon as the configured trading
-    name is seen within the invoice's destinator (or the destinator within the
-    configured name, e.g. when 'SARL' is dropped).
+    Lenient by design (per the finance team): the test passes as soon as every
+    DISTINCTIVE word of the configured name appears somewhere in the destinator
+    — tolerating minor spelling variants (e.g. CAMEROON vs CAMEROUN), ignoring
+    spacing, letter case, legal-form suffixes (SARL/SA/LTD…) and the surrounding
+    noise of a multi-name 'billed to' block. No need to match the whole string
+    or reveal the extra wording around it.
     """
-    def norm(s):
-        # Drop all whitespace + uppercase; keep the rest exactly.
-        return re.sub(r"\s+", "", str(s or "")).upper()
+    import difflib
 
-    a, b = norm(printed), norm(configured)
-    if not a or not b:
+    dest = _name_tokens(printed)
+    if not dest:
         return False
-    return b in a or a in b
+    wanted = [t for t in _name_tokens(configured) if t not in _LEGAL_FORMS]
+    if not wanted:                         # configured name was only a suffix
+        wanted = _name_tokens(configured)
+    if not wanted:
+        return False
+    for w in wanted:
+        # Short, highly-distinctive tokens (e.g. "DHL") must match exactly;
+        # longer words may differ by a spelling variant.
+        found = any(
+            t == w or (len(w) >= 4 and
+                       difflib.SequenceMatcher(None, w, t).ratio() >= 0.85)
+            for t in dest)
+        if not found:
+            return False
+    return True
 
 
 def evaluate(extraction, niu_status=None, company=None):
