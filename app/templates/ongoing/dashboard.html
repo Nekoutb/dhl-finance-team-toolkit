@@ -9,11 +9,13 @@
   {% if rows %}
   <div class="table-wrap"><table class="tx-table">
     <thead><tr><th>#</th><th>Customer</th><th>Account</th>
-      <th>{{ 'Over 60d' if field == 'over60' else 'Over 90d' }}</th><th>Total AR</th></tr></thead>
+      <th>{{ 'Over 60d' if field == 'over60' else 'Over 90d' }}</th><th>Total AR</th>
+      <th>Credit stop</th></tr></thead>
     <tbody>
       {% for c in rows[:30] %}
       <tr><td>{{ loop.index }}</td><td>{{ c.customer }}</td><td>{{ c.key }}</td>
-        <td>{{ "{:,.0f}".format(c[field]) }}</td><td>{{ "{:,.0f}".format(c.total) }}</td></tr>
+        <td>{{ "{:,.0f}".format(c[field]) }}</td><td>{{ "{:,.0f}".format(c.total) }}</td>
+        <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
       {% endfor %}
     </tbody>
   </table></div>
@@ -115,10 +117,11 @@
       <summary><span class="drop-title">Unapplied cash %</span>
         <span class="drop-val">{{ "{:.1f}".format(d.unapplied.pct) }}% · {{ money(d.unapplied.amount) }} {{ cur }}</span></summary>
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Unapplied credit</th></tr></thead>
+        <thead><tr><th>Customer</th><th>Account</th><th>Unapplied credit</th><th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in d.unapplied.customers %}
-          <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.amount) }}</td></tr>
+          <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.amount) }}</td>
+            <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
         </tbody>
       </table></div>
@@ -136,12 +139,13 @@
         <span class="drop-val">{{ d.held_negative|length }} customer(s)</span></summary>
       {% if d.held_negative %}
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Net balance</th><th>Risk control</th></tr></thead>
+        <thead><tr><th>Customer</th><th>Account</th><th>Net balance</th><th>Risk control</th><th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in d.held_negative %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
             <td>{{ money(c.total_ar) }}</td>
-            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td></tr>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
+            <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
         </tbody>
       </table></div>
@@ -161,12 +165,13 @@
       {% if rows %}
       <div class="table-wrap"><table class="tx-table">
         <thead><tr><th>Customer</th><th>Account</th><th>Plan</th><th>Max days overdue</th>
-          <th>Days to hold</th><th>Total AR</th></tr></thead>
+          <th>Days to hold</th><th>Total AR</th><th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in rows %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ c.plan_label }}</td>
             <td>{{ c.max_days_overdue }}</td><td><strong>{{ c.days_to_hold }}</strong></td>
-            <td>{{ money(c.total_ar) }}</td></tr>
+            <td>{{ money(c.total_ar) }}</td>
+            <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
         </tbody>
       </table></div>
@@ -189,12 +194,13 @@
         <span class="drop-val">{{ d.below.count }} customer(s) · {{ money(d.below.total) }} {{ cur }}</span></summary>
       {% if d.below.customers %}
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Total AR</th><th>Max days overdue</th><th>Risk control</th></tr></thead>
+        <thead><tr><th>Customer</th><th>Account</th><th>Total AR</th><th>Max days overdue</th><th>Risk control</th><th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in d.below.customers %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.total_ar) }}</td>
             <td>{{ c.max_days_overdue }}</td>
-            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td></tr>
+            <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
+            <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
         </tbody>
       </table></div>

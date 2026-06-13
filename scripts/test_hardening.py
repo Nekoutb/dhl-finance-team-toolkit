@@ -37,7 +37,7 @@ print("ok: compliance batch has its own higher ceiling")
 # --- fix 13: per-page browser titles ----------------------------------------
 checks = {
     "/": "Dashboard ·",
-    "/tools/ongoing-ctp-monitoring": "CtP monitoring ·",
+    "/tools/ongoing-ctp-monitoring": "CtP Portal ·",
     "/tools/variance-analysis": "Variance analysis ·",
     "/tools/invoice-compliance": "Invoice compliance ·",
     "/tools/vendor-niu": "Vendor NIU check ·",

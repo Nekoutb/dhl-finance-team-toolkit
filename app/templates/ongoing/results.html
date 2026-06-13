@@ -262,7 +262,7 @@
         <thead><tr>
           <th>Customer</th><th>Account</th><th>Plan</th><th>Clerk</th><th>Inv</th>
           <th>Total AR (net)</th><th>Overdue</th><th>% beyond GCTP</th>
-          <th>Max days</th><th>Risk control</th><th>On hold?</th>
+          <th>Max days</th><th>Risk control</th><th>On hold?</th><th>Credit stop status</th>
           <th>Next action</th><th>Owner</th>
         </tr></thead>
         <tbody>
@@ -279,6 +279,7 @@
             <td>{{ c.max_days_overdue }}</td>
             <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
             <td>{% if c.currently_held %}Yes{% else %}—{% endif %}</td>
+            <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td>
             <td>{{ c.next_action }}</td>
             <td>{{ c.owner }}</td>
           </tr>
@@ -293,15 +294,17 @@
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr>
-          <th>Customer</th><th>Account</th><th>Document</th><th>Due date</th>
+          <th>Customer</th><th>Account</th><th>Credit stop</th><th>Document</th><th>Due date</th>
           <th>Type</th><th>Amount</th><th>Days overdue</th>
           <th>Control / action</th><th>Owner</th>
         </tr></thead>
         <tbody>
           {% for i in result.invoices %}
+          {% set cs = cust_status.get(i.account) %}
           <tr{% if i.kind == 'credit' %} class="row-auto"{% endif %}>
             <td>{{ i.customer }}</td>
             <td>{{ i.account }}</td>
+            <td>{% if cs %}<span class="pill pill-{{ cs.k }}">{{ cs.l }}</span>{% else %}—{% endif %}</td>
             <td>{{ i.invoice_no }}</td>
             <td>{{ i.due_date or '—' }}</td>
             <td>{{ i.doc_type or '—' }}</td>

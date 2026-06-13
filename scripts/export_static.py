@@ -234,7 +234,7 @@ def main():
                     files={"file": (MOMO_SAMPLE.name, MOMO_SAMPLE.open("rb"),
                                     XLSX_MIME)}))
 
-    # ---- Ongoing CtP Monitoring flow ---------------------------------------
+    # ---- CtP Portal flow ----------------------------------------------------
     write_page("ongoing-ctp.html", get("/tools/ongoing-ctp-monitoring"))
 
     # Seed a demo hold (a customer the policy does NOT require on hold) so the

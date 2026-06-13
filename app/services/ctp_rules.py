@@ -173,6 +173,34 @@ def credit_limit_from_billing(annual_billed, payment_term_days=STANDARD_TERM_DAY
     return annual_billed * (payment_term_days + CREDIT_LIMIT_EXPOSURE_BUFFER) / 360
 
 
+# Canonical credit-stop standing shown for every customer in every report.
+# Distinct from risk_control() (the policy requirement): this reflects the
+# customer's actual credit-stop position — already stopped, or the action due.
+CREDIT_STOP_LABELS = {
+    "stopped": "On credit stop",
+    "stop": "Stop credit (due)",
+    "hold": "Place on hold (due)",
+    "watch": "Watch",
+    "ok": "Active — no stop",
+}
+
+
+def credit_stop_status(status_key, currently_held=False):
+    """Return ``(key, label)`` describing a customer's credit-stop standing.
+
+    A customer already on the hold register / master hold is reported as on
+    credit stop; otherwise the policy requirement (risk matrix §2.5) is shown
+    (stop / hold / watch / active). ``key`` doubles as the pill CSS class.
+    """
+    if currently_held:
+        key = "stopped"
+    elif status_key in ("stop", "hold", "watch"):
+        key = status_key
+    else:
+        key = "ok"
+    return key, CREDIT_STOP_LABELS[key]
+
+
 def risk_control(ar_beyond_gctp_pct, credit_overrun_pct):
     """Credit-risk matrix (policy §2.5). Returns (key, label)."""
     pct = ar_beyond_gctp_pct or 0

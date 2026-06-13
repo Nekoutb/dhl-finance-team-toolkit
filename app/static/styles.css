@@ -564,6 +564,7 @@ kbd {
 .pill { display: inline-block; font-size: 10.5px; font-weight: 600;
   border-radius: 999px; padding: 2px 9px; letter-spacing: .02em; }
 .pill-stop { background: var(--neg-bg); color: var(--neg); }
+.pill-stopped { background: var(--neg-bg); color: var(--neg); }
 .pill-hold { background: var(--warn-bg); color: var(--warn); }
 .pill-watch { background: var(--warn-bg); color: var(--warn); }
 .pill-ok { background: var(--pos-bg); color: var(--pos); }

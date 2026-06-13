@@ -470,7 +470,7 @@ async def orange_customers_delete(request: Request):
 
 
 # --------------------------------------------------------------------------- #
-# Ongoing CtP Monitoring
+# CtP Portal
 # --------------------------------------------------------------------------- #
 def _ongoing_ctx(request, **extra):
     ctx = {
@@ -676,12 +676,17 @@ def _render_ctp_results(request, token, status_code=200, priority=""):
     if priority_on:
         result = ctp.filter_result_priority(result, pri_keys)
     hold_cmp = ctp.hold_compare(result["customers"])
+    # Per-customer credit-stop status, keyed by account, so the invoice table
+    # can show each line's customer credit-stop standing.
+    cust_status = {c["key"]: {"k": c.get("credit_stop_key", "ok"),
+                              "l": c.get("credit_stop", "")}
+                   for c in result["customers"]}
     report = OUTPUT_DIR / (f"CtP_controls_{token[:8]}_priority.xlsx"
                            if priority_on else f"CtP_controls_{token[:8]}.xlsx")
     xlsx_report.build_ctp_report(report, result, hold_cmp)
     return templates.TemplateResponse("ongoing/results.html", _ongoing_ctx(
         request, result=result, hold_cmp=hold_cmp, token=token,
-        report_name=report.name,
+        report_name=report.name, cust_status=cust_status,
         priority_on=priority_on, priority_count=len(pri_keys),
         recipient=load_config()["orange_cameroun"]["default_recipient"]),
         status_code=status_code)
@@ -812,7 +817,7 @@ async def ongoing_email(request: Request, report: str = Form(...),
     if not path.exists():
         status = ("error", "Report not found — please re-run the analysis.")
     else:
-        subject = "Ongoing CtP Monitoring — controls report"
+        subject = "CtP Portal — controls report"
         body = ("Hello,\n\nPlease find attached the Collections Treatment Plan "
                 "controls report.\n\nKind regards,\nFinance Team")
         smtp = cfg["smtp"]

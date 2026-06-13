@@ -45,6 +45,14 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
     invoices = result["invoices"]
     customers = result["customers"]
     currency = (result.get("currencies") or ["XAF"])[0]
+    # Per-customer credit-stop status (set by hold_compare) so even the reduced
+    # offender/unapplied rows below can carry it into the dashboard.
+    by_key = {c["key"]: c for c in customers}
+
+    def _stop(k):
+        c = by_key.get(k) or {}
+        return {"credit_stop": c.get("credit_stop", ""),
+                "credit_stop_key": c.get("credit_stop_key", "ok")}
 
     debits = [i for i in invoices if i["kind"] == "invoice"]
     credits = [i for i in invoices if i["kind"] == "credit"]
@@ -67,7 +75,8 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
         if od > overdue_at.get(k, -1):
             overdue_at[k] = od
         e = cust_aged.setdefault(k, {"customer": i["customer"], "key": k,
-                                     "over60": 0.0, "over90": 0.0, "total": 0.0})
+                                     "over60": 0.0, "over90": 0.0, "total": 0.0,
+                                     **_stop(k)})
         e["total"] += i["amount"]
         if age > 60:
             over60 += i["amount"]
@@ -90,7 +99,8 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
     credit_by_cust = {}
     for i in credits:
         k = i["account"] or i["customer"]
-        e = credit_by_cust.setdefault(k, {"customer": i["customer"], "key": k, "amount": 0.0})
+        e = credit_by_cust.setdefault(k, {"customer": i["customer"], "key": k, "amount": 0.0,
+                                          **_stop(k)})
         e["amount"] += i["amount"]
     unapplied_block = {
         "amount": unapplied,

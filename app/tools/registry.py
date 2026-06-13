@@ -1,7 +1,7 @@
 """The catalogue of finance functions shown on the dashboard.
 
 Two business functions (per the user's process landscape):
-  - Order to Cash   : receivables — CtP monitoring, remittance & allocation
+  - Order to Cash   : receivables — CtP Portal, remittance & allocation
   - Record to Report: conversions & compliance — Mobile Money / Orange to PDF,
                       vendor NIU verification
 
@@ -17,7 +17,7 @@ TOOLS = [
     # ---- Order to Cash ------------------------------------------------------
     {
         "slug": "ongoing-ctp-monitoring",
-        "name": "Ongoing CtP Monitoring",
+        "name": "CtP Portal",
         "category": O2C,
         "icon": "🧭",
         "status": "draft",

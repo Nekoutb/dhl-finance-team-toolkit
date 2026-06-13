@@ -51,7 +51,7 @@
   /* ---- Command palette + go-to shortcuts ----------------------------------- */
   const DESTS = [
     { ico: "🏠", label: "Dashboard", href: "/", keys: "g d" },
-    { ico: "🧭", label: "Receivables — CtP monitoring", href: "/tools/ongoing-ctp-monitoring", keys: "g c" },
+    { ico: "🧭", label: "Receivables — CtP Portal", href: "/tools/ongoing-ctp-monitoring", keys: "g c" },
     { ico: "🔗", label: "Remittance & allocation portal", href: "/tools/remittance-portal", keys: "g r" },
     { ico: "🏦", label: "Bank statements — open AR appearing on the bank statements", href: "/tools/bank-statements", keys: "g b" },
     { ico: "📱", label: "Mobile Money (Orange & MTN) → PDF", href: "/tools/momo", keys: "g m" },

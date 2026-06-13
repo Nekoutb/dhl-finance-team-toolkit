@@ -1,4 +1,4 @@
-"""Ongoing CtP Monitoring: analyse an invoice-level AR breakdown against the
+"""CtP Portal: analyse an invoice-level AR breakdown against the
 Collections Treatment Plan and produce the controls to apply.
 
 Pipeline: read file -> map columns -> classify lines (invoice / credit /
@@ -494,6 +494,9 @@ def hold_compare(customers):
                 or c["customer"].strip().lower() in held_names
             c["hold_source"] = "register"
         c["currently_held"] = current
+        # Canonical credit-stop status carried into every report.
+        c["credit_stop_key"], c["credit_stop"] = ctp_rules.credit_stop_status(
+            c["status_key"], current)
         should = c["status_key"] in ("hold", "stop")
         if should and not current:
             place.append(c)

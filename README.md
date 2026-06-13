@@ -22,7 +22,7 @@ used by another app on this machine — the toolkit lives on **8801**.
 
 ### Order to Cash
 
-- **🧭 Ongoing CtP Monitoring** — upload the **AR transaction file** (invoice
+- **🧭 CtP Portal** — upload the **AR transaction file** (invoice
   level; totals lines auto-excluded), optional **customer master file(s)**
   (segment → treatment plan, balances, credit-hold position; several files
   merge) and an optional **AR trial balance** (first analysis: transaction

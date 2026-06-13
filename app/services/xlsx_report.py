@@ -3,6 +3,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import ctp_rules
+
+
+def _credit_stop(c):
+    """The customer's credit-stop status label (enriched or computed)."""
+    return c.get("credit_stop") or ctp_rules.credit_stop_status(
+        c.get("status_key", "ok"), c.get("currently_held"))[1]
+
 
 def _d(value):
     if not value:
@@ -23,6 +31,7 @@ def _cust_frame(rows):
         "% beyond GCTP": round(c["beyond_gctp_pct"], 1),
         "Max days overdue": c["max_days_overdue"],
         "Risk control": c["status"],
+        "Credit stop status": _credit_stop(c),
         "Currently on hold": "Yes" if c.get("currently_held") else "No",
         "Hold source": c.get("hold_source", ""),
         "Master balance": c.get("master_balance", ""),
@@ -49,9 +58,13 @@ def build_ctp_report(out_path, result, hold_cmp=None):
 
     customers = _cust_frame(result["customers"])
 
+    # Per-customer credit-stop status, so every invoice line carries it too.
+    cust_status = {c["key"]: _credit_stop(c) for c in result["customers"]}
+
     invoices = pd.DataFrame([{
         "Customer": i["customer"],
         "Account": i["account"],
+        "Credit stop status": cust_status.get(i["account"], ""),
         "Type": "Credit/Payment" if i["kind"] == "credit" else "Invoice",
         "Document": i["invoice_no"],
         "Document date": _d(i["invoice_date"]),

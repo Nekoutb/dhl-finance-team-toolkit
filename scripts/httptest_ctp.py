@@ -1,4 +1,4 @@
-"""Exercise the Ongoing CtP Monitoring web flow via FastAPI TestClient."""
+"""Exercise the CtP Portal web flow via FastAPI TestClient."""
 import re
 import sys
 from pathlib import Path
