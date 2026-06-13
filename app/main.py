@@ -22,8 +22,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
 from .services import (acf_reader, ai_ocr, ar_master, auth, bank_statement,
-                       compliance, ctp_dashboard, ctp_rules, customers, dgi,
-                       emailer, eno_allocation, holds, inbox, remittance_pdf,
+                       cheques, compliance, ctp_dashboard, ctp_rules, customers,
+                       dgi, emailer, eno_allocation, holds, inbox, remittance_pdf,
                        remittance_store, variance, vendors, xlsx_report)
 from .tools import bank, momo
 from .tools import ongoing_ctp as ctp
@@ -1620,6 +1620,156 @@ def compliance_pdf(token: str, idx: int):
     if not path.exists():
         return HTMLResponse("Invoice not found.", status_code=404)
     return FileResponse(path, media_type="application/pdf")
+
+
+# --------------------------------------------------------------------------- #
+# Cheque Payment Processing
+# --------------------------------------------------------------------------- #
+_CHEQUE_TOOL = registry.by_slug("cheque-processing")
+_CHEQUE_BANK_EXT = {".xlsx", ".xlsm", ".xls", ".pdf"}
+# Per-file caps (the middleware already bounds the whole request to 50 MB).
+_MAX_CHEQUE_FILE_BYTES = 15 * 1024 * 1024
+_MAX_BANK_FILE_BYTES = 30 * 1024 * 1024
+
+
+def _cheque_ctx(request, **extra):
+    cfg = load_config()
+    ctx = {"request": request, "cfg": cfg, "tool": _CHEQUE_TOOL,
+           "message": "", "error": "", "recent": cheques.list_recent(),
+           "ai_ready": ai_ocr.is_configured(cfg),
+           "max_cheques": cheques.MAX_CHEQUES,
+           "max_banks": cheques.MAX_BANK_FILES}
+    ctx.update(extra)
+    return ctx
+
+
+@app.get("/tools/cheque-processing", response_class=HTMLResponse)
+def cheque_home(request: Request, message: str = "", error: str = ""):
+    return templates.TemplateResponse(
+        "cheques/index.html", _cheque_ctx(request, message=message, error=error))
+
+
+@app.post("/tools/cheque-processing/upload")
+async def cheque_upload(request: Request):
+    cfg = load_config()
+    if not ai_ocr.is_configured(cfg):
+        return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
+            request, error="AI reading is not configured — paste your "
+            "Anthropic API key under Settings → AI document reading first."))
+    form = await request.form()
+    cheque_uploads = [u for u in form.getlist("cheques")
+                      if u is not None and getattr(u, "filename", "")]
+    valid = [(u, ai_ocr.media_type_for(u.filename)) for u in cheque_uploads]
+    valid = [(u, m) for u, m in valid if m]
+    if not valid:
+        return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
+            request, error="Choose at least one cheque scan (JPG, PNG, WEBP "
+            "or PDF)."))
+    if len(valid) > cheques.MAX_CHEQUES:
+        return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
+            request, error=f"Maximum {cheques.MAX_CHEQUES} cheques per batch — "
+            "split the upload."))
+
+    bank_uploads = [u for u in form.getlist("statements")
+                    if u is not None and getattr(u, "filename", "")
+                    and Path(u.filename).suffix.lower() in _CHEQUE_BANK_EXT]
+    bank_uploads = bank_uploads[:cheques.MAX_BANK_FILES]
+
+    # Read + size-check every file before writing anything, so an oversized
+    # file is rejected without leaving a half-written batch on disk.
+    cheque_blobs = []
+    for up, media in valid:
+        data = await up.read()
+        if len(data) > _MAX_CHEQUE_FILE_BYTES:
+            return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
+                request, error=f"“{Path(up.filename).name}” is too large — max "
+                f"{_MAX_CHEQUE_FILE_BYTES // 1048576} MB per cheque scan."))
+        cheque_blobs.append((Path(up.filename).name, media, data))
+    bank_blobs = []
+    for up in bank_uploads:
+        data = await up.read()
+        if len(data) > _MAX_BANK_FILE_BYTES:
+            return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
+                request, error=f"“{Path(up.filename).name}” is too large — max "
+                f"{_MAX_BANK_FILE_BYTES // 1048576} MB per statement."))
+        bank_blobs.append((Path(up.filename).name,
+                           Path(up.filename).suffix.lower(), data))
+
+    token = uuid.uuid4().hex[:12]
+    batch_dir = cheques.BATCH_DIR / token
+    batch_dir.mkdir(parents=True, exist_ok=True)
+
+    cheque_meta = []
+    for i, (name, media, data) in enumerate(cheque_blobs):
+        stored = f"{i:03d}{Path(name).suffix.lower()}"
+        (batch_dir / stored).write_bytes(data)
+        cheque_meta.append({"filename": name, "stored": stored, "media": media})
+
+    bank_files = []
+    for i, (name, ext, data) in enumerate(bank_blobs):
+        dest = batch_dir / f"bank_{i:02d}{ext}"
+        dest.write_bytes(data)
+        bank_files.append((dest, name))
+    bank_rows, bank_summary = cheques.parse_bank_files(bank_files)
+
+    cheques.create_batch(token, cheque_meta, bank_rows, bank_summary)
+    cheques.run_batch_async(token)
+    return RedirectResponse(f"/tools/cheque-processing/batch/{token}",
+                            status_code=303)
+
+
+@app.get("/tools/cheque-processing/batch/{token}", response_class=HTMLResponse)
+def cheque_batch(request: Request, token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    payload = cheques.load_batch(token)
+    if not payload:
+        return HTMLResponse("Batch not found.", status_code=404)
+    done = sum(1 for c in payload["cheques"] if c["status"] != "pending")
+    found = sum(1 for c in payload["cheques"] if c.get("appearances"))
+    return templates.TemplateResponse("cheques/batch.html", {
+        "request": request, "cfg": load_config(), "tool": _CHEQUE_TOOL,
+        "batch": payload, "token": token, "done": done,
+        "total": len(payload["cheques"]), "found": found,
+        "running": payload["status"] != "done"})
+
+
+@app.get("/tools/cheque-processing/batch/{token}/export")
+def cheque_export(token: str):
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return HTMLResponse("Invalid reference.", status_code=400)
+    payload = cheques.load_batch(token)
+    if not payload:
+        return HTMLResponse("Batch not found.", status_code=404)
+    out = cheques.BATCH_DIR / token / "cheques.xlsx"
+    cheques.build_excel(out, payload)
+    return FileResponse(out, filename=f"cheques_{token[:8]}.xlsx",
+                        media_type="application/vnd.openxmlformats-officedocument"
+                                   ".spreadsheetml.sheet")
+
+
+@app.get("/tools/cheque-processing/batch/{token}/scan/{idx}")
+def cheque_scan(token: str, idx: int):
+    if not re.fullmatch(r"[0-9a-f]+", token or "") or idx < 0 or idx > 999:
+        return HTMLResponse("Invalid reference.", status_code=400)
+    payload = cheques.load_batch(token)
+    entry = next((c for c in (payload or {}).get("cheques", [])
+                  if c["idx"] == idx), None)
+    if not entry:
+        return HTMLResponse("Cheque not found.", status_code=404)
+    path = cheques.BATCH_DIR / token / entry["stored"]
+    if not path.exists():
+        return HTMLResponse("Cheque not found.", status_code=404)
+    return FileResponse(path, media_type=entry.get("media")
+                        or "application/octet-stream")
+
+
+@app.post("/tools/cheque-processing/batch/{token}/delete")
+async def cheque_delete(token: str):
+    cheques.delete_batch(token)
+    return RedirectResponse(
+        "/tools/cheque-processing?message=Cheque batch deleted.",
+        status_code=303)
 
 
 # --------------------------------------------------------------------------- #

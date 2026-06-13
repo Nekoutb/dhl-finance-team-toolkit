@@ -98,12 +98,16 @@ def read_bank(path):
             credit, debit = (raw, 0.0) if raw > 0 else (0.0, -raw)
         date_raw = data.get(date_col) if date_col else ""
         date_str = str(date_raw or "")[:10]
+        # Full row text (every cell) so callers can search for references such
+        # as a cheque number that may live in a column other than the narration.
+        row_text = " ".join(str(v) for v in data.values() if v not in (None, ""))
         lines.append({
             "description": desc,
             "amount": data.get(amt_col) if amt_col else "",
             "credit": credit,
             "debit": debit,
             "date": date_str,
+            "text": row_text,
         })
     return {"lines": lines, "metadata": parsed.get("metadata", []),
             "desc_col": desc_col, "amount_col": amt_col,

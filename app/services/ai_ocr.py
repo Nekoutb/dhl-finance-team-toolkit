@@ -333,6 +333,168 @@ def extract_invoice_compliance(pdf_bytes, ai_cfg):
                           "invoice.")
 
 
+# --------------------------------------------------------------------------- #
+# Cheque reading (scanned cheques received from customers)
+# --------------------------------------------------------------------------- #
+_CHEQUE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cheque_number": {
+            "type": "string",
+            "description": "The cheque serial number — usually printed at the "
+                           "top-right and repeated in the MICR band along the "
+                           "bottom edge. Digits only; empty string if "
+                           "unreadable.",
+        },
+        "customer_name": {
+            "type": "string",
+            "description": "The name of the account holder / drawer who issued "
+                           "the cheque (the customer paying us) — printed on "
+                           "the cheque, often above the signature or on the "
+                           "letterhead. Empty string if unreadable.",
+        },
+        "amount": {
+            "type": ["number", "null"],
+            "description": "The cheque amount as a plain number (the figure in "
+                           "the amount box; if only the amount in words is "
+                           "legible, convert it). null if unreadable.",
+        },
+        "amount_currency": {
+            "type": "string",
+            "description": "Currency of the amount (e.g. XAF/FCFA, EUR). Empty "
+                           "if not shown.",
+        },
+        "cheque_date": {
+            "type": "string",
+            "description": "The date written on the cheque, as ISO yyyy-mm-dd "
+                           "when the day/month/year are clear; otherwise the "
+                           "date exactly as printed. Empty string if "
+                           "unreadable.",
+        },
+        "drawee_bank": {
+            "type": "string",
+            "description": "The bank the cheque is drawn on, from the bank name "
+                           "printed on the cheque. Empty string if unreadable.",
+        },
+        "readability": {
+            "type": "string", "enum": ["good", "partial", "poor"],
+            "description": "How legible the cheque scan is overall.",
+        },
+    },
+    "required": ["cheque_number", "customer_name", "amount", "amount_currency",
+                 "cheque_date", "drawee_bank", "readability"],
+    "additionalProperties": False,
+}
+
+_CHEQUE_PROMPT = (
+    "This is a scanned bank cheque received from a customer as payment. The "
+    "scan may be rotated, skewed or low quality — read it carefully in "
+    "whatever orientation is needed (French or English).\n\n"
+    "Extract:\n"
+    "- cheque_number: the cheque's serial number. It is normally printed at "
+    "the TOP-RIGHT of the cheque and repeated in the MICR band of symbols "
+    "along the BOTTOM edge. Report digits only.\n"
+    "- customer_name: the name of the account holder / drawer who issued the "
+    "cheque — i.e. the customer paying us. It is usually printed near the "
+    "signature line (bottom-right) or on the pre-printed account letterhead. "
+    "Do NOT report the payee (the 'pay to the order of' line, which is us).\n"
+    "- amount: the amount in figures from the amount box. If only the amount "
+    "in words is legible, convert it to a number. Amounts may use spaces or "
+    "commas as thousand separators (e.g. '1 500 000' = 1500000).\n"
+    "- cheque_date: the date written on the cheque (return ISO yyyy-mm-dd when "
+    "the day/month/year are clear).\n"
+    "- drawee_bank: the bank the cheque is drawn on (the bank's printed name).\n"
+    "- amount_currency and overall readability.\n\n"
+    "If a field is genuinely unreadable, return an empty string (or null for "
+    "the amount) rather than guessing."
+)
+
+_IMAGE_MEDIA = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def media_type_for(filename):
+    """Return the API media type for a cheque scan, or None if unsupported."""
+    from pathlib import Path
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        return "application/pdf"
+    return _IMAGE_MEDIA.get(ext)
+
+
+def extract_cheque(file_bytes, media_type, ai_cfg):
+    """Read one scanned cheque → {cheque_number, customer_name, amount, ...}.
+
+    ``media_type`` is 'application/pdf' for a PDF scan, else an image/* type.
+    Raises AiNotConfigured (no key) or AiReadError (with a user-safe message).
+    """
+    api_key = (ai_cfg or {}).get("api_key", "").strip()
+    if not api_key:
+        raise AiNotConfigured(
+            "No Anthropic API key saved — paste it under Settings → "
+            "AI document reading.")
+    if len(file_bytes) > MAX_PDF_BYTES:
+        raise AiReadError("That cheque scan is too large to send for AI "
+                          "reading (over 30 MB).")
+
+    b64 = base64.standard_b64encode(file_bytes).decode("ascii")
+    if media_type == "application/pdf":
+        media_block = {"type": "document",
+                       "source": {"type": "base64",
+                                  "media_type": "application/pdf", "data": b64}}
+    else:
+        media_block = {"type": "image",
+                       "source": {"type": "base64",
+                                  "media_type": media_type, "data": b64}}
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, timeout=180.0)
+    model = (ai_cfg or {}).get("model") or "claude-opus-4-8"
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=4000,
+            thinking={"type": "adaptive"},
+            messages=[{
+                "role": "user",
+                "content": [media_block, {"type": "text", "text": _CHEQUE_PROMPT}],
+            }],
+            output_config={
+                "format": {"type": "json_schema", "schema": _CHEQUE_SCHEMA},
+            },
+        )
+    except anthropic.AuthenticationError:
+        raise AiReadError("The Anthropic API key was rejected — check it "
+                          "under Settings → AI document reading.")
+    except anthropic.RateLimitError:
+        raise AiReadError("Rate-limited by the Anthropic API — re-run this "
+                          "cheque in a minute.")
+    except anthropic.APIStatusError as exc:
+        raise AiReadError(f"Anthropic API error ({exc.status_code}).")
+    except anthropic.APIConnectionError:
+        raise AiReadError("Could not reach the Anthropic API.")
+
+    if response.stop_reason == "max_tokens":
+        raise AiReadError("The AI reply was cut off — re-run this cheque.")
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise AiReadError("The AI reply could not be parsed — re-run this "
+                          "cheque.")
+    return {
+        "cheque_number": "".join(ch for ch in str(data.get("cheque_number") or "")
+                                 if ch.isdigit()),
+        "customer_name": (data.get("customer_name") or "").strip(),
+        "amount": data.get("amount"),
+        "amount_currency": (data.get("amount_currency") or "").strip(),
+        "cheque_date": (data.get("cheque_date") or "").strip(),
+        "drawee_bank": (data.get("drawee_bank") or "").strip(),
+        "readability": data.get("readability") or "",
+    }
+
+
 def test_key(ai_cfg):
     """Cheap round-trip to confirm the saved key works. Raises AiReadError."""
     api_key = (ai_cfg or {}).get("api_key", "").strip()

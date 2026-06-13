@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Cheque processing · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">Upload the <strong>scanned cheques</strong> you have received
+      from customers — the app reads each cheque (cheque number, customer name,
+      amount and date) and presents them in a table. Add your
+      <strong>bank statement(s)</strong> and, for every cheque number, the app
+      scans all the statements and shows the <strong>bank</strong>, the
+      <strong>amount</strong> and the <strong>transaction date</strong> where
+      that cheque cleared.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Process a batch of cheques</h2>
+    {% if ai_ready %}
+    <form action="/tools/cheque-processing/upload" method="post"
+          enctype="multipart/form-data" class="upload-form-stack">
+      <label class="field">
+        <span>1 · Scanned cheques (up to {{ max_cheques }} — JPG, PNG, WEBP or PDF)</span>
+        <label class="filedrop">
+          <input type="file" name="cheques"
+                 accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
+          <span class="filedrop-text">Select the cheque scans — hold Ctrl to
+            pick several. Each cheque is read by AI (a few seconds each, in
+            parallel).</span>
+        </label>
+      </label>
+      <label class="field">
+        <span>2 · Bank statement(s) to search <em>(optional)</em> — up to
+          {{ max_banks }}; Excel or PDF</span>
+        <label class="filedrop">
+          <input type="file" name="statements"
+                 accept=".xlsx,.xlsm,.xls,.pdf" multiple>
+          <span class="filedrop-text">Optional — add them to match cheque
+            numbers against the bank; leave empty to just read the cheques.
+            Each statement is searched for every cheque number. Name the file
+            after the bank (e.g. <em>Afriland.xlsx</em>) so the bank column
+            reads clearly.</span>
+        </label>
+      </label>
+      <button class="btn btn-primary" type="submit">💵 Read cheques &amp; match</button>
+    </form>
+    {% else %}
+    <div class="alert alert-info">AI reading is not configured yet — paste your
+      Anthropic API key under <a href="/settings">Settings → AI document
+      reading</a> to enable cheque reading.</div>
+    {% endif %}
+
+    <div class="hint">
+      <strong>How it works</strong>
+      <ol>
+        <li>Each cheque scan is read for its <strong>cheque number</strong>,
+          <strong>customer name</strong> (the drawer/account holder),
+          <strong>amount</strong> and <strong>date</strong>.</li>
+        <li>Each cheque number is searched across <strong>all</strong> the
+          bank statements you upload.</li>
+        <li>Where it appears, you see the <strong>bank</strong>, the
+          <strong>amount per statement</strong> and the
+          <strong>transaction date</strong> — so you can confirm the cheque
+          cleared.</li>
+      </ol>
+    </div>
+  </section>
+
+  {% if recent %}
+  <section class="panel">
+    <h2 class="section-title">Recent batches</h2>
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Created</th><th>Cheques</th><th>Progress</th><th></th></tr></thead>
+        <tbody>
+          {% for b in recent %}
+          <tr>
+            <td>{{ b.created_at }}</td>
+            <td class="num">{{ b.total }}</td>
+            <td>{% if b.status == 'done' %}<span class="pill pill-ok">done</span>
+                {% else %}<span class="pill pill-watch">{{ b.done }}/{{ b.total }}</span>{% endif %}</td>
+            <td><a href="/tools/cheque-processing/batch/{{ b.token }}">open results</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+{% endblock %}

@@ -53,6 +53,19 @@ TOOLS = [
             "each payment linked to the customer's receivables position."
         ),
     },
+    {
+        "slug": "cheque-processing",
+        "name": "Cheque Payment Processing",
+        "category": O2C,
+        "icon": "💵",
+        "status": "draft",
+        "description": (
+            "Upload scanned cheques received from customers. The app reads each "
+            "cheque (number, customer, amount, date) and scans your bank "
+            "statements to confirm where each cheque number cleared — the bank, "
+            "the amount and the transaction date per statement."
+        ),
+    },
     # ---- Record to Report ---------------------------------------------------
     {
         "slug": "momo",
