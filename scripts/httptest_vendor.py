@@ -172,7 +172,7 @@ try:
 finally:
     dgi.verify_many = real
 check("certificates read & vendors auto-created",
-      "2 certificate(s) read" in r.text and "2 vendor(s) created" in r.text)
+      "2 certificate(s) accepted" in r.text and "2 vendor(s) created" in r.text)
 zeta = next(v for v in vendors.all_vendors() if v["niu"] == "M111222333444A")
 check("NIU + issue date + email read from document",
       zeta["cert_source"] == "certificate"

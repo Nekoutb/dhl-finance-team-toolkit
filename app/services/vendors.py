@@ -232,17 +232,34 @@ def upsert_many(parsed):
     return added, updated
 
 
-def apply_certificate(parsed, cert_file=""):
+def apply_certificate(parsed, cert_file="", enforce_newer=True):
     """Record a parsed tax clearance certificate (acf_reader.read_acf output).
 
     The certificate is the source of truth: its issue date, reference and
     email overwrite manual entries. Unknown NIUs auto-create the vendor using
-    the taxpayer name from the document. Returns 'created' or 'updated'.
+    the taxpayer name from the document.
+
+    Replacement rule (``enforce_newer``): when the vendor already has a
+    certificate, the new one must expire LATER than the one on file — i.e. its
+    validity period extends beyond the current one. A non-newer certificate is
+    rejected and the one on file is kept. A successful, newer certificate also
+    clears any "reminded — awaiting update" flag (the vendor has responded).
+
+    Returns 'created', 'updated', or 'not_newer'.
     """
     key = parsed["niu"].upper()
+    new_issue = parsed.get("issue_date", "")
     with _lock:
         data = _load()
         v = data.get(key)
+        if v and enforce_newer and v.get("cert_date") and new_issue:
+            try:
+                old_exp = add_months(date.fromisoformat(v["cert_date"][:10]))
+                new_exp = add_months(date.fromisoformat(new_issue[:10]))
+                if new_exp <= old_exp:
+                    return "not_newer"
+            except ValueError:
+                pass
         outcome = "updated" if v else "created"
         if not v:
             v = data[key] = {
@@ -254,7 +271,7 @@ def apply_certificate(parsed, cert_file=""):
                 "checked_at": "",
                 "added_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
-        v["cert_date"] = parsed.get("issue_date", "")
+        v["cert_date"] = new_issue
         if parsed.get("reference"):
             v["certificate"] = parsed["reference"]
         if parsed.get("email"):
@@ -264,8 +281,88 @@ def apply_certificate(parsed, cert_file=""):
         v["cert_source"] = "certificate"
         if cert_file:
             v["cert_file"] = cert_file
+        # A newer certificate = the vendor answered the reminder.
+        if v.get("awaiting_update"):
+            v["awaiting_update"] = False
+            v["responded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         _save(data)
     return outcome
+
+
+def mark_reminded(niu, lang="en"):
+    """Record that a renewal reminder was sent; flag the vendor as awaiting a
+    response until a newer certificate replaces the one on file."""
+    with _lock:
+        data = _load()
+        v = data.get(str(niu).strip().upper())
+        if not v:
+            return False
+        v["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        v["reminded_lang"] = "fr" if str(lang).lower().startswith("fr") else "en"
+        v["awaiting_update"] = True
+        v.pop("responded_at", None)
+        _save(data)
+    return True
+
+
+def reminded_awaiting():
+    """Vendors reminded to renew but who have not yet sent a newer certificate."""
+    return [v for v in all_vendors() if v.get("awaiting_update")]
+
+
+def reminder_text(vendor, lang, organization, as_of=None):
+    """Bilingual renewal reminder -> (subject, body). lang: 'en' | 'fr'."""
+    cert = cert_info(vendor, as_of)
+    name = vendor.get("name") or vendor.get("niu")
+    niu = vendor.get("niu", "")
+    end = cert.get("expires") or ""
+    days = cert.get("days_left")
+    fr = str(lang).lower().startswith("fr")
+    if fr:
+        if cert["state"] == "expired":
+            status = f"a expiré le {end}"
+        elif end:
+            status = f"expire le {end}" + (f" ({days} jour(s) restant(s))"
+                                           if days is not None else "")
+        else:
+            status = "ne comporte pas de date de validité enregistrée"
+        subject = f"Attestation de Conformité Fiscale — version à jour requise ({name})"
+        body = (
+            f"Cher partenaire {name},\n\n"
+            f"Nos dossiers indiquent que votre Attestation de Conformité "
+            f"Fiscale (NIU {niu}) {status}.\n\n"
+            "Une attestation à jour est requise. Conformément aux lois et "
+            "règlements fiscaux en vigueur, une attestation de conformité "
+            "fiscale est valable trois (3) mois à compter de sa date de "
+            "délivrance, et nous ne sommes pas en mesure de traiter le moindre "
+            "paiement sans une attestation en cours de validité.\n\n"
+            "Merci de nous faire parvenir votre attestation actualisée dans "
+            "les meilleurs délais afin que nous puissions reprendre le "
+            "traitement de vos paiements.\n\n"
+            f"Cordialement,\n{organization} — Service Financier")
+    else:
+        if cert["state"] == "expired":
+            status = f"expired on {end}"
+        elif end:
+            status = f"expires on {end}" + (f" ({days} day(s) left)"
+                                            if days is not None else "")
+        else:
+            status = "has no recorded validity date"
+        subject = f"Tax clearance certificate — updated version required ({name})"
+        body = (
+            f"Dear {name},\n\n"
+            f"Our records show that your tax clearance certificate "
+            f"(Attestation de Conformité Fiscale), taxpayer ID {niu}, "
+            f"{status}.\n\n"
+            "An updated certificate is required. In compliance with the "
+            "applicable tax laws and regulations, a tax clearance certificate "
+            "is valid for three (3) months from its date of issue, and we are "
+            "unable to process any payment without a currently valid "
+            "certificate.\n\n"
+            "Please send us your updated tax clearance certificate as soon as "
+            "possible so that we can resume processing your payments.\n\n"
+            f"Kind regards,\n{organization} — Finance")
+    return subject, body
 
 
 def set_fields(niu, **fields):

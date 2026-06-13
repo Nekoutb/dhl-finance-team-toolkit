@@ -1916,6 +1916,7 @@ def vendor_home(request: Request, message: str = "", error: str = ""):
     for v in rows:
         clearance = vendors.payment_clearance(v)
         v["clearance"] = clearance
+        v["cert"] = clearance["cert"]
         if clearance["ok"]:
             ok += 1
         else:
@@ -1926,14 +1927,56 @@ def vendor_home(request: Request, message: str = "", error: str = ""):
         if clearance["ok"] and clearance["cert"]["state"] == "expiring" \
                 and v.get("email"):
             remindable += 1
+    # Certificate validity tracking: vendors that have a certificate on file.
+    tracked = [v for v in rows if v["cert"]["state"] != "none"]
+    awaiting = sum(1 for v in rows if v.get("awaiting_update"))
     return templates.TemplateResponse("vendor/index.html", {
         "request": request, "cfg": load_config(), "tool": _VENDOR_TOOL,
-        "vendors": rows, "message": message, "error": error,
+        "vendors": rows, "tracked": tracked, "awaiting": awaiting,
+        "message": message, "error": error,
         "pending": sum(1 for v in rows if v["status"] == "pending"),
         "ok_to_pay": ok, "blocked": blocked, "remindable": remindable,
         "dgi_url": dgi.LOGIN_URL,
         "smtp_enabled": bool(load_config()["smtp"].get("enabled")),
     })
+
+
+@app.post("/tools/vendor-niu/remind-one")
+async def vendor_remind_one(request: Request):
+    """Email ONE vendor a renewal reminder in English or French, and flag them
+    as awaiting an updated certificate until a newer one is uploaded."""
+    cfg = load_config()
+    form = await request.form()
+    niu = (form.get("niu") or "").strip().upper()
+    lang = "fr" if (form.get("lang") or "en").lower().startswith("fr") else "en"
+    vendor = next((v for v in vendors.all_vendors() if v["niu"] == niu), None)
+    if not vendor:
+        return redirect_msg("/tools/vendor-niu", error="Vendor not found.")
+    if not vendor.get("email"):
+        return redirect_msg("/tools/vendor-niu",
+                            error=f"No email on file for {vendor['name'] or niu} "
+                                  "— add one in the table first.")
+    subject, body = vendors.reminder_text(vendor, lang, cfg["organization"])
+    smtp = cfg["smtp"]
+    sent = False
+    if smtp.get("enabled"):
+        try:
+            emailer.send_via_smtp(smtp, vendor["email"], subject, body)
+            sent = True
+        except Exception:  # noqa: BLE001
+            pass
+    if not sent:
+        eml = OUTPUT_DIR / f"reminder_{niu}_{lang}.eml"
+        emailer.build_eml(eml, smtp.get("from_address", ""), vendor["email"],
+                          subject, body)
+    vendors.mark_reminded(niu, lang)
+    where = "emailed" if sent else "created as a ready-to-send .eml"
+    lname = "French" if lang == "fr" else "English"
+    return redirect_msg(
+        "/tools/vendor-niu",
+        message=f"{lname} renewal reminder {where} to {vendor['email']} — "
+                f"{vendor['name'] or niu} flagged as awaiting an updated "
+                "certificate.")
 
 
 @app.post("/tools/vendor-niu/paste")
@@ -1967,8 +2010,8 @@ async def vendor_certificates(request: Request,
             f"/tools/vendor-niu?error=Too many files ({len(files)}) — upload "
             "at most 20 certificates at a time.", status_code=303)
     _CERT_DIR.mkdir(parents=True, exist_ok=True)
-    created = updated = 0
-    mismatches, skipped = [], []
+    created = updated = not_newer = 0
+    mismatches, skipped, stale = [], [], []
     for f in files:
         if Path(f.filename or "").suffix.lower() != ".pdf":
             skipped.append(f"{f.filename} (not a PDF)")
@@ -1979,18 +2022,27 @@ async def vendor_certificates(request: Request,
         if not parsed["ok"]:
             skipped.append(f"{f.filename} ({parsed['error']})")
             continue
-        # Keep the document as evidence — latest certificate per vendor.
         stored = _CERT_DIR / f"{parsed['niu']}.pdf"
-        stored.write_bytes(tmp.read_bytes())
+        # Apply BEFORE touching the stored evidence: a non-newer certificate is
+        # rejected and the one on file must be left intact.
         outcome = vendors.apply_certificate(parsed, cert_file=stored.name)
+        if outcome == "not_newer":
+            not_newer += 1
+            stale.append(parsed["niu"])
+            continue
+        # Accepted — keep this document as the evidence on file.
+        stored.write_bytes(tmp.read_bytes())
         if outcome == "created":
             created += 1
         else:
             updated += 1
         if parsed["date_mismatch"]:
             mismatches.append(parsed["niu"])
-    bits = [f"{created + updated} certificate(s) read — {created} vendor(s) "
+    bits = [f"{created + updated} certificate(s) accepted — {created} vendor(s) "
             f"created, {updated} updated"]
+    if not_newer:
+        bits.append(f"{not_newer} ignored — not newer than the certificate on "
+                    f"file ({', '.join(stale[:4])})")
     nius = vendors.pending_nius()
     if nius:
         for result in dgi.verify_many(nius):
