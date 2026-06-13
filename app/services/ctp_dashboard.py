@@ -4,7 +4,7 @@ Operates on the stored/loaded result (dates may be ISO strings), so it can be
 recomputed on every dashboard render (e.g. when the small-balance threshold is
 changed, or after the hold register / bank matches update).
 """
-from datetime import date
+from datetime import date, timedelta
 
 from . import ctp_rules
 
@@ -24,8 +24,24 @@ def _pdate(value):
         return None
 
 
-def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20):
-    as_of = _pdate(result["as_of"])
+def month_end(value):
+    """Last calendar day of ``value``'s month (e.g. 2026-06-13 -> 2026-06-30)."""
+    d = _pdate(value)
+    if not d:
+        return None
+    if d.month == 12:
+        return date(d.year, 12, 31)
+    return date(d.year, d.month + 1, 1) - timedelta(days=1)
+
+
+def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
+    # ``as_of`` defaults to the analysis date. Pass an override (e.g. the
+    # current month-end) to age the receivables against a different reference
+    # date: the aging bands AND the "going on hold" projection both follow it,
+    # so the team can see how the picture will look at period close. Pure
+    # balance/status metrics (unapplied cash, on-hold-negative, below-threshold)
+    # are snapshots and come out the same regardless of the reference date.
+    as_of = _pdate(as_of) or _pdate(result["as_of"])
     invoices = result["invoices"]
     customers = result["customers"]
     currency = (result.get("currencies") or ["XAF"])[0]
@@ -38,10 +54,18 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20):
     # --- 1. Aging by DOCUMENT date -----------------------------------------
     cust_aged = {}
     over60 = over90 = 0.0
+    # Max days past the DUE date at this as_of, per customer — recomputed here
+    # (rather than reusing the stored value) so the "going on hold" projection
+    # below tracks whichever reference date we are building for.
+    overdue_at = {}
     for i in debits:
         doc = _pdate(i.get("invoice_date"))
         age = (as_of - doc).days if (as_of and doc) else 0
         k = i["account"] or i["customer"]
+        due = _pdate(i.get("due_date"))
+        od = max(0, (as_of - due).days) if (as_of and due) else 0
+        if od > overdue_at.get(k, -1):
+            overdue_at[k] = od
         e = cust_aged.setdefault(k, {"customer": i["customer"], "key": k,
                                      "over60": 0.0, "over90": 0.0, "total": 0.0})
         e["total"] += i["amount"]
@@ -88,10 +112,12 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20):
         stop_day = ctp_rules.stop_credit_day(c.get("plan", ctp_rules.DEFAULT_PLAN))
         if not stop_day:
             continue
-        days_to_hold = stop_day - c["max_days_overdue"]
+        mdo = overdue_at.get(c["key"], c.get("max_days_overdue", 0))
+        days_to_hold = stop_day - mdo
         if days_to_hold <= 0 or days_to_hold > UPCOMING_BANDS[-1][0]:
             continue
-        row = {**c, "days_to_hold": days_to_hold, "stop_day": stop_day}
+        row = {**c, "max_days_overdue": mdo, "days_to_hold": days_to_hold,
+               "stop_day": stop_day}
         for limit, label in UPCOMING_BANDS:
             if days_to_hold <= limit:
                 bands[label].append(row)

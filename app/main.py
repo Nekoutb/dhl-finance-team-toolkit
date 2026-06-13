@@ -728,11 +728,18 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000",
         result = ctp.filter_result_priority(result, pri_keys)
     hold_cmp = ctp.hold_compare(result["customers"])
     dash = ctp_dashboard.build(result, threshold=thr)
+    # Second KPI line: the same metrics aged to the CURRENT MONTH-END, so the
+    # team sees how the aging picture (and who trips a credit hold) will look at
+    # period close if nothing is collected before then. The aging compares each
+    # invoice date to month-end (e.g. 30 Jun) instead of to the analysis date.
+    me = ctp_dashboard.month_end(result["as_of"])
+    dash_me = ctp_dashboard.build(result, threshold=thr, as_of=me) if me else None
     # v5.4: focused control — customers ON CREDIT HOLD whose names appear in
     # the bank statement credit narrations (possible payments received).
     bank = ctp.load_bank_matches(token)
     return templates.TemplateResponse("ongoing/dashboard.html", _ongoing_ctx(
-        request, result=result, dash=dash, hold_cmp=hold_cmp, token=token,
+        request, result=result, dash=dash, dash_me=dash_me, month_end=me,
+        hold_cmp=hold_cmp, token=token,
         threshold=thr, bank=bank,
         priority_on=priority_on, priority_count=len(pri_keys)))
 

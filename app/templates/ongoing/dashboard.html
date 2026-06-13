@@ -61,7 +61,8 @@
     {% endif %}
   </section>
 
-  <!-- KPI strip -->
+  <!-- KPI strip — aged to the analysis date (today) -->
+  <p class="kpi-line-lbl">As of {{ result.as_of }} <span class="kpi-line-tag">today</span></p>
   <div class="kpi-strip">
     <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.aging.over60_pct) }}%</span><span class="kpi-lbl">AR &gt; 60 days</span></div>
     <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.aging.over90_pct) }}%</span><span class="kpi-lbl">AR &gt; 90 days</span></div>
@@ -70,6 +71,25 @@
     <div class="kpi"><span class="kpi-num">{{ d.upcoming.total }}</span><span class="kpi-lbl">Going on hold ≤14d</span></div>
     <div class="kpi"><span class="kpi-num">{{ d.below.count }}</span><span class="kpi-lbl">Below threshold</span></div>
   </div>
+
+  {% if dash_me and month_end %}
+  {% set m = dash_me %}
+  <!-- KPI strip — same metrics aged to the current month-end -->
+  <p class="kpi-line-lbl">Projected at month-end <span class="kpi-line-tag kpi-line-tag-me">{{ month_end }}</span></p>
+  <div class="kpi-strip">
+    <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(m.aging.over60_pct) }}%</span><span class="kpi-lbl">AR &gt; 60 days</span></div>
+    <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(m.aging.over90_pct) }}%</span><span class="kpi-lbl">AR &gt; 90 days</span></div>
+    <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(m.unapplied.pct) }}%</span><span class="kpi-lbl">Unapplied cash</span></div>
+    <div class="kpi kpi-warn"><span class="kpi-num">{{ m.held_negative|length }}</span><span class="kpi-lbl">On hold &amp; negative</span></div>
+    <div class="kpi"><span class="kpi-num">{{ m.upcoming.total }}</span><span class="kpi-lbl">Going on hold ≤14d</span></div>
+    <div class="kpi"><span class="kpi-num">{{ m.below.count }}</span><span class="kpi-lbl">Below threshold</span></div>
+  </div>
+  <p class="note-small">The month-end line ages every invoice to
+    <strong>{{ month_end }}</strong> instead of to today, so the AR&nbsp;&gt;&nbsp;60/90&nbsp;day
+    shares and the credit-hold projection reflect period close. Unapplied
+    cash, on-hold-negative and below-threshold are balance snapshots and do
+    not change with the date.</p>
+  {% endif %}
 
   <!-- 1 & 6. Ageing + top offenders -->
   <section class="panel">

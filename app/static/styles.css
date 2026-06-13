@@ -369,6 +369,14 @@ kbd {
 /* ---- KPI cards ------------------------------------------------------------ */
 .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 14px; margin: 4px 0 18px; }
+.kpi-line-lbl { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px;
+  font-size: 12px; font-weight: 600; letter-spacing: .01em; color: var(--text-soft);
+  font-variant-numeric: tabular-nums; }
+.kpi-line-tag { font-size: 10.5px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; padding: 1px 7px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-text); }
+.kpi-line-tag-me { background: linear-gradient(90deg, var(--neg), #f59e0b);
+  color: #fff; }
 .kpi {
   background: var(--glass-panel); backdrop-filter: blur(12px);
   border-radius: var(--radius); padding: 16px 18px; position: relative; overflow: hidden;
