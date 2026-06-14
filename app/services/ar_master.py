@@ -19,17 +19,29 @@ FIELD_CANDIDATES = {
     "balance": ["receivable balance", "receivables balance", "ar balance",
                 "total receivable", "open balance", "outstanding balance",
                 "total due", "balance", "amount", "solde"],
-    "hold": ["credit hold position", "credit hold", "on hold", "hold position",
-             "credit stop", "credit block", "dunning block", "blocked",
-             "block", "hold"],
+    # "Account stop/open" is the customer trial balance's credit-hold column:
+    # an "X" = on credit hold (account stopped), blank = open (not on hold).
+    "hold": ["account stop/open", "account stop / open", "account stop",
+             "stop/open", "stop / open", "credit hold position", "credit hold",
+             "on hold", "hold position", "credit stop", "credit block",
+             "dunning block", "blocked", "block", "hold"],
+    "critical": ["critical customer", "critical customers", "critical",
+                 "key customer", "strategic customer", "vip"],
     "payment_term": ["payment terms", "payment term", "terms"],
     "credit_limit": ["credit limit", "cr limit", "limit"],
 }
 
+_YES_WORDS = {"x", "y", "yes", "oui", "true", "1", "critical", "vip", "key"}
+
+
+def _is_yes(value):
+    """Strict yes/true reading for flag columns like 'Critical customers'."""
+    return str(value if value is not None else "").strip().lower() in _YES_WORDS
+
 _TRUE_WORDS = {"x", "y", "yes", "oui", "true", "1", "on hold", "hold", "held",
                "blocked", "block", "stop", "credit stop", "active"}
 _FALSE_WORDS = {"", "n", "no", "non", "false", "0", "-", "none", "off",
-                "not held", "no hold", "released"}
+                "not held", "no hold", "released", "open", "o"}
 
 
 def _norm_key(value):
@@ -112,6 +124,7 @@ def parse_master(path):
             "segment": segment_raw,
             "plan": ctp_rules.resolve_plan(segment_raw) if segment_raw else None,
             "balance": balance,
+            "critical": _is_yes(g("critical")) if "critical" in mapping else False,
             "on_hold": parse_hold_flag(hold_raw) if "hold" in mapping else None,
             "hold_raw": str(hold_raw if hold_raw is not None else "").strip(),
             "credit_limit": _to_amount(g("credit_limit")) if g("credit_limit") not in (None, "") else None,
@@ -142,8 +155,10 @@ def _finish(mapping, customers, info_columns, skipped_totals):
         "customers": len(customers),
         "with_segment": sum(1 for c in customers.values() if c["segment"]),
         "with_hold_flag": sum(1 for c in customers.values() if c["on_hold"]),
+        "with_critical": sum(1 for c in customers.values() if c.get("critical")),
         "has_hold_column": "hold" in mapping,
         "has_segment_column": "segment" in mapping,
+        "has_critical_column": "critical" in mapping,
         "total_balance": sum(c["balance"] for c in customers.values()),
         "skipped_totals": skipped_totals,
         "plan_counts": {p: plans.count(p) for p in set(plans)},

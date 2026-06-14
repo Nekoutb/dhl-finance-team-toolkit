@@ -27,9 +27,10 @@
 
     {% set path = request.url.path %}
     {% set _allowed = request.state.allowed if request.state.allowed is defined else none %}
+    {% if request.state.dashboard_ok is not defined or request.state.dashboard_ok %}
     <a class="nav-item {% if path == '/' %}active{% endif %}" href="/">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg></span>
-      <span class="nav-label">Dashboard</span></a>
+      <span class="nav-label">Dashboard</span></a>{% endif %}
 
     {% if _allowed is none or ['ongoing-ctp-monitoring','remittance-portal','bank-statements','cheque-processing','momo','orange-cameroun']|select('in', _allowed)|list %}
     <div class="nav-section">Order to Cash</div>

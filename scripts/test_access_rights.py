@@ -96,6 +96,11 @@ check("employee can't set access", r.status_code == 303 and "error" in r.headers
 check("employee's access unchanged",
       "variance-analysis" not in auth.get_access(
           json.loads(CONFIG_PATH.read_text(encoding="utf-8"))["auth"], "emp"))
+check("employee blocked from /admin", client.get("/admin").status_code == 403)
+# the home Dashboard is its own grantable area — emp has not been granted it
+r = client.get("/", follow_redirects=False)
+check("no dashboard access -> / redirects to a tool",
+      r.status_code == 303 and "/tools/" in r.headers.get("location", ""))
 print("ok: employee — scoped read/modify enforced; Administration locked")
 
 # --- 4. admin: full access + can grant rights -------------------------------
@@ -104,19 +109,24 @@ check("admin reaches every area", client.get("/tools/variance-analysis").status_
 r = client.get("/admin")
 check("admin sees Administration page", r.status_code == 200
       and "Administration" in r.text and "emp" in r.text and "Read &amp; modify" in r.text)
+check("admin matrix includes the Dashboard area", "Dashboard (home overview)" in r.text)
 r = client.post("/admin/access",
-                data={"username": "emp", "access:vendor-niu": "modify",
+                data={"username": "emp", "access:dashboard": "read",
+                      "access:vendor-niu": "modify",
                       "access:orange-cameroun": "read",
                       "access:variance-analysis": "modify"},
                 follow_redirects=False)
 check("admin grants access -> redirect", r.status_code == 303)
 new_access = auth.get_access(json.loads(CONFIG_PATH.read_text(encoding="utf-8"))["auth"], "emp")
 check("granted area persisted", new_access.get("variance-analysis") == "modify")
-print("ok: admin — full access, can grant per-area rights")
+check("dashboard grant persisted", new_access.get("dashboard") == "read")
+print("ok: admin — full access, can grant per-area rights (incl. Dashboard)")
 
-# --- 5. the newly granted area now works for the employee -------------------
+# --- 5. the newly granted areas now work for the employee -------------------
 login("emp")
 check("newly granted area: GET allowed", client.get("/tools/variance-analysis").status_code == 200)
+check("dashboard now granted -> home loads",
+      client.get("/", follow_redirects=False).status_code == 200)
 print("ok: employee gains access immediately after the grant")
 
 # --- 6. deleting a user removes their access map -----------------------------

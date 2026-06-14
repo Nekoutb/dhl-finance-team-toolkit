@@ -20,15 +20,16 @@ OUT = ROOT / "samples" / "ar_master_sample.xlsx"
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
 HEADER = ["Customer Number", "Customer Name", "Customer Segment",
-          "Receivable Balance", "Credit Hold Position", "Payment Terms",
-          "Country", "Account Owner"]
+          "Critical Customers", "Receivable Balance", "Account stop/open",
+          "Payment Terms", "Country", "Account Owner"]
 
+# "Critical Customers" = "Yes" marks key accounts watched most closely.
 ROWS = [
-    ("1004000001", "ACME LOGISTICS",    "Enterprise",   4500000, "",  "15 days", "Cameroon", "Aurelie Uguebou"),
-    ("1004000002", "BETA TRADING SARL", "Field Sales",  670000,  "",  "15 days", "Cameroon", "Olga Goudji"),
-    ("1004000003", "GAMMA SARL",        "Telesales",    500000,  "X", "15 days", "Cameroon", "ALBERT DJONGA"),
-    ("1004000004", "DELTA CORP",        "New Customer", 2400000, "",  "15 days", "Cameroon", "Aurelie Uguebou"),
-    ("1004000005", "EPSILON SA",        "Telesales",    75000,   "",  "15 days", "Cameroon", "Olga Goudji"),
+    ("1004000001", "ACME LOGISTICS",    "Enterprise",   "Yes", 4500000, "",  "15 days", "Cameroon", "Aurelie Uguebou"),
+    ("1004000002", "BETA TRADING SARL", "Field Sales",  "",    670000,  "",  "15 days", "Cameroon", "Olga Goudji"),
+    ("1004000003", "GAMMA SARL",        "Telesales",    "Yes", 500000,  "X", "15 days", "Cameroon", "ALBERT DJONGA"),
+    ("1004000004", "DELTA CORP",        "New Customer", "",    2400000, "",  "15 days", "Cameroon", "Aurelie Uguebou"),
+    ("1004000005", "EPSILON SA",        "Telesales",    "",    75000,   "",  "15 days", "Cameroon", "Olga Goudji"),
 ]
 
 wb = openpyxl.Workbook()
@@ -38,9 +39,9 @@ ws.append(HEADER)
 total = 0
 for row in ROWS:
     ws.append(list(row))
-    total += row[3]
+    total += row[4]
 # Total line: balance + nothing identifying.
-ws.append(["", "", "", total, "", "", "", ""])
+ws.append(["", "", "", "", total, "", "", "", ""])
 
 wb.save(OUT)
 print(f"Wrote {OUT} ({len(ROWS)} customers + total row, total {total:,})")

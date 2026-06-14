@@ -48,8 +48,13 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024            # 50 MB per request
 MAX_BATCH_UPLOAD_BYTES = 150 * 1024 * 1024     # compliance: up to 25 PDFs
 
 # Per-area access control: every /tools/<slug> path is gated by the user's
-# access rights (set by an admin under Administration).
+# access rights (set by an admin under Administration). The home Dashboard is
+# an assignable area too (pseudo-slug "dashboard").
 _TOOL_SLUGS = {t["slug"] for t in registry.TOOLS}
+_DASHBOARD_AREA = {"slug": "dashboard", "name": "Dashboard (home overview)",
+                   "category": "Home", "icon": "🏠"}
+_ASSIGNABLE_AREAS = [_DASHBOARD_AREA] + registry.TOOLS
+_ASSIGNABLE_SLUGS = ["dashboard"] + registry.all_slugs()
 
 
 def _slug_for_path(path):
@@ -146,6 +151,9 @@ async def gate_and_cache(request: Request, call_next):
         acc = auth.get_access(auth_cfg, user)
         request.state.allowed = {s for s, lvl in acc.items()
                                  if lvl in auth._ACCESS_LEVELS} & _TOOL_SLUGS
+    request.state.dashboard_ok = (
+        request.state.is_admin
+        or auth.area_level(auth_cfg, user, "dashboard") != "none")
     slug = _slug_for_path(request.url.path)
     if slug in _TOOL_SLUGS:
         level = auth.area_level(auth_cfg, user, slug)
@@ -360,6 +368,14 @@ def _home_stats():
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, welcome: str = ""):
     cfg = load_config()
+    # The home Dashboard is itself an access-controlled area. A user without it
+    # lands on their first accessible tool (or an access-denied if they have none).
+    if not getattr(request.state, "dashboard_ok", True):
+        allowed = getattr(request.state, "allowed", set()) or set()
+        first = next((t["slug"] for t in registry.TOOLS if t["slug"] in allowed), None)
+        if first:
+            return RedirectResponse(f"/tools/{first}", status_code=303)
+        return _access_denied(request, read_only=False)
     # Show only the areas this user may access (admins see everything).
     allowed = getattr(request.state, "allowed", None)
     groups = registry.grouped()
@@ -726,10 +742,12 @@ def _render_ctp_results(request, token, status_code=200, priority=""):
     if priority_on:
         result = ctp.filter_result_priority(result, pri_keys)
     hold_cmp = ctp.hold_compare(result["customers"])
-    # Per-customer credit-stop status, keyed by account, so the invoice table
-    # can show each line's customer credit-stop standing.
+    # Per-customer status keyed by account, so the invoice table can show each
+    # line's customer credit-stop / on-hold / critical standing.
     cust_status = {c["key"]: {"k": c.get("credit_stop_key", "ok"),
-                              "l": c.get("credit_stop", "")}
+                              "l": c.get("credit_stop", ""),
+                              "held": c.get("currently_held", False),
+                              "critical": c.get("critical", False)}
                    for c in result["customers"]}
     report = OUTPUT_DIR / (f"CtP_controls_{token[:8]}_priority.xlsx"
                            if priority_on else f"CtP_controls_{token[:8]}.xlsx")
@@ -2485,7 +2503,7 @@ def admin_home(request: Request, message: str = "", error: str = ""):
     } for u in auth.list_users()]
     return templates.TemplateResponse("admin.html", {
         "request": request, "cfg": cfg, "message": message, "error": error,
-        "users": rows, "areas": registry.TOOLS,
+        "users": rows, "areas": _ASSIGNABLE_AREAS,
         "current_user": getattr(request.state, "user", None),
         "auth_enabled": auth.enabled(auth_cfg),
         "min_password": auth.MIN_PASSWORD_LEN,
@@ -2504,7 +2522,7 @@ async def admin_set_access(request: Request):
         return RedirectResponse("/admin?error=Unknown user.", status_code=303)
     # Each area is posted as access:<slug> = none | read | modify.
     access_map = {}
-    for slug in registry.all_slugs():
+    for slug in _ASSIGNABLE_SLUGS:
         val = form.get(f"access:{slug}")
         if val in (auth.ACCESS_READ, auth.ACCESS_MODIFY):
             access_map[slug] = val

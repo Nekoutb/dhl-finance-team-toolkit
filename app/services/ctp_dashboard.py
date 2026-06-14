@@ -49,10 +49,14 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
     # offender/unapplied rows below can carry it into the dashboard.
     by_key = {c["key"]: c for c in customers}
 
-    def _stop(k):
+    def _flags(k):
+        """Status flags carried onto even the reduced offender/unapplied rows
+        so every report can show credit-hold + critical + credit-stop."""
         c = by_key.get(k) or {}
         return {"credit_stop": c.get("credit_stop", ""),
-                "credit_stop_key": c.get("credit_stop_key", "ok")}
+                "credit_stop_key": c.get("credit_stop_key", "ok"),
+                "currently_held": c.get("currently_held", False),
+                "critical": c.get("critical", False)}
 
     debits = [i for i in invoices if i["kind"] == "invoice"]
     credits = [i for i in invoices if i["kind"] == "credit"]
@@ -76,7 +80,7 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
             overdue_at[k] = od
         e = cust_aged.setdefault(k, {"customer": i["customer"], "key": k,
                                      "over60": 0.0, "over90": 0.0, "total": 0.0,
-                                     **_stop(k)})
+                                     **_flags(k)})
         e["total"] += i["amount"]
         if age > 60:
             over60 += i["amount"]
@@ -100,7 +104,7 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
     for i in credits:
         k = i["account"] or i["customer"]
         e = credit_by_cust.setdefault(k, {"customer": i["customer"], "key": k, "amount": 0.0,
-                                          **_stop(k)})
+                                          **_flags(k)})
         e["amount"] += i["amount"]
     unapplied_block = {
         "amount": unapplied,
@@ -147,11 +151,91 @@ def build(result, threshold=DEFAULT_SMALL_THRESHOLD, top_n=20, as_of=None):
         "customers": below,
     }
 
+    # --- Per-customer aging (over60/over90) helper for the sections below ---
+    def _aged(c):
+        a = cust_aged.get(c["key"], {})
+        gross = a.get("total") or c.get("gross_ar") or 0.0
+        o60, o90 = a.get("over60", 0.0), a.get("over90", 0.0)
+        return o60, o90, (o60 / gross * 100 if gross else 0.0), \
+            (o90 / gross * 100 if gross else 0.0)
+
+    # --- 7. Legal recovery: customers handed to third-party legal ----------
+    legal_rows = []
+    for c in customers:
+        if not c.get("legal"):
+            continue
+        o60, o90, _p60, _p90 = _aged(c)
+        legal_rows.append({**c, "over60": o60, "over90": o90})
+    legal_rows.sort(key=lambda c: -c["total_ar"])
+    legal_block = {
+        "customers": legal_rows, "count": len(legal_rows),
+        "total_ar": sum(c["total_ar"] for c in legal_rows),
+        "over60": sum(c["over60"] for c in legal_rows),
+        "over90": sum(c["over90"] for c in legal_rows),
+        "critical_count": sum(1 for c in legal_rows if c.get("critical")),
+    }
+
+    # --- 8. Critical customer analysis (master "Critical" = Yes) -----------
+    critical_rows = []
+    for c in customers:
+        if not c.get("critical"):
+            continue
+        o60, o90, p60, p90 = _aged(c)
+        mdo = overdue_at.get(c["key"], c.get("max_days_overdue", 0))
+        stop_day = c.get("stop_day") or ctp_rules.stop_credit_day(
+            c.get("plan", ctp_rules.DEFAULT_PLAN))
+        critical_rows.append({
+            **c, "over60": o60, "over90": o90, "pct_over60": p60,
+            "pct_over90": p90, "max_days_overdue": mdo, "stop_day": stop_day,
+            "days_to_stop": (stop_day - mdo) if stop_day else None})
+    critical_rows.sort(key=lambda c: -c["total_ar"])
+    critical_block = {
+        "customers": critical_rows, "count": len(critical_rows),
+        "total_ar": sum(c["total_ar"] for c in critical_rows),
+        "held": sum(1 for c in critical_rows if c.get("currently_held")),
+    }
+
+    # --- 9. Duty account analysis (invoices with a "D0…" id) ---------------
+    duty_invs = []
+    duty_total = duty_over60 = duty_over90 = duty_overdue = 0.0
+    for i in debits:
+        if not i.get("duty"):
+            continue
+        doc = _pdate(i.get("invoice_date"))
+        age = (as_of - doc).days if (as_of and doc) else 0
+        amt = i["amount"]
+        duty_total += amt
+        if i.get("days_overdue", 0) > 0:
+            duty_overdue += amt
+        o60, o90 = age > 60, age > 90
+        duty_over60 += amt if o60 else 0
+        duty_over90 += amt if o90 else 0
+        cust = by_key.get(i["account"] or i["customer"]) or {}
+        duty_invs.append({
+            "customer": i["customer"], "account": i["account"],
+            "invoice_no": i.get("invoice_no") or i.get("reference"),
+            "due_date": i.get("due_date"), "amount": amt,
+            "days_overdue": i.get("days_overdue", 0), "action": i.get("action"),
+            "currently_held": cust.get("currently_held", False),
+            "critical": cust.get("critical", False),
+            "over60": o60, "over90": o90})
+    duty_invs.sort(key=lambda r: -r["amount"])
+    duty_block = {
+        "invoices": duty_invs, "count": len(duty_invs), "total": duty_total,
+        "overdue": duty_overdue, "over60": duty_over60, "over90": duty_over90,
+        "over60_pct": (duty_over60 / duty_total * 100) if duty_total else 0,
+        "over90_pct": (duty_over90 / duty_total * 100) if duty_total else 0,
+        "customers": len({(r["account"] or r["customer"]) for r in duty_invs}),
+    }
+
     # --- 6. Top offenders ---------------------------------------------------
     top60 = over60_list[:top_n]
     top90 = over90_list[:top_n]
 
     return {
+        "legal": legal_block,
+        "critical": critical_block,
+        "duty": duty_block,
         "currency": currency,
         "gross_ar": gross_ar,
         "net_ar": net_ar,

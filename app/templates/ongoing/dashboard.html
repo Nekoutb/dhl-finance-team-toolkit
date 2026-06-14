@@ -4,17 +4,21 @@
 {% set cur = d.currency %}
 {% set base = "/tools/ongoing-ctp-monitoring/results/" ~ token %}
 {% macro money(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
+{# The two mandatory status columns shown on every CtP report. #}
+{% macro hc_th() %}<th>On credit hold</th><th>Critical</th>{% endmacro %}
+{% macro hc(c) %}<td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">No</span>{% endif %}</td><td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>{% endmacro %}
 
 {% macro offender_table(rows, field) %}
   {% if rows %}
   <div class="table-wrap"><table class="tx-table">
     <thead><tr><th>#</th><th>Customer</th><th>Account</th>
       <th>{{ 'Over 60d' if field == 'over60' else 'Over 90d' }}</th><th>Total AR</th>
-      <th>Credit stop</th></tr></thead>
+      {{ hc_th() }}<th>Credit stop</th></tr></thead>
     <tbody>
       {% for c in rows[:30] %}
       <tr><td>{{ loop.index }}</td><td>{{ c.customer }}</td><td>{{ c.key }}</td>
         <td>{{ "{:,.0f}".format(c[field]) }}</td><td>{{ "{:,.0f}".format(c.total) }}</td>
+        {{ hc(c) }}
         <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
       {% endfor %}
     </tbody>
@@ -117,10 +121,11 @@
       <summary><span class="drop-title">Unapplied cash %</span>
         <span class="drop-val">{{ "{:.1f}".format(d.unapplied.pct) }}% · {{ money(d.unapplied.amount) }} {{ cur }}</span></summary>
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Unapplied credit</th><th>Credit stop</th></tr></thead>
+        <thead><tr><th>Customer</th><th>Account</th><th>Unapplied credit</th>{{ hc_th() }}<th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in d.unapplied.customers %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.amount) }}</td>
+            {{ hc(c) }}
             <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
         </tbody>
@@ -139,11 +144,12 @@
         <span class="drop-val">{{ d.held_negative|length }} customer(s)</span></summary>
       {% if d.held_negative %}
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Net balance</th><th>Risk control</th><th>Credit stop</th></tr></thead>
+        <thead><tr><th>Customer</th><th>Account</th><th>Net balance</th>{{ hc_th() }}<th>Risk control</th><th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in d.held_negative %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
             <td>{{ money(c.total_ar) }}</td>
+            {{ hc(c) }}
             <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
             <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
@@ -165,12 +171,13 @@
       {% if rows %}
       <div class="table-wrap"><table class="tx-table">
         <thead><tr><th>Customer</th><th>Account</th><th>Plan</th><th>Max days overdue</th>
-          <th>Days to hold</th><th>Total AR</th><th>Credit stop</th></tr></thead>
+          <th>Days to hold</th><th>Total AR</th>{{ hc_th() }}<th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in rows %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ c.plan_label }}</td>
             <td>{{ c.max_days_overdue }}</td><td><strong>{{ c.days_to_hold }}</strong></td>
             <td>{{ money(c.total_ar) }}</td>
+            {{ hc(c) }}
             <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
         </tbody>
@@ -194,11 +201,12 @@
         <span class="drop-val">{{ d.below.count }} customer(s) · {{ money(d.below.total) }} {{ cur }}</span></summary>
       {% if d.below.customers %}
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>Total AR</th><th>Max days overdue</th><th>Risk control</th><th>Credit stop</th></tr></thead>
+        <thead><tr><th>Customer</th><th>Account</th><th>Total AR</th><th>Max days overdue</th>{{ hc_th() }}<th>Risk control</th><th>Credit stop</th></tr></thead>
         <tbody>
           {% for c in d.below.customers %}
           <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td><td>{{ money(c.total_ar) }}</td>
             <td>{{ c.max_days_overdue }}</td>
+            {{ hc(c) }}
             <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
             <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
           {% endfor %}
@@ -206,6 +214,98 @@
       </table></div>
       {% else %}<p class="note-small">No customers at or below this threshold.</p>{% endif %}
     </details>
+  </section>
+
+  <!-- Legal recovery — customers with third-party legal -->
+  <section class="panel">
+    <h2 class="section-title">Sent to third-party legal — forced recovery</h2>
+    <p class="lead">Customers handed to external legal for forced recovery —
+      identified by the accounting clerk <strong>Legal</strong> on the
+      transaction file.</p>
+    {% if d.legal.customers %}
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>Customer</th><th>Account</th><th>Critical?</th><th>Credit hold?</th>
+        <th>Total AR</th><th>AR &gt; 60d</th><th>AR &gt; 90d</th></tr></thead>
+      <tbody>
+        {% for c in d.legal.customers %}
+        <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
+          <td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}—{% endif %}</td>
+          <td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">no</span>{% endif %}</td>
+          <td>{{ money(c.total_ar) }}</td>
+          <td>{{ money(c.over60) }}</td><td>{{ money(c.over90) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="note-small">{{ d.legal.count }} customer(s) · total AR {{ money(d.legal.total_ar) }} {{ cur }}
+      · over 60d {{ money(d.legal.over60) }} · over 90d {{ money(d.legal.over90) }}
+      · {{ d.legal.critical_count }} critical.</p>
+    {% else %}<p class="note-small">No customers are currently with third-party
+      legal (no invoice has the accounting clerk “Legal”).</p>{% endif %}
+  </section>
+
+  <!-- Critical customer analysis -->
+  <section class="panel">
+    <h2 class="section-title">Critical customer analysis</h2>
+    <p class="lead">Customers flagged <strong>Critical</strong> in the customer
+      trial balance. “Days to stop” is from each customer's CtP treatment plan
+      (sales segment).</p>
+    {% if d.critical.customers %}
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>Customer</th><th>Account N°</th><th>On credit hold</th>
+        <th>Critical</th><th>Total AR</th><th>Overdue AR</th><th>% &gt; 60d</th><th>% &gt; 90d</th>
+        <th>Days to stop</th></tr></thead>
+      <tbody>
+        {% for c in d.critical.customers %}
+        <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
+          <td>{% if c.currently_held %}<span class="pill pill-hold">Credit hold</span>{% else %}<span class="pill pill-ok">Not on hold</span>{% endif %}</td>
+          <td><span class="pill pill-stop">Critical</span></td>
+          <td>{{ money(c.total_ar) }}</td><td>{{ money(c.overdue) }}</td>
+          <td>{{ "{:.0f}".format(c.pct_over60) }}%</td>
+          <td>{{ "{:.0f}".format(c.pct_over90) }}%</td>
+          <td>{% if c.days_to_stop is none %}<span class="note-inline">n/a</span>
+            {% elif c.days_to_stop <= 0 %}<span class="pill pill-stop">On stop</span>
+            {% else %}<strong>{{ c.days_to_stop }}</strong> d{% endif %}
+            <span class="note-inline">({{ c.plan_label }})</span></td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="note-small">{{ d.critical.count }} critical customer(s) · total AR
+      {{ money(d.critical.total_ar) }} {{ cur }} · {{ d.critical.held }} on credit hold.</p>
+    {% else %}<p class="note-small">No customers are flagged critical — add a
+      “Critical customers” column (value “Yes”) to the customer trial balance.</p>{% endif %}
+  </section>
+
+  <!-- Duty account analysis -->
+  <section class="panel">
+    <h2 class="section-title">Duty account analysis</h2>
+    <p class="lead">Duty invoices only — identified by a <strong>D0…</strong>
+      (letter D, then zero) document or reference id.</p>
+    {% if d.duty.count %}
+    <div class="kpi-strip">
+      <div class="kpi"><span class="kpi-num">{{ d.duty.count }}</span><span class="kpi-lbl">Duty invoices</span></div>
+      <div class="kpi"><span class="kpi-num">{{ money(d.duty.total) }}</span><span class="kpi-lbl">Total duty AR ({{ cur }})</span></div>
+      <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.duty.over60_pct) }}%</span><span class="kpi-lbl">Duty &gt; 60 days</span></div>
+      <div class="kpi"><span class="kpi-num">{{ "{:.1f}".format(d.duty.over90_pct) }}%</span><span class="kpi-lbl">Duty &gt; 90 days</span></div>
+    </div>
+    <details class="drop">
+      <summary><span class="drop-title">Duty invoices ({{ d.duty.customers }} customer(s))</span>
+        <span class="drop-val">{{ d.duty.count }} · {{ money(d.duty.total) }} {{ cur }}</span></summary>
+      <div class="table-wrap"><table class="tx-table">
+        <thead><tr><th>Customer</th><th>Account</th>{{ hc_th() }}<th>Document</th><th>Due date</th>
+          <th>Amount</th><th>Days overdue</th><th>Control / action</th></tr></thead>
+        <tbody>
+          {% for i in d.duty.invoices %}
+          <tr><td>{{ i.customer }}</td><td>{{ i.account }}</td>{{ hc(i) }}<td>{{ i.invoice_no }}</td>
+            <td>{{ i.due_date or '—' }}</td><td>{{ money(i.amount) }}</td>
+            <td>{{ i.days_overdue }}</td><td>{{ i.action }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    </details>
+    <p class="note-small">Overdue {{ money(d.duty.overdue) }} · over 60d
+      {{ money(d.duty.over60) }} · over 90d {{ money(d.duty.over90) }} {{ cur }}.</p>
+    {% else %}<p class="note-small">No duty invoices found (none with a
+      “D0…” document/reference id).</p>{% endif %}
   </section>
 
   <!-- 7. On credit hold but paying — from the central Bank Statements section -->
@@ -229,11 +329,11 @@
           {{ bank_line_count }} bank lines on file</span></summary>
       {% if held_paying %}
       <div class="table-wrap"><table class="tx-table">
-        <thead><tr><th>Customer (on hold)</th><th>Account</th><th>Open AR</th>
+        <thead><tr><th>Customer (on hold)</th><th>Account</th>{{ hc_th() }}<th>Open AR</th>
           <th>Match</th><th>Bank narration</th><th>Bank amount</th><th>Date</th></tr></thead>
         <tbody>
           {% for m in held_paying %}
-          <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td><td>{{ money(m.total_ar) }}</td>
+          <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td>{{ hc(m) }}<td>{{ money(m.total_ar) }}</td>
             <td>{{ "{:.0f}".format(m.score * 100) }}%</td>
             <td>{{ m.bank_description }}</td><td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
           {% endfor %}

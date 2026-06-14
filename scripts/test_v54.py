@@ -75,6 +75,9 @@ try:
     assert auth.add_user("admin.test", "secret77", secure_cookies=False,
                          admin=True)
     assert auth.add_user("employee.test", "secret88", admin=False)
+    # The home Dashboard is now an access-controlled area; grant it so the
+    # employee can see the welcome banner on "/" (v7.3).
+    auth.set_access("employee.test", {"dashboard": "read"})
 
     # employee: no Admin nav, settings sections hidden, POSTs blocked
     r = client.post("/login", data={"username": "employee.test",

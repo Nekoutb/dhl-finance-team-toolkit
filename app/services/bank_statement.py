@@ -168,6 +168,7 @@ def match_customers(customers, bank, min_ratio=0.86):
             matches.append({
                 "customer": c["customer"], "key": c["key"],
                 "total_ar": c["total_ar"], "currently_held": c.get("currently_held", False),
+                "critical": c.get("critical", False),
                 "score": best["score"],
                 "bank_description": best["line"]["description"],
                 "bank_amount": best["line"]["amount"],

@@ -35,7 +35,10 @@ FIELD_CANDIDATES = {
                 "account number", "account no", "customer", "account", "compte"],
     "invoice_no": ["invoice number", "invoice no", "billing document",
                    "document number", "invoice", "document no", "facture",
-                   "doc no", "reference"],
+                   "doc no"],
+    # The customer-facing reference (a duty invoice's "D0…" id may live here
+    # rather than in the SAP document number).
+    "reference": ["reference", "ref"],
     "invoice_date": ["invoice date", "billing date", "document date",
                      "date facture", "doc date"],
     "due_date": ["net due date", "due date", "payment due", "net due", "due",
@@ -267,12 +270,20 @@ def analyze(path, as_of=None, default_rank=51, master=None, tb=None):
 
         cl_raw = g("credit_limit")
         ab_raw = g("annual_billed")
+        inv_no = _norm_key(g("invoice_no"))
+        reference = _norm_key(g("reference"))
+        # Duty invoices are identified by a "D0…" id (letter D then zero), on
+        # either the document number or the reference.
+        is_duty = (str(inv_no).upper().startswith("D0")
+                   or str(reference).upper().startswith("D0"))
         invoices.append({
             "kind": kind,
             "customer": str(g("customer") or "").strip()
             or account_key or "(Unassigned)",
             "account": account_key,
-            "invoice_no": _norm_key(g("invoice_no")),
+            "invoice_no": inv_no,
+            "reference": reference,
+            "duty": is_duty,
             "invoice_date": inv_date,
             "due_date": due,
             "doc_type": str(g("doc_type") or "").strip(),
@@ -305,6 +316,8 @@ def analyze(path, as_of=None, default_rank=51, master=None, tb=None):
             c["master_balance"] = m["balance"]
             c["master_hold"] = m["on_hold"]
             c["master_segment"] = m["segment"]
+            c["segment"] = m["segment"] or c.get("segment", "")
+            c["critical"] = bool(m.get("critical"))
             diff = round(c["total_ar"] - m["balance"], 2)
             if abs(diff) <= max(1.0, abs(m["balance"]) * 0.0001):
                 matched += 1
@@ -401,15 +414,23 @@ def _rollup_customers(invoices):
         status_key, status = ctp_rules.risk_control(beyond_pct, overrun_pct)
         worst = max(debits, key=lambda i: i["days_overdue"]) if debits else items[0]
         clerk = next((i["clerk"] for i in items if i["clerk"]), "")
+        # Sent to third-party legal for forced recovery: flagged by an
+        # accounting clerk named "Legal" on any of the customer's invoices.
+        legal = any("legal" in str(i.get("clerk") or "").lower() for i in items)
         out.append({
             "key": key,
             "customer": items[0]["customer"],
             "clerk": clerk,
+            "legal": legal,
+            "critical": False,            # set from the master file below
+            "segment": "",                # set from the master file below
             "plan": plan,
             "plan_label": ctp_rules.PLAN_LABELS[plan],
+            "stop_day": ctp_rules.stop_credit_day(plan),
             "invoice_count": len(debits),
             "credit_count": len(credits),
             "total_ar": net_total,
+            "gross_ar": gross_debits,
             "overdue": overdue,
             "credits_total": sum(i["amount"] for i in credits),
             "beyond_gctp_pct": beyond_pct,

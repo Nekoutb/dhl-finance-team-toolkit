@@ -29,12 +29,23 @@ PLAN_LABELS = {
 
 # Free-text segment label -> plan. Aliases drawn from the segmentation pyramid
 # (policy §2.2: Enterprise / Relationship / Direct).
+# Match against the customer's sales-channel / segment text from the master or
+# transaction file. Longer/more specific channels first; checked in order so a
+# "key account" is Enterprise even though it also contains "account".
 _SEGMENT_ALIASES = {
-    PLAN_TELESALES: ["telesales", "tls", "multichannel", "multi channel",
-                     "multi-channel", "direct", "retail", "cash"],
-    PLAN_FIELD: ["field", "major", "relationship"],
-    PLAN_ENTERPRISE: ["enterprise", "global", "mnc", "gfps", "national", "csi"],
-    PLAN_NEW: ["new customer", "new ", "newly", "new-"],
+    PLAN_NEW: ["new customer", "new account", "newly", "new business",
+               "prospect", "new-", "new "],
+    PLAN_ENTERPRISE: ["enterprise", "global customer", "global account",
+                      "global", "key account", "key accounts", "key customer",
+                      "strategic", "corporate", "major account", "named account",
+                      "mnc", "gfps", "gcs", "national", "csi", "block"],
+    PLAN_FIELD: ["field sales", "field", "outdoor", "territory", "major",
+                 "relationship", "account manager", "regional"],
+    PLAN_TELESALES: ["telesales", "tele sales", "tele-sales", "tas", "tls",
+                     "inside sales", "inside", "call centre", "call center",
+                     "multichannel", "multi channel", "multi-channel",
+                     "direct", "retail", "cash", "online", "ecommerce",
+                     "e-commerce", "e-com", "sme", "small", "counter"],
 }
 
 # GCTP timelines: ordered (days_overdue, action, owner). Days are vs the invoice
