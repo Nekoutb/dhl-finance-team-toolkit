@@ -164,6 +164,59 @@ def is_admin(auth_cfg, user):
     return user in admins
 
 
+# --- Per-area access rights (read-only vs read/modify) -----------------------
+# Stored in config.auth.access = {username: {tool_slug: "read"|"modify"}}.
+# A slug absent from the map = NO access. Admins (and login-free local mode)
+# implicitly get full ("modify") access to every area.
+ACCESS_READ = "read"
+ACCESS_MODIFY = "modify"
+_ACCESS_LEVELS = (ACCESS_READ, ACCESS_MODIFY)
+
+
+def get_access(auth_cfg, username):
+    """The {slug: level} access map for a user (empty for unknown/none)."""
+    if not username:
+        return {}
+    return dict((auth_cfg.get("access") or {}).get(username, {}) or {})
+
+
+def area_level(auth_cfg, user, slug):
+    """A user's level for an area: 'modify' | 'read' | 'none'.
+
+    Admins and login-free local mode get 'modify' on every area.
+    """
+    if is_admin(auth_cfg, user):
+        return ACCESS_MODIFY
+    if not user:
+        return "none"
+    level = get_access(auth_cfg, user).get(slug)
+    return level if level in _ACCESS_LEVELS else "none"
+
+
+def can_read(auth_cfg, user, slug):
+    return area_level(auth_cfg, user, slug) in _ACCESS_LEVELS
+
+
+def can_modify(auth_cfg, user, slug):
+    return area_level(auth_cfg, user, slug) == ACCESS_MODIFY
+
+
+def set_access(username, access_map):
+    """Persist a user's {slug: level} access (writes config.json directly).
+
+    Anything that isn't 'read'/'modify' is dropped (= no access to that area).
+    """
+    username = (username or "").strip()
+    if not username:
+        return False
+    cfg = _load_raw()
+    a = cfg.setdefault("auth", {})
+    a.setdefault("access", {})[username] = {
+        s: l for s, l in (access_map or {}).items() if l in _ACCESS_LEVELS}
+    _save_raw(cfg)
+    return True
+
+
 # --- User administration (writes config.json directly so deletions stick;
 #     config.save_user_config deep-merges, which can't remove a user) ---------
 def _load_raw():
@@ -222,6 +275,8 @@ def delete_user(username):
         del users[username]
         if username in a.get("admins", []):
             a["admins"].remove(username)
+        if username in a.get("access", {}):
+            del a["access"][username]
         _save_raw(cfg)
         return True
     return False

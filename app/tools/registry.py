@@ -163,6 +163,11 @@ def by_slug(slug):
     return None
 
 
+def all_slugs():
+    """Every tool slug — the assignable areas for per-user access rights."""
+    return [tool["slug"] for tool in TOOLS]
+
+
 def grouped():
     """Return tools grouped by category, preserving first-seen order."""
     groups = {}

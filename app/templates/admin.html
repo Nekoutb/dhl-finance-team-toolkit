@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Administration · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / Administration</nav>
+
+  <section class="panel">
+    <h1>🔐 Administration</h1>
+    <p class="lead">Onboard staff and control exactly which areas each person can
+      reach — and whether they can only <strong>view</strong> (read-only) or also
+      <strong>make changes</strong> (read &amp; modify). Administrators always
+      have full access to every area, plus Administration and
+      <a href="/settings">Settings</a>.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if not auth_enabled %}
+    <div class="alert alert-info">Staff login is currently <strong>off</strong> —
+      add the first user below to turn it on. Until then the app is open with
+      full local access.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Onboard a user</h2>
+    <form action="/settings/users/add" method="post" class="confirm-row">
+      <input type="hidden" name="redirect" value="/admin">
+      <label class="field"><span>Username *</span>
+        <input type="text" name="username" placeholder="e.g. jane.doe" required></label>
+      <label class="field"><span>Temporary password * (min {{ min_password }} characters)</span>
+        <input type="password" name="password" minlength="{{ min_password }}" required></label>
+      <label class="field" style="flex-direction:row;align-items:center;gap:8px;align-self:flex-end;">
+        <input type="checkbox" name="is_admin" style="width:16px;height:16px;">
+        <span>Administrator (full access)</span></label>
+      <button class="btn btn-primary" type="submit" style="align-self:flex-end;">Add user</button>
+    </form>
+    <p class="note-small">New employees start with <strong>no access</strong> —
+      grant areas below. Share the temporary password; they can change it under
+      Settings → Your account.</p>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Users &amp; access rights</h2>
+    {% if not users %}
+    <p class="note-small">No staff users yet — onboard one above.</p>
+    {% endif %}
+    {% for u in users %}
+    <details class="drop" {% if not u.is_admin and u.username != current_user and users|length <= 4 %}open{% endif %}>
+      <summary>
+        <span class="drop-title">{{ u.username }}
+          {% if u.is_admin %}<span class="pill pill-ok">Administrator</span>
+          {% else %}<span class="pill pill-manual">Employee</span>{% endif %}
+          {% if u.username == current_user %}<span class="note-inline">(you)</span>{% endif %}
+        </span>
+        <span class="drop-val">{% if u.is_admin %}full access{% else %}{{ u.access|length }} area(s) granted{% endif %}</span>
+      </summary>
+      <div style="padding:10px 16px 14px;">
+        {% if u.is_admin %}
+        <p class="note-small">Administrators have full read &amp; modify access to
+          every area. To make this person an employee with limited access, remove
+          them and re-add without the Administrator box.</p>
+        {% else %}
+        <form action="/admin/access" method="post">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <div class="table-wrap" style="max-height:none;">
+            <table class="tx-table">
+              <thead><tr><th>Area</th><th>Access right</th></tr></thead>
+              <tbody>
+                {% for a in areas %}
+                {% set lvl = u.access.get(a.slug, '') %}
+                <tr>
+                  <td>{{ a.icon }} {{ a.name }}
+                    <span class="note-inline">· {{ a.category }}</span></td>
+                  <td>
+                    <select name="access:{{ a.slug }}" class="name-input" style="max-width:200px;">
+                      <option value="none" {% if lvl not in ['read', 'modify'] %}selected{% endif %}>No access</option>
+                      <option value="read" {% if lvl == 'read' %}selected{% endif %}>Read only</option>
+                      <option value="modify" {% if lvl == 'modify' %}selected{% endif %}>Read &amp; modify</option>
+                    </select>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-primary" type="submit" style="margin-top:10px;">
+            Save access for {{ u.username }}</button>
+        </form>
+        {% endif %}
+        {% if u.username != current_user %}
+        <form action="/settings/users/delete" method="post" style="margin-top:12px;"
+              onsubmit="return confirm('Remove user {{ u.username }} and their access?');">
+          <input type="hidden" name="redirect" value="/admin">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <button class="btn btn-small" type="submit">Remove user</button>
+        </form>
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  </section>
+{% endblock %}

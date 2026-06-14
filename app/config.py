@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v7.1 — 13 Jun 2026 · one bank-statement upload area; cheque + CtP reference it"
+APP_VERSION = "v7.2 — 14 Jun 2026 · Administration: per-user, per-area access rights (read / read-modify)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

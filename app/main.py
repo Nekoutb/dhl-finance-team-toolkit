@@ -47,6 +47,33 @@ templates.env.globals["asset_v"] = ASSET_V
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024            # 50 MB per request
 MAX_BATCH_UPLOAD_BYTES = 150 * 1024 * 1024     # compliance: up to 25 PDFs
 
+# Per-area access control: every /tools/<slug> path is gated by the user's
+# access rights (set by an admin under Administration).
+_TOOL_SLUGS = {t["slug"] for t in registry.TOOLS}
+
+
+def _slug_for_path(path):
+    """The tool slug a path belongs to, e.g. /tools/<slug>/... -> <slug>."""
+    if not path.startswith("/tools/"):
+        return None
+    return (path[len("/tools/"):].split("/", 1)[0]) or None
+
+
+def _access_denied(request, read_only):
+    """A friendly 403 when a user lacks rights to an area."""
+    if read_only:
+        heading = "Read-only access"
+        detail = ("You have read-only access to this area — you can view it but "
+                  "not make changes. Ask an administrator for read & modify "
+                  "rights if you need them.")
+    else:
+        heading = "No access to this area"
+        detail = ("Your account doesn't have access to this area. An "
+                  "administrator can grant it under Administration.")
+    return templates.TemplateResponse("error.html", {
+        "request": request, "cfg": load_config(), "icon": "🔒",
+        "heading": heading, "detail": detail, "ref": ""}, status_code=403)
+
 
 @app.middleware("http")
 async def gate_and_cache(request: Request, call_next):
@@ -111,6 +138,22 @@ async def gate_and_cache(request: Request, call_next):
             return RedirectResponse(f"/login?next={nxt}", status_code=303)
     request.state.user = user
     request.state.is_admin = auth.is_admin(auth_cfg, user)
+    # Per-area access rights drive the nav/landing (what a user may see) and
+    # are enforced on every /tools/<slug> request (what a user may view/do).
+    if request.state.is_admin:
+        request.state.allowed = set(_TOOL_SLUGS)
+    else:
+        acc = auth.get_access(auth_cfg, user)
+        request.state.allowed = {s for s, lvl in acc.items()
+                                 if lvl in auth._ACCESS_LEVELS} & _TOOL_SLUGS
+    slug = _slug_for_path(request.url.path)
+    if slug in _TOOL_SLUGS:
+        level = auth.area_level(auth_cfg, user, slug)
+        if level == "none":
+            return _access_denied(request, read_only=False)
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") \
+                and level != auth.ACCESS_MODIFY:
+            return _access_denied(request, read_only=True)
     response = await call_next(request)
     if request.url.path.startswith("/static/"):
         # Versioned URLs (?v=<release hash>) make long caching safe: a new
@@ -317,10 +360,17 @@ def _home_stats():
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, welcome: str = ""):
     cfg = load_config()
+    # Show only the areas this user may access (admins see everything).
+    allowed = getattr(request.state, "allowed", None)
+    groups = registry.grouped()
+    if allowed is not None:
+        groups = {cat: [t for t in tools if t["slug"] in allowed]
+                  for cat, tools in groups.items()}
+        groups = {cat: tools for cat, tools in groups.items() if tools}
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "cfg": cfg,
-        "groups": registry.grouped(),
+        "groups": groups,
         "s": _home_stats(),
         "welcome": bool(welcome) and getattr(request.state, "user", None),
     })
@@ -2419,6 +2469,53 @@ def _admin_block(request):
     return None
 
 
+# --------------------------------------------------------------------------- #
+# Administration — per-user access rights (admin-only)
+# --------------------------------------------------------------------------- #
+@app.get("/admin", response_class=HTMLResponse)
+def admin_home(request: Request, message: str = "", error: str = ""):
+    if not getattr(request.state, "is_admin", True):
+        return _access_denied(request, read_only=False)
+    cfg = load_config()
+    auth_cfg = cfg.get("auth", {})
+    rows = [{
+        "username": u,
+        "is_admin": auth.is_admin(auth_cfg, u),
+        "access": auth.get_access(auth_cfg, u),
+    } for u in auth.list_users()]
+    return templates.TemplateResponse("admin.html", {
+        "request": request, "cfg": cfg, "message": message, "error": error,
+        "users": rows, "areas": registry.TOOLS,
+        "current_user": getattr(request.state, "user", None),
+        "auth_enabled": auth.enabled(auth_cfg),
+        "min_password": auth.MIN_PASSWORD_LEN,
+    })
+
+
+@app.post("/admin/access")
+async def admin_set_access(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return RedirectResponse(
+            "/admin?error=Administrator access required.", status_code=303)
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    if username not in auth.list_users():
+        return RedirectResponse("/admin?error=Unknown user.", status_code=303)
+    # Each area is posted as access:<slug> = none | read | modify.
+    access_map = {}
+    for slug in registry.all_slugs():
+        val = form.get(f"access:{slug}")
+        if val in (auth.ACCESS_READ, auth.ACCESS_MODIFY):
+            access_map[slug] = val
+    auth.set_access(username, access_map)
+    granted = len(access_map)
+    return redirect_msg(
+        "/admin",
+        message=f"Access rights updated for '{username}' "
+                f"({granted} area(s) granted).")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def app_settings(request: Request, message: str = "", error: str = ""):
     cfg = load_config()
@@ -2445,14 +2542,15 @@ async def settings_user_add(request: Request):
     if blocked:
         return blocked
     form = await request.form()
+    dest = "/admin" if form.get("redirect") == "/admin" else "/settings"
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
     if not username:
-        return RedirectResponse("/settings?error=Username is required.",
+        return RedirectResponse(f"{dest}?error=Username is required.",
                                 status_code=303)
     if len(password) < auth.MIN_PASSWORD_LEN:
         return RedirectResponse(
-            f"/settings?error=Password must be at least "
+            f"{dest}?error=Password must be at least "
             f"{auth.MIN_PASSWORD_LEN} characters.", status_code=303)
     make_admin = form.get("is_admin") == "on"
     auth.add_user(username, password,
@@ -2460,7 +2558,7 @@ async def settings_user_add(request: Request):
                   admin=make_admin)
     role = "administrator" if make_admin else "employee"
     return redirect_msg(
-        "/settings",
+        dest,
         message=f"User '{username}' added as {role}. Staff login is enabled.")
 
 
@@ -2470,16 +2568,16 @@ async def settings_user_delete(request: Request):
     if blocked:
         return blocked
     form = await request.form()
+    dest = "/admin" if form.get("redirect") == "/admin" else "/settings"
     username = (form.get("username") or "").strip()
     if username == getattr(request.state, "user", None):
         return RedirectResponse(
-            "/settings?error=You can't delete the account you're signed in with.",
+            f"{dest}?error=You can't delete the account you're signed in with.",
             status_code=303)
     if auth.delete_user(username):
-        return redirect_msg("/settings",
-                            message=f"User '{username}' removed.")
+        return redirect_msg(dest, message=f"User '{username}' removed.")
     return RedirectResponse(
-        "/settings?error=Could not remove that user (the last user can't be removed).",
+        f"{dest}?error=Could not remove that user (the last user can't be removed).",
         status_code=303)
 
 
