@@ -192,13 +192,13 @@
     {% if hold_cmp.place_on_hold %}
     <div class="table-wrap">
       <table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>On credit hold</th><th>Critical</th><th>Clerk</th><th>Total AR</th>
+        <thead><tr><th>Customer</th><th>Account</th><th>Current Credit Hold status</th><th>Critical</th><th>Clerk</th><th>Total AR</th>
           <th>% beyond GCTP</th><th>Max days</th><th>Required control</th><th></th></tr></thead>
         <tbody>
           {% for c in hold_cmp.place_on_hold %}
           <tr>
             <td>{{ c.customer }}</td><td>{{ c.key }}</td>
-            <td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
+            <td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td>
             <td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
             <td>{{ c.clerk }}</td>
             <td>{{ "{:,.0f}".format(c.total_ar) }}</td>
@@ -228,13 +228,13 @@
     {% if hold_cmp.review_release %}
     <div class="table-wrap">
       <table class="tx-table">
-        <thead><tr><th>Customer</th><th>Account</th><th>On credit hold</th><th>Critical</th><th>Clerk</th><th>Total AR</th>
+        <thead><tr><th>Customer</th><th>Account</th><th>Current Credit Hold status</th><th>Critical</th><th>Clerk</th><th>Total AR</th>
           <th>% beyond GCTP</th><th>Max days</th><th>Current state</th><th></th></tr></thead>
         <tbody>
           {% for c in hold_cmp.review_release %}
           <tr>
             <td>{{ c.customer }}</td><td>{{ c.key }}</td>
-            <td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
+            <td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td>
             <td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
             <td>{{ c.clerk }}</td>
             <td>{{ "{:,.0f}".format(c.total_ar) }}</td>
@@ -268,7 +268,7 @@
         <thead><tr>
           <th>Customer</th><th>Account</th><th>Plan</th><th>Clerk</th><th>Inv</th>
           <th>Total AR (net)</th><th>Overdue</th><th>% beyond GCTP</th>
-          <th>Max days</th><th>Risk control</th><th>On credit hold</th><th>Critical</th><th>Credit stop status</th>
+          <th>Max days</th><th>Risk control</th><th>Current Credit Hold status</th><th>Critical</th><th>Credit stop status</th>
           <th>Next action</th><th>Owner</th>
         </tr></thead>
         <tbody>
@@ -284,7 +284,7 @@
             <td>{{ "{:.0f}".format(c.beyond_gctp_pct) }}%</td>
             <td>{{ c.max_days_overdue }}</td>
             <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
-            <td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
+            <td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td>
             <td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
             <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td>
             <td>{{ c.next_action }}</td>
@@ -301,7 +301,7 @@
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr>
-          <th>Customer</th><th>Account</th><th>On credit hold</th><th>Critical</th><th>Credit stop</th><th>Document</th><th>Due date</th>
+          <th>Customer</th><th>Account</th><th>Current Credit Hold status</th><th>Critical</th><th>Credit stop</th><th>Document</th><th>Due date</th>
           <th>Type</th><th>Amount</th><th>Days overdue</th>
           <th>Control / action</th><th>Owner</th>
         </tr></thead>
@@ -311,7 +311,7 @@
           <tr{% if i.kind == 'credit' %} class="row-auto"{% endif %}>
             <td>{{ i.customer }}</td>
             <td>{{ i.account }}</td>
-            <td>{% if cs and cs.held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
+            <td>{% if cs and cs.held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td>
             <td>{% if cs and cs.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
             <td>{% if cs %}<span class="pill pill-{{ cs.k }}">{{ cs.l }}</span>{% else %}—{% endif %}</td>
             <td>{{ i.invoice_no }}</td>

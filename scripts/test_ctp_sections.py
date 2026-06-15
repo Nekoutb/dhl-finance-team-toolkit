@@ -88,13 +88,13 @@ try:
     assert page.status_code == 200, page.status_code
     for needle in ["Sent to third-party legal", "Critical customer analysis",
                    "Duty account analysis", "GAMMA", "D0000101",
-                   "On credit hold", "Critical"]:
+                   "Current Credit Hold status", "Critical"]:
         check(f"dashboard renders: {needle}", needle in page.text)
     # the two mandatory columns also on the results (controls) report
     rpage = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}")
     assert rpage.status_code == 200, rpage.status_code
     check("results report shows On credit hold + Critical",
-          "On credit hold" in rpage.text and "Critical" in rpage.text)
+          "Current Credit Hold status" in rpage.text and "Critical" in rpage.text)
 finally:
     (ctp.STORE_DIR / f"{token}.json").unlink(missing_ok=True)
 
@@ -108,9 +108,9 @@ xlsx_report.build_ctp_report(out, result, hold_cmp)
 cust = pd.read_excel(out, sheet_name="Customer risk")
 inv = pd.read_excel(out, sheet_name="Controls by invoice")
 check("Excel customer sheet has both columns",
-      "On credit hold" in cust.columns and "Critical customer" in cust.columns)
+      "Current Credit Hold status" in cust.columns and "Critical customer" in cust.columns)
 check("Excel invoice sheet has both columns",
-      "On credit hold" in inv.columns and "Critical customer" in inv.columns)
+      "Current Credit Hold status" in inv.columns and "Critical customer" in inv.columns)
 out.unlink(missing_ok=True)
 
 # --- 9. held-customers-paying matches carry hold + critical -----------------

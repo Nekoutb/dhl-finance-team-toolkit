@@ -32,7 +32,7 @@ def _cust_frame(rows):
         "Max days overdue": c["max_days_overdue"],
         "Risk control": c["status"],
         "Credit stop status": _credit_stop(c),
-        "On credit hold": "Yes" if c.get("currently_held") else "No",
+        "Current Credit Hold status": "Stop" if c.get("currently_held") else "Open",
         "Critical customer": "Yes" if c.get("critical") else "No",
         "Hold source": c.get("hold_source", ""),
         "Master balance": c.get("master_balance", ""),
@@ -62,7 +62,7 @@ def build_ctp_report(out_path, result, hold_cmp=None):
     # Per-customer status, so every invoice line carries hold/critical/stop too.
     cust_meta = {c["key"]: {
         "stop": _credit_stop(c),
-        "held": "Yes" if c.get("currently_held") else "No",
+        "held": "Stop" if c.get("currently_held") else "Open",
         "critical": "Yes" if c.get("critical") else "No",
     } for c in result["customers"]}
 
@@ -72,7 +72,7 @@ def build_ctp_report(out_path, result, hold_cmp=None):
     invoices = pd.DataFrame([{
         "Customer": i["customer"],
         "Account": i["account"],
-        "On credit hold": _meta(i["account"], "held"),
+        "Current Credit Hold status": _meta(i["account"], "held"),
         "Critical customer": _meta(i["account"], "critical"),
         "Credit stop status": _meta(i["account"], "stop"),
         "Type": "Credit/Payment" if i["kind"] == "credit" else "Invoice",

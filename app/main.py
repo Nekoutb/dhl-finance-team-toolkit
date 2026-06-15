@@ -681,8 +681,12 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
                 request, error=error, recent=ctp.list_results(),
                 master=_master_summary()), status_code=400)
 
-    # Optional AR trial balance — drives the FIRST check (tx total vs TB).
+    # Optional AR trial balance — drives the FIRST check (tx total vs TB) AND
+    # is the credit-hold source: when it carries a per-customer "Account
+    # stop/open" (X = on hold) and/or "Critical" column, those flags drive the
+    # hold register + critical analysis (they win over the master file).
     tb = None
+    tb_holds = None
     if tb_file and tb_file.filename:
         tb_ext = Path(tb_file.filename).suffix.lower()
         if tb_ext not in ALLOWED_EXT:
@@ -698,6 +702,13 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
             return templates.TemplateResponse("ongoing/upload.html", _ongoing_ctx(
                 request, error=f"Could not read the trial balance: {exc}",
                 recent=ctp.list_results(), master=_master_summary()), status_code=400)
+        try:
+            parsed_tb = ar_master.parse_master(tb_dest)
+            if (parsed_tb["stats"].get("has_hold_column")
+                    or parsed_tb["stats"].get("has_critical_column")):
+                tb_holds = parsed_tb
+        except Exception:  # noqa: BLE001 — TB hold extraction is best-effort
+            tb_holds = None
 
     try:
         as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date.today()
@@ -712,9 +723,15 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
     dest = UPLOAD_DIR / f"{token}{ext}"
     dest.write_bytes(await file.read())
 
+    # Hold/critical come from the AR trial balance when present (it wins), else
+    # the master file. Merge so both customer data sets are available.
+    parts = [p for p in (ctp.load_master(), tb_holds)
+             if p and p.get("customers")]
+    effective_master = (ar_master.combine(parts) if len(parts) > 1
+                        else (parts[0] if parts else None))
     try:
         result = ctp.analyze(dest, as_of=as_of_date, default_rank=rank,
-                             master=ctp.load_master(), tb=tb)
+                             master=effective_master, tb=tb)
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse("ongoing/upload.html", _ongoing_ctx(
             request, error=f"Could not analyse that file: {exc}",

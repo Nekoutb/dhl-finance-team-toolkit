@@ -4,9 +4,10 @@
 {% set cur = d.currency %}
 {% set base = "/tools/ongoing-ctp-monitoring/results/" ~ token %}
 {% macro money(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
-{# The two mandatory status columns shown on every CtP report. #}
-{% macro hc_th() %}<th>On credit hold</th><th>Critical</th>{% endmacro %}
-{% macro hc(c) %}<td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">No</span>{% endif %}</td><td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>{% endmacro %}
+{# The two mandatory status columns shown on every CtP report. Hold status is
+   Stop (X in the AR trial balance "Account stop/open") or Open (no X). #}
+{% macro hc_th() %}<th>Current Credit Hold status</th><th>Critical</th>{% endmacro %}
+{% macro hc(c) %}<td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td><td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>{% endmacro %}
 
 {% macro offender_table(rows, field) %}
   {% if rows %}
@@ -224,13 +225,13 @@
       transaction file.</p>
     {% if d.legal.customers %}
     <div class="table-wrap"><table class="tx-table">
-      <thead><tr><th>Customer</th><th>Account</th><th>Critical?</th><th>Credit hold?</th>
+      <thead><tr><th>Customer</th><th>Account</th><th>Critical</th><th>Current Credit Hold status</th>
         <th>Total AR</th><th>AR &gt; 60d</th><th>AR &gt; 90d</th></tr></thead>
       <tbody>
         {% for c in d.legal.customers %}
         <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
-          <td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}—{% endif %}</td>
-          <td>{% if c.currently_held %}<span class="pill pill-hold">On hold</span>{% else %}<span class="note-inline">no</span>{% endif %}</td>
+          <td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>
+          <td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td>
           <td>{{ money(c.total_ar) }}</td>
           <td>{{ money(c.over60) }}</td><td>{{ money(c.over90) }}</td></tr>
         {% endfor %}
@@ -251,13 +252,13 @@
       (sales segment).</p>
     {% if d.critical.customers %}
     <div class="table-wrap"><table class="tx-table">
-      <thead><tr><th>Customer</th><th>Account N°</th><th>On credit hold</th>
+      <thead><tr><th>Customer</th><th>Account N°</th><th>Current Credit Hold status</th>
         <th>Critical</th><th>Total AR</th><th>Overdue AR</th><th>% &gt; 60d</th><th>% &gt; 90d</th>
         <th>Days to stop</th></tr></thead>
       <tbody>
         {% for c in d.critical.customers %}
         <tr><td>{{ c.customer }}</td><td>{{ c.key }}</td>
-          <td>{% if c.currently_held %}<span class="pill pill-hold">Credit hold</span>{% else %}<span class="pill pill-ok">Not on hold</span>{% endif %}</td>
+          <td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td>
           <td><span class="pill pill-stop">Critical</span></td>
           <td>{{ money(c.total_ar) }}</td><td>{{ money(c.overdue) }}</td>
           <td>{{ "{:.0f}".format(c.pct_over60) }}%</td>
