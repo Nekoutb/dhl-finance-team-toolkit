@@ -9,6 +9,7 @@ Reports persist under data/bank/<token>.json so they can be revisited.
 """
 import json
 import re
+import threading
 import uuid
 from datetime import datetime
 
@@ -188,6 +189,7 @@ def build_report(files, ai_cfg=None):
     matched_total = sum(e["collected"] for e in matched)
     return {
         "token": uuid.uuid4().hex[:12],
+        "status": "done",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": " + ".join(s for _p, s in files if s) or "statement",
         "banks": banks,
@@ -214,6 +216,40 @@ def build_report(files, ai_cfg=None):
         "ar_link": ar_meta,
         "statement_lines": statement_lines,
     }
+
+
+def start_report(files, ai_cfg=None):
+    """Kick off the report on a BACKGROUND thread and return its token at once.
+
+    Reading PDF statements with the AI can take a minute or more; doing it in
+    the request would hit the reverse-proxy timeout (502). The results page
+    polls the saved report until ``status`` flips from 'running' to 'done'.
+    """
+    files = list(files)[:MAX_FILES]
+    token = uuid.uuid4().hex[:12]
+    save_report({
+        "token": token, "status": "running",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "source": " + ".join(s for _p, s in files if s) or "statement",
+        "file_count": len(files),
+    })
+
+    def _runner():
+        try:
+            report = build_report(files, ai_cfg=ai_cfg)
+            report["token"] = token
+            report["status"] = "done"
+            save_report(report)
+        except Exception as exc:  # noqa: BLE001 — surface, never crash silently
+            save_report({
+                "token": token, "status": "error",
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "source": " + ".join(s for _p, s in files if s) or "statement",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return token
 
 
 def delete_report(token):

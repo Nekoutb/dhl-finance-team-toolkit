@@ -1,12 +1,35 @@
 {% extends "base.html" %}
 {% block title %}Bank statement report · {{ cfg.app_name }}{% endblock %}
-{% set s = r.summary %}
 {% block content %}
   <nav class="crumbs">
     <a href="/">Dashboard</a> /
     <a href="/tools/bank-statements">{{ tool.name }}</a> / Report
   </nav>
 
+  {% if r.status == 'running' %}
+    <script>setTimeout(function () { location.reload(); }, 5000);</script>
+    <section class="panel">
+      <h1>Reading your bank statement(s)…</h1>
+      <p class="lead">Started {{ r.created_at }} · {{ r.file_count }} file(s).
+        PDF statements are read by AI — this can take a minute or two for a
+        multi-page statement. This page refreshes itself automatically.</p>
+      <div class="progress"><i style="width:45%"></i></div>
+      <p class="note-small">You can leave this page and reopen the report later
+        from <a href="/tools/bank-statements">Bank statements</a>.</p>
+    </section>
+  {% elif r.status == 'error' %}
+    <section class="panel">
+      <h1>Could not read the statement(s)</h1>
+      <div class="alert alert-error">{{ r.error }}</div>
+      <p class="note-small">If this is a large PDF, split it into fewer pages and
+        try again. For scanned PDFs, ensure the Anthropic API key is set under
+        <a href="/settings">Settings → AI document reading</a>.</p>
+      <div class="download-row">
+        <a class="btn btn-primary" href="/tools/bank-statements">Try another statement</a>
+      </div>
+    </section>
+  {% else %}
+  {% set s = r.summary %}
   <section class="panel">
     <h1>Bank statements — Open AR appearing on the bank statements
       <span class="note-inline">({{ s.statement_count or 1 }} statement(s))</span></h1>
@@ -165,4 +188,5 @@
       {% else %}<p class="note-small">None — every credit matched a customer.</p>{% endif %}
     </section>
   </div>
+  {% endif %}
 {% endblock %}

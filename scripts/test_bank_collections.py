@@ -96,6 +96,36 @@ try:
         ai_ocr.extract_bank_statement = _orig
         pdf.unlink(missing_ok=True)
     print("ok: PDF statement read by AI OCR (mocked) -> credits + payers")
+
+    # --- 5. async start_report for a PDF: returns at once, fills in later ---
+    import time
+    _orig2 = ai_ocr.extract_bank_statement
+    ai_ocr.extract_bank_statement = lambda b, m, c: {
+        "bank_name": "SGBC", "lines": [
+            {"date": "2026-06-13", "description": "VIR", "payer": "DELTA CORP",
+             "credit": 2400000.0, "debit": 0.0}]}
+    pdf2 = ROOT / "data" / "uploads" / "_test_async.pdf"
+    pdf2.write_bytes(b"%PDF-1.4 dummy")
+    try:
+        tok = bank.start_report([(pdf2, "SGBC.pdf")], ai_cfg={"api_key": "x"})
+        stub = bank.load_report(tok)
+        check("start_report returns immediately with a running stub",
+              stub and stub["status"] == "running")
+        rep3 = None
+        for _ in range(80):
+            rep3 = bank.load_report(tok)
+            if rep3 and rep3.get("status") == "done":
+                break
+            time.sleep(0.1)
+        check("background read completes (status done)",
+              rep3 and rep3["status"] == "done")
+        check("async report captured the AI credit",
+              rep3["summary"]["total_credited"] == 2400000)
+        bank.delete_report(tok)
+        print("ok: async PDF read — fast upload, report fills in in the background")
+    finally:
+        ai_ocr.extract_bank_statement = _orig2
+        pdf2.unlink(missing_ok=True)
 finally:
     (ctp.STORE_DIR / "ba0c5511.json").unlink(missing_ok=True)
 

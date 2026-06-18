@@ -1864,8 +1864,19 @@ async def bank_upload(request: Request, file: list[UploadFile] = File(...)):
         dest = UPLOAD_DIR / f"bankstmt_{uuid.uuid4().hex[:8]}{ext}"
         dest.write_bytes(await f.read())
         stored.append((dest, f.filename or "statement.xlsx"))
+    ai_cfg = load_config().get("ai")
+    ai_key = bool((ai_cfg or {}).get("api_key", "").strip())
+    # AI-read PDF/scanned statements on a BACKGROUND thread — that call can
+    # exceed the reverse-proxy timeout (502). Spreadsheets read instantly, so
+    # they stay synchronous (no polling page).
+    needs_ai = ai_key and any(Path(n).suffix.lower() in bank._AI_EXT
+                              for _p, n in stored)
+    if needs_ai:
+        token = bank.start_report(stored, ai_cfg=ai_cfg)
+        return RedirectResponse(
+            f"/tools/bank-statements/results/{token}", status_code=303)
     try:
-        report = bank.build_report(stored, ai_cfg=load_config().get("ai"))
+        report = bank.build_report(stored, ai_cfg=ai_cfg)
     except Exception as exc:  # noqa: BLE001
         return _bank_home(request, error=f"Could not read the statement(s): {exc}",
                           status_code=400)
