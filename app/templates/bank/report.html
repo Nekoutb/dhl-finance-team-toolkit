@@ -18,20 +18,29 @@
     {% if r.banks %}
     <div class="table-wrap" style="margin-bottom:14px;">
       <table class="tx-table">
-        <thead><tr><th>Bank</th><th>Statement file</th>
-          <th>Credit transactions</th><th>Collected</th></tr></thead>
+        <thead><tr><th>Bank</th><th>Statement file</th><th>Read by</th>
+          <th>Lines</th><th>Credit transactions</th><th>Collected</th></tr></thead>
         <tbody>
           {% for b in r.banks %}
           <tr>
             <td><strong>{{ b.bank }}</strong></td>
             <td>{{ b.source }}</td>
+            <td>{% if b.method == 'AI reader' %}<span class="pill pill-ok">AI reader</span>{% else %}<span class="pill pill-manual">table reader</span>{% endif %}</td>
+            <td>{{ b.line_count if b.line_count is defined else '—' }}</td>
             <td>{{ b.credit_count }}</td>
             <td>{{ "{:,.0f}".format(b.total_credited) }}</td>
           </tr>
+          {% if b.note %}<tr><td colspan="6" class="note-inline" style="color:var(--warn);">⚠ {{ b.note }}</td></tr>{% endif %}
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% endif %}
+    {% if s.credit_count == 0 %}
+    <div class="alert alert-warn">No credit (incoming) transactions were read
+      from the statement(s). If these are PDF statements, set the Anthropic API
+      key under <a href="/settings">Settings → AI document reading</a> so they
+      are read by AI; otherwise check the file has a credit/“Crédit” column.</div>
     {% endif %}
 
     <div class="kpi-strip">
@@ -92,6 +101,35 @@
     {% endif %}
   </section>
 
+  <section class="panel">
+    <h2 class="section-title">Payments received by payer — all credits</h2>
+    <p class="lead">Every credit (cash collected) grouped by the payer read from
+      the statement (the originator after “Donneur d'ordre”, else the narration)
+      — <strong>independent of whether the payer appears in the AR</strong>.</p>
+    {% if r.payments_by_payer %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Payer</th><th>Total received</th><th>Payments</th>
+          <th>Bank(s)</th><th>Date(s)</th></tr></thead>
+        <tbody>
+          {% for p in r.payments_by_payer %}
+          <tr>
+            <td style="white-space:normal;min-width:160px;">{{ p.payer }}</td>
+            <td>{{ "{:,.0f}".format(p.total) }}</td>
+            <td>{{ p.count }}</td>
+            <td>{{ p.banks | join(' · ') if p.banks else '—' }}</td>
+            <td class="note-inline">{{ p.dates | join(', ') if p.dates else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">{{ r.summary.payer_count }} distinct payer(s) ·
+      {{ "{:,.0f}".format(r.summary.total_credited) }} total collected.</p>
+    {% else %}<p class="note-small">No credit transactions were read from the
+      statement(s).</p>{% endif %}
+  </section>
+
   <div class="two-col">
     <section class="panel">
       <h2 class="section-title">Daily collections</h2>
@@ -113,10 +151,11 @@
       {% if r.unmatched %}
       <div class="table-wrap">
         <table class="tx-table">
-          <thead><tr><th>Date</th><th>Bank</th><th>Narration</th><th>Credited</th></tr></thead>
+          <thead><tr><th>Date</th><th>Bank</th><th>Payer</th><th>Narration</th><th>Credited</th></tr></thead>
           <tbody>
             {% for ln in r.unmatched %}
             <tr><td>{{ ln.date }}</td><td>{{ ln.bank or '—' }}</td>
+              <td>{{ ln.payer or '—' }}</td>
               <td class="msg-cell">{{ ln.description }}</td>
               <td>{{ "{:,.0f}".format(ln.credit) }}</td></tr>
             {% endfor %}

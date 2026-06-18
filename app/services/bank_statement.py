@@ -5,19 +5,81 @@ variant) appears on the bank statement — a strong sign a payment was made but
 not yet applied to the account.
 """
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 from . import excel_reader
 
 NARRATION_CANDIDATES = ["description", "narration", "details", "detail",
-                        "libelle", "libellé", "label", "wording", "motif",
-                        "beneficiaire", "bénéficiaire", "remitter", "payer",
+                        "libelle", "label", "wording", "motif",
+                        "beneficiaire", "remitter", "payer", "donneur",
                         "counterparty", "object", "objet", "reference", "text",
                         "name", "sender"]
 AMOUNT_CANDIDATES = ["credit amount", "credit", "amount", "montant", "value",
                      "deposit"]
 DATE_CANDIDATES = ["value date", "posting date", "operation date",
-                   "transaction date", "date"]
+                   "date operation", "date valeur", "transaction date", "date"]
+
+
+def _strip_accents(s):
+    return "".join(c for c in unicodedata.normalize("NFKD", str(s or ""))
+                   if not unicodedata.combining(c))
+
+
+# Payer / originator: many statements print it after "Donneur d'ordre".
+_PAYER_RE = re.compile(
+    r"donneur\s*d\s*['’ʼ` ]?\s*ordre\s*[:\-]*\s*(.+?)(?:\s{2,}|[\r\n]|$)",
+    re.IGNORECASE)
+
+
+_FR_MONTHS = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5,
+              "juin": 6, "juillet": 7, "aout": 8, "septembre": 9,
+              "octobre": 10, "novembre": 11, "decembre": 12}
+_EN_MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+              "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+
+def normalize_date(value):
+    """Best-effort ISO yyyy-mm-dd. Returns the ORIGINAL text (not truncated)
+    when it can't be parsed, so dates stay readable and group correctly."""
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    if re.match(r"\d{4}-\d{2}-\d{2}", s):                 # already ISO
+        return s[:10]
+    m = re.match(r"^(\d{1,4})[/.\-](\d{1,2})[/.\-](\d{1,4})$", s)
+    if m:
+        a, b, c = m.groups()
+        try:
+            if len(a) == 4:                               # yyyy/mm/dd
+                y, mo, d = int(a), int(b), int(c)
+            else:                                         # dd/mm/yyyy (FR)
+                d, mo, y = int(a), int(b), int(c)
+                y += 2000 if y < 100 else 0
+            if 1 <= mo <= 12 and 1 <= d <= 31:
+                return f"{y:04d}-{mo:02d}-{d:02d}"
+        except ValueError:
+            pass
+    m = re.match(r"^(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})$", s)  # 10 juin 2026
+    if m:
+        d, mon, y = m.groups()
+        mon = _strip_accents(mon.lower())
+        mo = _FR_MONTHS.get(mon) or _EN_MONTHS.get(mon[:3])
+        if mo:
+            return f"{int(y):04d}-{mo:02d}-{int(d):02d}"
+    return s
+
+
+def extract_payer(text):
+    """The payer/originator named after 'Donneur d'ordre' (else empty)."""
+    m = _PAYER_RE.search(str(text or ""))
+    if not m:
+        return ""
+    name = m.group(1).strip(" .:-")
+    # When read from a whole row, a trailing amount can follow the payer name —
+    # drop it (e.g. "ACME LOGISTICS 1500000" -> "ACME LOGISTICS").
+    name = re.sub(r"\s+[-+]?\d[\d\s.,]*$", "", name).strip(" .:-")
+    return name
 
 # Legal forms / geography / filler dropped before matching.
 _STOPWORDS = {
@@ -67,18 +129,23 @@ def read_bank(path):
     else:
         parsed = excel_reader.read_transactions(path)
     header = parsed["header"]
-    lowered = {h: h.lower() for h in header}
+    # Accent-insensitive header matching so French columns (Crédit, Débit,
+    # Libellé, Opération…) are detected the same as their ASCII forms.
+    lowered = {h: _strip_accents(h.lower()) for h in header}
 
     def pick(cands, exclude=()):
         for cand in cands:
+            cand = _strip_accents(cand.lower())
             for h in header:
                 if h not in exclude and cand in lowered[h]:
                     return h
         return None
 
     desc_col = pick(NARRATION_CANDIDATES)
-    credit_col = pick(["credit amount", "credit", "deposit", "montant credit"])
-    debit_col = pick(["debit amount", "debit", "withdrawal", "montant debit"],
+    credit_col = pick(["credit amount", "credit", "deposit", "montant credit",
+                       "encaissement", "versement", "entree", "recette"])
+    debit_col = pick(["debit amount", "debit", "withdrawal", "montant debit",
+                      "retrait", "sortie", "decaissement"],
                      exclude={credit_col})
     amt_col = credit_col or pick(AMOUNT_CANDIDATES)
     date_col = pick(DATE_CANDIDATES)
@@ -97,7 +164,7 @@ def read_bank(path):
             raw = parse_amount(data.get(amt_col)) if amt_col else 0.0
             credit, debit = (raw, 0.0) if raw > 0 else (0.0, -raw)
         date_raw = data.get(date_col) if date_col else ""
-        date_str = str(date_raw or "")[:10]
+        date_str = normalize_date(date_raw)
         # Full row text (every cell) so callers can search for references such
         # as a cheque number that may live in a column other than the narration.
         row_text = " ".join(str(v) for v in data.values() if v not in (None, ""))
@@ -108,6 +175,9 @@ def read_bank(path):
             "debit": debit,
             "date": date_str,
             "text": row_text,
+            # Payer/originator (after "Donneur d'ordre") — prefer the narration
+            # (clean), fall back to the whole row if the label sits elsewhere.
+            "payer": extract_payer(desc) or extract_payer(row_text),
         })
     return {"lines": lines, "metadata": parsed.get("metadata", []),
             "desc_col": desc_col, "amount_col": amt_col,
@@ -142,7 +212,9 @@ def match_customers(customers, bank, min_ratio=0.86):
     token of length >= 5 to avoid spurious short-token hits).
     """
     lines = bank["lines"]
-    norm_lines = [(ln, _norm(ln["description"])) for ln in lines]
+    # Match against the payer (originator) AND the narration text together.
+    norm_lines = [(ln, _norm((ln.get("payer") or "") + " " + ln["description"]))
+                  for ln in lines]
 
     matches = []
     for c in customers:

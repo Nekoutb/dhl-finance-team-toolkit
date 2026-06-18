@@ -12,9 +12,13 @@ import re
 import uuid
 from datetime import datetime
 
+from pathlib import Path
+
 from ..config import DATA_DIR
-from ..services import bank_statement
+from ..services import ai_ocr, bank_statement
 from . import ongoing_ctp as ctp
+
+_AI_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 TOOL_SLUG = "bank-statements"
 STORE_DIR = DATA_DIR / "bank"
@@ -53,9 +57,50 @@ def _latest_ar_customers():
     return result["customers"], meta
 
 
-def build_report(files):
+def _read_statement(path, source, ai_cfg):
+    """Read ONE statement into normalised lines. PDF/image statements are read
+    by the AI document reader (when an API key is set); spreadsheets — and any
+    file the AI can't read — use the column-based table reader.
+
+    Returns (lines, bank_name, method, note). Each line has description, payer,
+    credit, debit, date, amount, text.
+    """
+    ext = Path(path).suffix.lower()
+    # ai_cfg is the "ai" sub-config ({api_key, model}); check the key directly
+    # (ai_ocr.is_configured expects the FULL config dict).
+    if ext in _AI_EXT and (ai_cfg or {}).get("api_key", "").strip():
+        try:
+            media = ai_ocr.media_type_for(str(path)) or "application/pdf"
+            data = ai_ocr.extract_bank_statement(Path(path).read_bytes(),
+                                                 media, ai_cfg)
+            lines = [{
+                "description": ln["description"], "payer": ln.get("payer", ""),
+                "credit": ln["credit"], "debit": ln["debit"],
+                "date": bank_statement.normalize_date(ln["date"]),
+                "amount": ln["credit"] or -ln["debit"] or "",
+                "text": (ln.get("payer", "") + " " + ln["description"]).strip(),
+            } for ln in data["lines"]]
+            return lines, (data.get("bank_name") or detect_bank([], source)), \
+                "AI reader", ""
+        except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
+            note = f"AI read failed ({exc}); used the table reader."
+        except Exception as exc:  # noqa: BLE001
+            note = f"AI read error ({type(exc).__name__}); used the table reader."
+        parsed = bank_statement.read_bank(path)
+        return parsed["lines"], detect_bank(parsed["metadata"], source), \
+            "table reader", note
+    parsed = bank_statement.read_bank(path)
+    note = ("" if ext not in _AI_EXT
+            else "Configure the Anthropic API key (Settings → AI document "
+                 "reading) so PDF statements are read by AI.")
+    return parsed["lines"], detect_bank(parsed["metadata"], source), \
+        "table reader", note
+
+
+def build_report(files, ai_cfg=None):
     """``files`` = list of (path, source_name) — up to MAX_FILES statements,
-    combined into one collection report with the bank identified per file."""
+    combined into one collection report with the bank identified per file.
+    PDF/scanned statements are read by AI when ``ai_cfg`` has an API key."""
     if not isinstance(files, (list, tuple)):
         files = [(files, "")]
     files = list(files)[:MAX_FILES]
@@ -64,30 +109,46 @@ def build_report(files):
     credits, debits_total, banks, metadata = [], 0.0, [], []
     statement_lines = []        # every line (credit + debit) for cross-tool search
     for path, source in files:
-        parsed = bank_statement.read_bank(path)
-        bank_name = detect_bank(parsed["metadata"], source)
+        lines, bank_name, method, note = _read_statement(path, source, ai_cfg)
         file_credits = [dict(ln, bank=bank_name)
-                        for ln in parsed["lines"] if ln["credit"] > 0]
+                        for ln in lines if ln["credit"] > 0]
         credits.extend(file_credits)
-        debits_total += sum(ln["debit"] for ln in parsed["lines"])
-        for ln in parsed["lines"]:
+        debits_total += sum(ln["debit"] for ln in lines)
+        for ln in lines:
             amt = ln["credit"] if ln["credit"] > 0 else (
                 ln["debit"] if ln["debit"] > 0
-                else bank_statement.parse_amount(ln["amount"]))
+                else bank_statement.parse_amount(ln.get("amount")))
             statement_lines.append({
                 "bank": bank_name,
                 "text": ln.get("text") or ln["description"],
                 "amount": round(amt, 2), "date": ln["date"]})
         banks.append({
-            "bank": bank_name, "source": source,
+            "bank": bank_name, "source": source, "method": method, "note": note,
+            "line_count": len(lines),
             "credit_count": len(file_credits),
             "total_credited": sum(ln["credit"] for ln in file_credits),
         })
-        metadata.extend(parsed["metadata"][:4])
+
+    # Payments received per payer, INDEPENDENT of any AR match — every credit
+    # grouped by its originator (payer after "Donneur d'ordre", else narration).
+    by_payer = {}
+    for ln in credits:
+        payer = (ln.get("payer") or "").strip() or \
+            (ln["description"][:60].strip() or "(unnamed)")
+        e = by_payer.setdefault(payer.upper(), {
+            "payer": payer, "total": 0.0, "count": 0, "banks": [], "dates": []})
+        e["total"] += ln["credit"]
+        e["count"] += 1
+        if ln["bank"] not in e["banks"]:
+            e["banks"].append(ln["bank"])
+        if ln["date"] and ln["date"] not in e["dates"]:
+            e["dates"].append(ln["date"])
+    payments_by_payer = sorted(by_payer.values(), key=lambda e: -e["total"])
 
     by_customer, unmatched = {}, []
     for ln in credits:
-        best = bank_statement.best_customer_for(ln["description"], customers) \
+        match_text = (ln.get("payer", "") + " " + ln["description"]).strip()
+        best = bank_statement.best_customer_for(match_text, customers) \
             if customers else None
         if best:
             c, score = best
@@ -143,9 +204,12 @@ def build_report(files):
             "debits_total": debits_total,
             "first_date": daily_rows[0]["date"] if daily_rows else "",
             "last_date": daily_rows[-1]["date"] if daily_rows else "",
+            "payer_count": len(payments_by_payer),
+            "ai_used": any(b.get("method") == "AI reader" for b in banks),
         },
         "matched": matched,
         "unmatched": sorted(unmatched, key=lambda l: -l["credit"]),
+        "payments_by_payer": payments_by_payer,
         "daily": daily_rows,
         "ar_link": ar_meta,
         "statement_lines": statement_lines,

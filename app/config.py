@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v7.5 — 14 Jun 2026 · CtP: credit-hold register from AR trial balance (Account stop/Open); Current Credit Hold status (Stop/Open) on every report"
+APP_VERSION = "v7.6 — 14 Jun 2026 · Bank statements: AI-OCR reading, Donneur-d'ordre payer extraction, collections-by-customer + payments-by-payer + daily totals"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

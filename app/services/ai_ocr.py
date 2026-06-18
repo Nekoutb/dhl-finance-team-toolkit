@@ -495,6 +495,158 @@ def extract_cheque(file_bytes, media_type, ai_cfg):
     }
 
 
+# --------------------------------------------------------------------------- #
+# Bank statement reading (PDF/scanned statements → transaction lines)
+# --------------------------------------------------------------------------- #
+_BANK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "bank_name": {
+            "type": "string",
+            "description": "The bank's name from the statement letterhead. "
+                           "Empty string if not visible.",
+        },
+        "lines": {
+            "type": "array",
+            "description": "One entry per transaction line on the statement.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "Transaction value/operation date as ISO "
+                                       "yyyy-mm-dd when the day/month/year are "
+                                       "clear; else as printed. Empty if none.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "The full narration / libellé text of the "
+                                       "line, exactly as printed.",
+                    },
+                    "payer": {
+                        "type": "string",
+                        "description": "The originator/sender of the funds for a "
+                                       "credit — the party who paid. Often printed "
+                                       "after 'Donneur d'ordre' / 'Donneur "
+                                       "d'Ordre'. Empty string if not identifiable.",
+                    },
+                    "credit": {
+                        "type": "number",
+                        "description": "Money IN (a credit / cash received) on "
+                                       "this line, as a plain number. 0 if none.",
+                    },
+                    "debit": {
+                        "type": "number",
+                        "description": "Money OUT (a debit) on this line, as a "
+                                       "plain number. 0 if none.",
+                    },
+                },
+                "required": ["date", "description", "payer", "credit", "debit"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["bank_name", "lines"],
+    "additionalProperties": False,
+}
+
+_BANK_PROMPT = (
+    "This is a bank account statement (it may be a scan, multi-page, and in "
+    "French or English). Read EVERY transaction line in the running-balance "
+    "table.\n\n"
+    "For each transaction, extract:\n"
+    "- date: the value or operation date (ISO yyyy-mm-dd when clear).\n"
+    "- description: the FULL narration / libellé exactly as printed.\n"
+    "- payer: for money RECEIVED (a credit), the originator/sender of the "
+    "funds — i.e. the customer who paid us. On many statements this is printed "
+    "after the label 'Donneur d'ordre' (also 'Donneur d'Ordre', 'DONNEUR "
+    "D'ORDRE'). Report just the payer's name/identity; empty string if a line "
+    "has no identifiable payer.\n"
+    "- credit: the amount of money RECEIVED on the line (cash collection / "
+    "incoming), as a plain number; 0 if the line is not a credit.\n"
+    "- debit: the amount of money paid OUT on the line, as a plain number; 0 "
+    "if the line is not a debit.\n\n"
+    "Amounts may use spaces or commas as thousand separators (e.g. "
+    "'1 250 000' = 1250000) — report plain numbers. Also report the bank's "
+    "name from the letterhead. Do NOT include opening/closing balance summary "
+    "rows as transactions."
+)
+
+
+def extract_bank_statement(file_bytes, media_type, ai_cfg):
+    """Read a bank statement (PDF or image) → {bank_name, lines:[...]}.
+
+    Each line: {date, description, payer, credit, debit}. Raises AiNotConfigured
+    (no key) or AiReadError (with a user-displayable message).
+    """
+    api_key = (ai_cfg or {}).get("api_key", "").strip()
+    if not api_key:
+        raise AiNotConfigured(
+            "No Anthropic API key saved — paste it under Settings → "
+            "AI document reading.")
+    if len(file_bytes) > MAX_PDF_BYTES:
+        raise AiReadError("That statement is too large to send for AI reading "
+                          "(over 30 MB).")
+
+    b64 = base64.standard_b64encode(file_bytes).decode("ascii")
+    if media_type == "application/pdf":
+        media_block = {"type": "document",
+                       "source": {"type": "base64",
+                                  "media_type": "application/pdf", "data": b64}}
+    else:
+        media_block = {"type": "image",
+                       "source": {"type": "base64",
+                                  "media_type": media_type, "data": b64}}
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, timeout=300.0)
+    model = (ai_cfg or {}).get("model") or "claude-opus-4-8"
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=32000,
+            thinking={"type": "adaptive"},
+            messages=[{
+                "role": "user",
+                "content": [media_block, {"type": "text", "text": _BANK_PROMPT}],
+            }],
+            output_config={
+                "format": {"type": "json_schema", "schema": _BANK_SCHEMA},
+            },
+        )
+    except anthropic.AuthenticationError:
+        raise AiReadError("The Anthropic API key was rejected — check it "
+                          "under Settings → AI document reading.")
+    except anthropic.RateLimitError:
+        raise AiReadError("Rate-limited by the Anthropic API — try again in a "
+                          "minute.")
+    except anthropic.APIStatusError as exc:
+        raise AiReadError(f"Anthropic API error ({exc.status_code}).")
+    except anthropic.APIConnectionError:
+        raise AiReadError("Could not reach the Anthropic API.")
+
+    if response.stop_reason == "max_tokens":
+        raise AiReadError("The statement was too long to read in one pass — "
+                          "split it into fewer pages and re-upload.")
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise AiReadError("The AI reply could not be parsed — re-upload the "
+                          "statement.")
+    lines = []
+    for ln in data.get("lines", []):
+        lines.append({
+            "date": (ln.get("date") or "").strip(),
+            "description": (ln.get("description") or "").strip(),
+            "payer": (ln.get("payer") or "").strip(),
+            "credit": round(float(ln.get("credit") or 0), 2),
+            "debit": round(float(ln.get("debit") or 0), 2),
+        })
+    return {"bank_name": (data.get("bank_name") or "").strip(), "lines": lines}
+
+
 def test_key(ai_cfg):
     """Cheap round-trip to confirm the saved key works. Raises AiReadError."""
     api_key = (ai_cfg or {}).get("api_key", "").strip()

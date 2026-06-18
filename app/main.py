@@ -1865,7 +1865,7 @@ async def bank_upload(request: Request, file: list[UploadFile] = File(...)):
         dest.write_bytes(await f.read())
         stored.append((dest, f.filename or "statement.xlsx"))
     try:
-        report = bank.build_report(stored)
+        report = bank.build_report(stored, ai_cfg=load_config().get("ai"))
     except Exception as exc:  # noqa: BLE001
         return _bank_home(request, error=f"Could not read the statement(s): {exc}",
                           status_code=400)
