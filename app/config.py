@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v7.8 — 18 Jun 2026 · Fix CtP dashboard 502: held-only bank match + fast name matcher (119s → 0.2s)"
+APP_VERSION = "v7.9 — 18 Jun 2026 · CtP hold register now reads the trial-balance Account Stop/Open (X) correctly — account-number column no longer shadowed by 'Customer Name'"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

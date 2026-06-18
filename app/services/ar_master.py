@@ -10,10 +10,16 @@ import re
 from . import ctp_rules, excel_reader
 
 FIELD_CANDIDATES = {
-    "account": ["customer number", "customer no", "customer code", "bp number",
-                "account number", "account no", "customer", "account", "compte"],
+    # NAME is resolved before ACCOUNT on purpose: the broad "customer"
+    # account-candidate is a *substring* of "Customer Name", so if account ran
+    # first it would grab the name column, leave the real "Customer"
+    # (account-number) column unmapped, and key every customer by name. Names
+    # never match the transaction file's account-number keys, so the credit-
+    # hold register comes back empty. Claim the name column first.
     "name": ["customer account: name", "customer name", "account name",
              "client name", "debtor name", "name"],
+    "account": ["customer number", "customer no", "customer code", "bp number",
+                "account number", "account no", "customer", "account", "compte"],
     "segment": ["sales segment", "customer segment", "treatment plan",
                 "customer group", "segment", "gctp", "ctp", "channel"],
     "balance": ["receivable balance", "receivables balance", "ar balance",
@@ -78,14 +84,27 @@ def parse_hold_flag(value):
 
 def _map_columns(header):
     used, mapping = set(), {}
-    lowered = {h: h.lower() for h in header}
+    lowered = {h: h.lower().strip() for h in header}
     for field, candidates in FIELD_CANDIDATES.items():
+        match = None
+        # Pass 1 — exact header match, so a bare "Customer" (account number)
+        # column is claimed by `account` rather than shadowed by the substring
+        # hiding inside "Customer Name".
         for cand in candidates:
-            match = next((h for h in header if h not in used and cand in lowered[h]), None)
+            match = next((h for h in header
+                          if h not in used and lowered[h] == cand), None)
             if match:
-                mapping[field] = match
-                used.add(match)
                 break
+        # Pass 2 — substring match (handles "Customer No.", "Crédit", "Solde…").
+        if not match:
+            for cand in candidates:
+                match = next((h for h in header
+                              if h not in used and cand in lowered[h]), None)
+                if match:
+                    break
+        if match:
+            mapping[field] = match
+            used.add(match)
     return mapping
 
 

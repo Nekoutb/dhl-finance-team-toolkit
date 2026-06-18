@@ -49,7 +49,14 @@ def check(label, cond):
 
 # --- 1. the AR trial balance's "Account stop/Open" column is read as holds ---
 m = ar_master.parse_master(TB)
-check("hold column detected as 'Account stop/Open'", m["mapping"].get("hold") == "Account stop/Open")
+# Regression: the account-number column ("Customer") must win over the name
+# column ("Customer Name"); otherwise customers are keyed by name and never
+# match the transaction file -> empty hold register (the bug being fixed).
+check("account mapped to account-number column ('Customer'), not 'Customer Name'",
+      m["mapping"].get("account") == "Customer"
+      and m["mapping"].get("name") == "Customer Name")
+check("customers keyed by account number (1004…)", "1004000001" in m["customers"])
+check("hold column detected as 'Account Stop/Open'", m["mapping"].get("hold") == "Account Stop/Open")
 check("ACME on hold (X)", m["customers"]["1004000001"]["on_hold"])
 check("GAMMA on hold (X)", m["customers"]["1004000003"]["on_hold"])
 check("BETA open (no X)", not m["customers"]["1004000002"]["on_hold"])

@@ -15,12 +15,15 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "samples" / "ar_trial_balance_customers_sample.xlsx"
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
-# 18 columns: "Account stop/Open" lands in column Q (17th), "Critical" in R.
-HEADER = ["Customer Number", "Customer Name", "Customer Segment", "Country",
-          "Account Owner", "Payment Terms", "Credit Limit", "Region",
+# Mirrors the REAL DHL header exactly: the NAME column ("Customer Name") comes
+# BEFORE the account-number column (plainly "Customer", holding 1004…). This is
+# the ambiguity that broke the hold register — "customer" is a substring of
+# "Customer Name", so the account field must not greedily grab the name column.
+# "Account Stop/Open" lands in column Q (17th), "Critical Customers" in R.
+HEADER = ["Collector ID", "Customer Name", "Customer", "Customer Segment",
+          "Country", "Account Owner", "Payment Terms", "Credit Limit", "Region",
           "Currency", "Last Payment Date", "DSO", "Risk Rating", "Sales Rep",
-          "Branch", "Opening Balance", "Closing Balance",
-          "Account stop/Open", "Critical Customers"]
+          "Branch", "Opening Balance", "Account Stop/Open", "Critical Customers"]
 
 # (acct, name, segment, balance, account_stop(X/blank), critical)
 CUSTOMERS = [
@@ -37,11 +40,14 @@ ws.title = "AR Trial Balance"
 ws.append(HEADER)
 total = 0
 for acct, name, seg, bal, stop, crit in CUSTOMERS:
-    ws.append([acct, name, seg, "Cameroon", "Aurelie Uguebou", "15 days",
-               bal * 2, "Littoral", "XAF", "2026-05-30", 45, "B", "Rep 1",
-               "Douala", bal, bal, stop, crit])
+    ws.append(["AC", name, acct, seg, "Cameroon", "Aurelie Uguebou",
+               "15 days", bal * 2, "Littoral", "XAF", "2026-05-30", 45, "B",
+               "Rep 1", "Douala", bal, stop, crit])
     total += bal
-ws.append([""] * 15 + ["TOTAL", total, "", ""])
+# Total line: identity columns blank, balance populated -> skipped as a total.
+total_row = [""] * len(HEADER)
+total_row[15] = total                                  # Opening Balance column
+ws.append(total_row)
 
 wb.save(OUT)
 held = [c[1] for c in CUSTOMERS if c[4] == "X"]
