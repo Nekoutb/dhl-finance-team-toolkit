@@ -828,14 +828,17 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000",
     # statement credit narrations (possible payments received). The statements
     # come from the single Bank Statements section (no upload on this page).
     bank_rows, _bank_banks = bank.all_statement_lines()
+    # Only customers ON HOLD can be "held customers paying" — match just those
+    # (not all customers) so a large AR x many bank lines can't stall the page.
+    held_custs = [c for c in result["customers"]
+                  if c.get("currently_held") and c["total_ar"] > 0]
     held_paying = []
-    if bank_rows:
+    if bank_rows and held_custs:
         pseudo = {"lines": [{"description": r["text"], "amount": r["amount"],
                              "credit": r["amount"], "debit": 0.0,
                              "date": r["date"], "bank": r["bank"]}
                             for r in bank_rows]}
-        held_paying = [m for m in bank_statement.match_customers(
-            result["customers"], pseudo) if m.get("currently_held")]
+        held_paying = bank_statement.match_customers(held_custs, pseudo)
     return templates.TemplateResponse("ongoing/dashboard.html", _ongoing_ctx(
         request, result=result, dash=dash, dash_me=dash_me, month_end=me,
         hold_cmp=hold_cmp, token=token, threshold=thr,

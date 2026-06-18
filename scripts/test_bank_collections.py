@@ -129,4 +129,26 @@ try:
 finally:
     (ctp.STORE_DIR / "ba0c5511.json").unlink(missing_ok=True)
 
+# --- 6. matcher stays fast at scale (guards the 502 fix) --------------------
+import time as _t
+import random as _r
+import string as _s
+_r.seed(7)
+
+
+def _name():
+    return " ".join("".join(_r.choice(_s.ascii_uppercase) for _ in range(6))
+                    for _ in range(2))
+
+
+big_custs = [{"customer": _name(), "key": str(i), "total_ar": 100000,
+              "currently_held": False, "overdue": 0, "status": "ok",
+              "status_key": "ok"} for i in range(500)]
+big_lines = {"lines": [{"description": _name(), "payer": "", "amount": 1,
+                        "date": "2026-06-10"} for _ in range(700)]}
+_start = _t.time()
+bank_statement.match_customers(big_custs, big_lines)
+elapsed = _t.time() - _start
+check(f"match_customers 500x700 stays fast ({elapsed:.1f}s < 10s)", elapsed < 10)
+
 print("\nALL BANK COLLECTIONS TESTS PASSED")

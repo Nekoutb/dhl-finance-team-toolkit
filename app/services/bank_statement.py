@@ -185,20 +185,28 @@ def read_bank(path):
 
 
 def best_customer_for(description, customers, min_ratio=0.86):
-    """Match one bank narration line to the most similar AR customer name."""
+    """Match one bank narration line to the most similar AR customer name.
+
+    The expensive fuzzy ratio is only computed when at least one of the
+    customer's distinctive tokens already overlaps the narration — otherwise a
+    ratio of >= 0.86 is effectively impossible, so it is skipped (keeps the tool
+    fast even with hundreds of customers x hundreds of lines).
+    """
     desc_norm = _norm(description)
     if not desc_norm:
         return None
     best = None
     for c in customers:
-        name_norm = _norm(c["customer"])
-        if not name_norm:
-            continue
         name_tokens = _tokens(c["customer"])
-        ratio = SequenceMatcher(None, name_norm, desc_norm).ratio()
-        tokens_present = name_tokens and all(t in desc_norm for t in name_tokens)
+        if not name_tokens:
+            continue
         distinctive = any(len(t) >= 5 for t in name_tokens)
-        score = max(ratio, 0.9) if (tokens_present and distinctive) else ratio
+        if all(t in desc_norm for t in name_tokens) and distinctive:
+            score = 0.9
+        elif any(t in desc_norm for t in name_tokens):
+            score = SequenceMatcher(None, _norm(c["customer"]), desc_norm).ratio()
+        else:
+            continue
         if score >= min_ratio and (best is None or score > best[1]):
             best = (c, round(score, 2))
     return best
@@ -215,6 +223,7 @@ def match_customers(customers, bank, min_ratio=0.86):
     # Match against the payer (originator) AND the narration text together.
     norm_lines = [(ln, _norm((ln.get("payer") or "") + " " + ln["description"]))
                   for ln in lines]
+    norm_lines = [(ln, t) for ln, t in norm_lines if t]
 
     matches = []
     for c in customers:
@@ -222,18 +231,19 @@ def match_customers(customers, bank, min_ratio=0.86):
             continue
         name_norm = _norm(c["customer"])
         name_tokens = _tokens(c["customer"])
-        if not name_norm:
+        if not name_norm or not name_tokens:
             continue
+        distinctive = any(len(t) >= 5 for t in name_tokens)
         best = None
         for ln, desc_norm in norm_lines:
-            if not desc_norm:
+            # Cheap token check first; only run the costly fuzzy ratio when a
+            # token already overlaps (a no-overlap ratio can't reach min_ratio).
+            if all(t in desc_norm for t in name_tokens) and distinctive:
+                score = 0.9
+            elif any(t in desc_norm for t in name_tokens):
+                score = SequenceMatcher(None, name_norm, desc_norm).ratio()
+            else:
                 continue
-            ratio = SequenceMatcher(None, name_norm, desc_norm).ratio()
-            tokens_present = name_tokens and all(t in desc_norm for t in name_tokens)
-            distinctive = any(len(t) >= 5 for t in name_tokens)
-            score = ratio
-            if tokens_present and distinctive:
-                score = max(score, 0.9)
             if score >= min_ratio and (best is None or score > best["score"]):
                 best = {"line": ln, "score": round(score, 2)}
         if best:
