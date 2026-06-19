@@ -24,7 +24,9 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from ..config import CONFIG_PATH, DATA_DIR
 
 COOKIE = "ft_session"
+PENDING_COOKIE = "ft_pending"   # short-lived: password OK, awaiting 2FA
 MAX_AGE = 60 * 60 * 12          # 12 hours
+PENDING_MAX_AGE = 10 * 60       # 10 minutes to complete the 2FA step
 _ROUNDS = 200_000
 
 MIN_PASSWORD_LEN = 12
@@ -79,6 +81,29 @@ def read_token(secret, token, max_age=MAX_AGE):
 def is_public(path):
     return path == "/login" or any(
         path == p.rstrip("/") or path.startswith(p) for p in PUBLIC_PREFIXES)
+
+
+# --- Pending (password-verified, awaiting 2FA) token -------------------------
+def _pending_serializer(secret):
+    # Distinct salt from the full session, so a pending token can NEVER be
+    # accepted as a logged-in session (and vice-versa).
+    return URLSafeTimedSerializer(secret or "insecure-dev", salt="ft-2fa")
+
+
+def issue_pending(secret, username, stage):
+    """Short-lived token proving the password step passed. ``stage`` is
+    'verify' (existing 2FA) or 'enroll' (first-time setup)."""
+    return _pending_serializer(secret).dumps({"u": username, "s": stage})
+
+
+def read_pending(secret, token, stage, max_age=PENDING_MAX_AGE):
+    if not token:
+        return None
+    try:
+        data = _pending_serializer(secret).loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+    return data.get("u") if data.get("s") == stage else None
 
 
 # --- Brute-force throttle (file-backed: consistent across workers) -----------
@@ -277,6 +302,7 @@ def delete_user(username):
             a["admins"].remove(username)
         if username in a.get("access", {}):
             del a["access"][username]
+        a.get("totp", {}).pop(username, None)   # also forget their 2FA
         _save_raw(cfg)
         return True
     return False
@@ -289,6 +315,55 @@ def change_password(username, new_password):
     users = cfg.get("auth", {}).get("users", {})
     if username in users:
         users[username] = hash_password(new_password)
+        _save_raw(cfg)
+        return True
+    return False
+
+
+# --- Two-factor (TOTP) enrollment state --------------------------------------
+# Stored in config.auth.totp = {username: {"secret": base32, "confirmed": bool}}.
+def two_factor_required(auth_cfg):
+    """2FA is enforced only when auth is on AND the two_factor switch is set."""
+    return bool(enabled(auth_cfg) and auth_cfg.get("two_factor"))
+
+
+def totp_secret(auth_cfg, username):
+    rec = (auth_cfg.get("totp") or {}).get(username or "")
+    return rec.get("secret") if rec else None
+
+
+def totp_confirmed(auth_cfg, username):
+    rec = (auth_cfg.get("totp") or {}).get(username or "")
+    return bool(rec and rec.get("confirmed"))
+
+
+def set_totp_secret(username, secret):
+    """Store a new (unconfirmed) enrollment secret for a user."""
+    if not username or not secret:
+        return False
+    cfg = _load_raw()
+    cfg.setdefault("auth", {}).setdefault("totp", {})[username] = {
+        "secret": secret, "confirmed": False}
+    _save_raw(cfg)
+    return True
+
+
+def confirm_totp(username):
+    cfg = _load_raw()
+    rec = cfg.get("auth", {}).get("totp", {}).get(username or "")
+    if rec:
+        rec["confirmed"] = True
+        _save_raw(cfg)
+        return True
+    return False
+
+
+def reset_totp(username):
+    """Forget a user's 2FA so they re-enroll on next login (admin recovery)."""
+    cfg = _load_raw()
+    totp = cfg.get("auth", {}).get("totp", {})
+    if username in totp:
+        del totp[username]
         _save_raw(cfg)
         return True
     return False

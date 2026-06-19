@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up two-factor authentication · {{ cfg.app_name }}</title>
+  <script>
+    (function () { try { var t = localStorage.getItem("ft-theme");
+      if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {} })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Albert+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v={{ asset_v }}">
+</head>
+<body>
+  <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
+    <section class="panel" style="width:min(440px,94vw);">
+      <div class="side-brand" style="padding:0 0 16px;">
+        <span class="brand-mark" style="width:40px;height:40px;">FT</span>
+        <span class="brand-text"><strong style="font-size:16px;">{{ cfg.app_name }}</strong>
+          <small>{{ cfg.organization }}</small></span>
+      </div>
+      <h1 style="font-size:18px;margin:0 0 4px;">Set up two-factor authentication</h1>
+      <p class="lead" style="font-size:13px;">One-time setup for <strong>{{ username }}</strong>.
+        Scan this QR with an authenticator app (Google&nbsp;Authenticator,
+        Microsoft&nbsp;Authenticator, Authy), then enter the 6-digit code it
+        shows to confirm.</p>
+
+      {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+      <div style="display:grid;place-items:center;margin:6px 0 12px;">
+        <div style="width:200px;height:200px;background:#fff;padding:8px;border-radius:12px;border:1px solid var(--border,#dcdce4);">
+          {{ qr_svg|safe }}
+        </div>
+      </div>
+
+      <details class="meta-box" style="margin-bottom:12px;">
+        <summary>Can't scan? Enter this key manually</summary>
+        <p style="margin:8px 0 0;font-family:monospace;font-size:13px;
+                  word-break:break-all;letter-spacing:.05em;">{{ secret }}</p>
+      </details>
+
+      <form action="/login/enroll" method="post">
+        <input type="hidden" name="next" value="{{ next }}">
+        <label class="field" style="margin-bottom:16px;">
+          <span>Code from your authenticator app</span>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9]*" maxlength="6" required autofocus
+                 style="letter-spacing:.3em;font-size:18px;text-align:center;">
+        </label>
+        <button class="btn btn-primary" type="submit" style="width:100%;">Confirm &amp; finish</button>
+      </form>
+      <p class="note-small" style="margin-top:14px;text-align:center;">
+        <a href="/login">Cancel and go back</a></p>
+    </section>
+  </main>
+</body>
+</html>

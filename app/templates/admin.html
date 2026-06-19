@@ -48,6 +48,8 @@
         <span class="drop-title">{{ u.username }}
           {% if u.is_admin %}<span class="pill pill-ok">Administrator</span>
           {% else %}<span class="pill pill-manual">Employee</span>{% endif %}
+          {% if two_factor_on %}{% if u.enrolled %}<span class="pill pill-ok">2FA on</span>
+          {% else %}<span class="pill pill-auto">2FA pending</span>{% endif %}{% endif %}
           {% if u.username == current_user %}<span class="note-inline">(you)</span>{% endif %}
         </span>
         <span class="drop-val">{% if u.is_admin %}full access{% else %}{{ u.access|length }} area(s) granted{% endif %}</span>
@@ -83,6 +85,13 @@
           </div>
           <button class="btn btn-primary" type="submit" style="margin-top:10px;">
             Save access for {{ u.username }}</button>
+        </form>
+        {% endif %}
+        {% if two_factor_on and u.enrolled %}
+        <form action="/admin/2fa/reset" method="post" style="margin-top:12px;"
+              onsubmit="return confirm('Reset 2FA for {{ u.username }}? They will set it up again on next sign-in.');">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <button class="btn btn-small" type="submit">↺ Reset 2FA</button>
         </form>
         {% endif %}
         {% if u.username != current_user %}

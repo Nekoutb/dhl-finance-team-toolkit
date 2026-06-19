@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.0 — 19 Jun 2026 · Orange Money: upload the monthly statement → one branded PDF receipt per successful collection, a folder per correspondant in a single ZIP; remembers each customer's name + AR account by number (auto-filled next upload); retired the old Mobile Money tool"
+APP_VERSION = "v8.1 — 19 Jun 2026 · Security: two-factor authentication (authenticator-app TOTP) for all staff, enrolled on first sign-in, with admin reset; Cloudflare Turnstile bot-protection on the login page (configured in Settings)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -76,7 +76,18 @@ DEFAULT_CONFIG = {
         "enabled": False,
         "secret_key": "",
         "secure_cookies": False,
+        # When true (and auth is enabled), every user must pass a TOTP
+        # authenticator code after their password, enrolling on first login.
+        "two_factor": False,
         "users": {},
+    },
+    # Cloudflare Turnstile — bot/abuse protection on the login form. Inactive
+    # until enabled with a site key + secret key (created in the Cloudflare
+    # dashboard). When off, the login page behaves exactly as before.
+    "turnstile": {
+        "enabled": False,
+        "site_key": "",
+        "secret_key": "",
     },
 }
 

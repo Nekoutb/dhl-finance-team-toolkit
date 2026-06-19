@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · {{ cfg.app_name }}</title>
+  <title>Two-factor verification · {{ cfg.app_name }}</title>
   <script>
     (function () { try { var t = localStorage.getItem("ft-theme");
       if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {} })();
@@ -11,9 +11,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Albert+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css?v={{ asset_v }}">
-  {% if turnstile_active %}
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-  {% endif %}
 </head>
 <body>
   <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
@@ -23,27 +20,25 @@
         <span class="brand-text"><strong style="font-size:16px;">{{ cfg.app_name }}</strong>
           <small>{{ cfg.organization }}</small></span>
       </div>
-      <h1 style="font-size:18px;margin:0 0 4px;">Sign in</h1>
-      <p class="lead" style="font-size:13px;">Staff access — finance team only.</p>
+      <h1 style="font-size:18px;margin:0 0 4px;">Two-factor verification</h1>
+      <p class="lead" style="font-size:13px;">Signed in as <strong>{{ username }}</strong>.
+        Enter the 6-digit code from your authenticator app.</p>
 
       {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
-      <form action="/login" method="post">
+      <form action="/login/verify" method="post">
         <input type="hidden" name="next" value="{{ next }}">
-        <label class="field" style="margin-bottom:12px;">
-          <span>Username</span>
-          <input type="text" name="username" autocomplete="username" required autofocus>
-        </label>
         <label class="field" style="margin-bottom:16px;">
-          <span>Password</span>
-          <input type="password" name="password" autocomplete="current-password" required>
+          <span>Authentication code</span>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9]*" maxlength="6" required autofocus
+                 style="letter-spacing:.3em;font-size:18px;text-align:center;">
         </label>
-        {% if turnstile_active %}
-        <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"
-             style="margin-bottom:14px;"></div>
-        {% endif %}
-        <button class="btn btn-primary" type="submit" style="width:100%;">Sign in</button>
+        <button class="btn btn-primary" type="submit" style="width:100%;">Verify &amp; sign in</button>
       </form>
+      <p class="note-small" style="margin-top:14px;text-align:center;">
+        Lost your device? <a href="/login">Back to sign in</a> — an administrator
+        can reset your 2FA.</p>
     </section>
   </main>
 </body>
