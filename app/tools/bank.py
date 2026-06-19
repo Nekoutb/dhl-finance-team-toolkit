@@ -122,9 +122,8 @@ def build_report(files, ai_cfg=None, token=None, bank_slot=""):
     if not isinstance(files, (list, tuple)):
         files = [(files, "")]
     files = list(files)[:MAX_FILES]
-    customers, ar_meta = _latest_ar_customers()
 
-    credits, debits_total, banks, metadata = [], 0.0, [], []
+    credits, debits_total, banks = [], 0.0, []
     statement_lines = []        # every line (credit + debit) for cross-tool search
     for path, source in files:
         lines, bank_name, method, note = _read_statement(path, source, ai_cfg)
@@ -148,6 +147,19 @@ def build_report(files, ai_cfg=None, token=None, bank_slot=""):
             "credit_count": len(file_credits),
             "total_credited": sum(ln["credit"] for ln in file_credits),
         })
+
+    return _assemble_report(
+        credits, statement_lines, banks, debits_total,
+        token=token or uuid.uuid4().hex[:12], bank_slot=bank_slot,
+        source=" + ".join(s for _p, s in files if s) or "statement")
+
+
+def _assemble_report(credits, statement_lines, banks, debits_total, *,
+                     token, bank_slot, source):
+    """Build the report dict from already-read lines, running the AR matching
+    and grouping against the CURRENT latest CtP analysis. Shared by build_report
+    (fresh upload) and refresh_report (re-link to the latest AR)."""
+    customers, ar_meta = _latest_ar_customers()
 
     # Payments received per payer, INDEPENDENT of any AR match — every credit
     # grouped by its originator (payer after "Donneur d'ordre", else narration).
@@ -207,15 +219,15 @@ def build_report(files, ai_cfg=None, token=None, bank_slot=""):
     total_credited = sum(ln["credit"] for ln in credits)
     matched_total = sum(e["collected"] for e in matched)
     return {
-        "token": token or uuid.uuid4().hex[:12],
+        "token": token,
         "bank_slot": bank_slot,
         "status": "done",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "source": " + ".join(s for _p, s in files if s) or "statement",
+        "source": source,
         "banks": banks,
-        "metadata": metadata,
+        "metadata": [],
         "summary": {
-            "statement_count": len(files),
+            "statement_count": len(banks),
             "credit_count": len(credits),
             "total_credited": total_credited,
             "matched_total": matched_total,
@@ -236,6 +248,26 @@ def build_report(files, ai_cfg=None, token=None, bank_slot=""):
         "ar_link": ar_meta,
         "statement_lines": statement_lines,
     }
+
+
+def refresh_report(token):
+    """Re-run the matching/grouping for a stored statement against the CURRENT
+    latest CtP analysis — re-links collections to the newest AR without
+    re-uploading the file. Returns the refreshed report, or None."""
+    rep = load_report(token)
+    if not rep or rep.get("status") != "done":
+        return None
+    credits = []
+    for c in rep.get("matched", []):
+        credits.extend(c.get("lines", []))
+    credits.extend(rep.get("unmatched", []))
+    refreshed = _assemble_report(
+        credits, rep.get("statement_lines", []), rep.get("banks", []),
+        rep.get("summary", {}).get("debits_total", 0.0),
+        token=token, bank_slot=rep.get("bank_slot", ""),
+        source=rep.get("source", "statement"))
+    save_report(refreshed)
+    return refreshed
 
 
 def start_report(files, ai_cfg=None, token=None, bank_slot=""):

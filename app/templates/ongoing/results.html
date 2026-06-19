@@ -80,6 +80,11 @@
     </div>
 
     <div class="download-row">
+      <form action="/tools/ongoing-ctp-monitoring/results/{{ token }}/refresh"
+            method="post" style="display:inline;">
+        <button class="btn" type="submit"
+                title="Re-apply the current master file and credit-hold register">🔄 Refresh</button>
+      </form>
       <a class="btn btn-primary" href="/tools/ongoing-ctp-monitoring/results/{{ token }}/dashboard">📊 Open dashboard</a>
       <a class="btn" href="/download/{{ report_name }}">⬇ Download Excel report</a>
       <form action="/tools/ongoing-ctp-monitoring/email" method="post" class="email-inline">

@@ -536,6 +536,37 @@ def hold_compare(customers):
     }
 
 
+def reapply_master(result):
+    """Re-apply the CURRENT master file to a stored analysis — refresh each
+    customer's segment, plan, critical flag and master-hold from the latest
+    master without re-reading the transaction file. Mirrors the master attach in
+    analyze(); the caller re-runs hold_compare afterwards. Returns the count
+    updated. Customers absent from the current master keep their existing flags
+    (a safe merge — refresh adds/updates, never silently clears)."""
+    master = load_master()
+    mc = (master or {}).get("customers", {})
+    if not mc:
+        return 0
+    updated = 0
+    for c in result.get("customers", []):
+        m = mc.get(c["key"])
+        if not m:
+            continue
+        c["master_balance"] = m.get("balance")
+        c["master_hold"] = m.get("on_hold")
+        c["master_segment"] = m.get("segment")
+        if m.get("segment"):
+            c["segment"] = m["segment"]
+        c["critical"] = bool(m.get("critical"))
+        if m.get("plan"):
+            c["plan"] = m["plan"]
+            c["plan_label"] = ctp_rules.PLAN_LABELS.get(m["plan"], c.get("plan_label"))
+        updated += 1
+    result["master_used"] = True
+    result["master_stats"] = master.get("stats")
+    return updated
+
+
 # --- Persistence so results can be revisited & hold toggles re-render --------
 def _serialize(result):
     out = dict(result)

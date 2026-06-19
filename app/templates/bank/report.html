@@ -79,9 +79,16 @@
     </div>
 
     <div class="download-row">
+      <form action="/tools/bank-statements/results/{{ token }}/refresh"
+            method="post" style="display:inline;">
+        <button class="btn" type="submit">🔄 Refresh analysis</button>
+      </form>
       <a class="btn btn-primary" href="/tools/bank-statements/results/{{ token }}/export">⬇ Export report to Excel</a>
       <a class="btn" href="/tools/bank-statements">Analyse another statement</a>
     </div>
+    <p class="note-small">Refresh re-links this statement's collections to your
+      <strong>latest AR analysis</strong> — use it after running a new CtP
+      analysis, without re-uploading the statement.</p>
   </section>
 
   <section class="panel">

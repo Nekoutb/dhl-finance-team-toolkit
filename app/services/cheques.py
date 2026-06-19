@@ -146,6 +146,26 @@ def create_batch(token, cheques, bank_rows, bank_summary):
     return payload
 
 
+def refresh_matches(token, bank_rows, bank_summary):
+    """Re-match every already-read cheque in a batch against the CURRENT bank
+    statement lines — no AI re-read, so it just picks up changed/added bank
+    statements. Returns the updated batch, or None."""
+    payload = load_batch(token)
+    if not payload:
+        return None
+    for c in payload["cheques"]:
+        res = c.get("result")
+        if res and res.get("cheque_number"):
+            c["appearances"] = find_appearances(res["cheque_number"], bank_rows)
+    payload["banks"] = bank_summary
+    payload["bank_line_count"] = len(bank_rows)
+    payload["refreshed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _save(token, payload)
+    _banks_file(token).write_text(json.dumps({"rows": bank_rows},
+                                  ensure_ascii=False), encoding="utf-8")
+    return payload
+
+
 def _process_one(token, idx, ai_cfg, bank_rows):
     payload = load_batch(token)
     entry = next((c for c in payload["cheques"] if c["idx"] == idx), None)

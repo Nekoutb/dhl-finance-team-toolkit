@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.2 — 19 Jun 2026 · Bank statements: define your banks in Settings, then one upload slot per bank — uploading replaces that bank's statement, so the platform holds one current statement per bank"
+APP_VERSION = "v8.3 — 19 Jun 2026 · Refresh on analysis pages: re-link a stored analysis to your latest data without re-uploading — bank report → newest AR, CtP → current master + credit holds, cheque batch → current bank lines"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

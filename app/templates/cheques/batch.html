@@ -25,6 +25,11 @@
     {% endif %}
     {% if not running %}
     <div class="download-row">
+      <form action="/tools/cheque-processing/batch/{{ token }}/refresh"
+            method="post" style="display:inline;">
+        <button class="btn" type="submit"
+                title="Re-check these cheques against the current bank statements">🔄 Refresh matches</button>
+      </form>
       <a class="btn btn-primary" href="/tools/cheque-processing/batch/{{ token }}/export">⬇ Download cheque register (Excel)</a>
       <a class="btn" href="/tools/cheque-processing">Process another batch</a>
       <form action="/tools/cheque-processing/batch/{{ token }}/delete" method="post" class="row-form"

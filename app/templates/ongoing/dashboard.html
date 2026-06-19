@@ -41,6 +41,10 @@
       {{ result.summary.customer_count }} customers ·
       net AR {{ money(d.net_ar) }}</p>
     <div class="download-row">
+      <form action="{{ base }}/refresh" method="post" style="display:inline;">
+        <button class="btn" type="submit"
+                title="Re-apply the current master file and credit-hold register to this analysis">🔄 Refresh</button>
+      </form>
       <a class="btn" href="{{ base }}{% if priority_on %}?priority=1{% endif %}">Full controls &amp; invoice tables →</a>
       <a class="btn" href="/tools/ongoing-ctp-monitoring/holds">Hold register ({{ hold_cmp.register_size }})</a>
       {% if priority_count %}

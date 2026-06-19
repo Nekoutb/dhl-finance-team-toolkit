@@ -892,6 +892,24 @@ def ongoing_results(request: Request, token: str, priority: str = ""):
     return _render_ctp_results(request, token, priority=priority)
 
 
+@app.post("/tools/ongoing-ctp-monitoring/results/{token}/refresh")
+async def ongoing_refresh(token: str):
+    # Re-apply the current master file + credit-hold register to this stored
+    # analysis (no need to re-upload the transaction file).
+    result = ctp.load_result(token)
+    if result is None:
+        return RedirectResponse(
+            "/tools/ongoing-ctp-monitoring?error=That analysis was not found.",
+            status_code=303)
+    ctp.reapply_master(result)
+    ctp.hold_compare(result["customers"])
+    result["refreshed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ctp.save_result(token, result)
+    return RedirectResponse(
+        f"/tools/ongoing-ctp-monitoring/results/{token}/dashboard",
+        status_code=303)
+
+
 @app.post("/tools/ongoing-ctp-monitoring/results/{token}/delete")
 async def ongoing_delete(token: str):
     ctp.delete_result(token)
@@ -1929,6 +1947,19 @@ def cheque_scan(token: str, idx: int):
                         or "application/octet-stream")
 
 
+@app.post("/tools/cheque-processing/batch/{token}/refresh")
+async def cheque_refresh(token: str):
+    # Re-match the read cheques against the CURRENT bank statement lines
+    # (no AI re-read) — picks up changed/added bank statements.
+    bank_rows, bank_summary = bank.all_statement_lines()
+    if cheques.refresh_matches(token, bank_rows, bank_summary) is None:
+        return RedirectResponse(
+            "/tools/cheque-processing?error=That batch was not found.",
+            status_code=303)
+    return RedirectResponse(
+        f"/tools/cheque-processing/batch/{token}", status_code=303)
+
+
 @app.post("/tools/cheque-processing/batch/{token}/delete")
 async def cheque_delete(token: str):
     cheques.delete_batch(token)
@@ -2017,6 +2048,17 @@ async def bank_upload(request: Request, bank_name: str = Form("", alias="bank"),
         return _bank_home(request, error=f"Could not read the statement(s): {exc}",
                           status_code=400)
     bank.save_report(report)
+    return RedirectResponse(
+        f"/tools/bank-statements/results/{token}", status_code=303)
+
+
+@app.post("/tools/bank-statements/results/{token}/refresh")
+async def bank_refresh(token: str):
+    # Re-link this statement to the latest AR analysis (no re-upload needed).
+    if bank.refresh_report(token) is None:
+        return RedirectResponse(
+            "/tools/bank-statements?error=Could not refresh that statement.",
+            status_code=303)
     return RedirectResponse(
         f"/tools/bank-statements/results/{token}", status_code=303)
 
