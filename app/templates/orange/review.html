@@ -6,56 +6,52 @@
     <a href="/tools/orange-cameroun">{{ tool.name }}</a> / Review
   </nav>
 
+  {% set m = model.meta %}
   <section class="panel">
-    <h1>Review &amp; select transaction(s)</h1>
-    <p class="lead">Sheet <strong>{{ model.sheet }}</strong> ·
-      {{ model.rows|length }} transaction(s) found ·
-      customer key column: <strong>{{ model.key_col }}</strong></p>
+    <h1>Review collections — {{ m.month_label or "Orange Money" }}</h1>
+    <p class="lead">
+      Account <strong>{{ m.account }}</strong>{% if m.company %} · {{ m.company }}{% endif %} ·
+      <strong>{{ model.totals.count }}</strong> successful collection(s) across
+      <strong>{{ model.totals.correspondant_count }}</strong> correspondant(s) ·
+      total credited <strong>{{ "{:,.0f}".format(model.totals.credited).replace(",", " ") }} XAF</strong>
+    </p>
+    <p class="select-hint">Confirm or add each customer’s <strong>name</strong> and
+      <strong>account number</strong> — they’re remembered by correspondant
+      number and pre-filled next time. Click any column header to sort.</p>
 
-    {% if model.metadata %}
-      <details class="meta-box" open>
-        <summary>File header / metadata</summary>
-        <ul>{% for m in model.metadata %}<li>{{ m }}</li>{% endfor %}</ul>
-      </details>
-    {% endif %}
-
-    {% if not model.rows %}
-      <div class="alert alert-error">No transaction rows were detected. Send me
-        a sample file and I'll tune the parser to its exact layout.</div>
-    {% else %}
     <form action="/tools/orange-cameroun/generate" method="post" id="genform">
       <input type="hidden" name="token" value="{{ token }}">
       <input type="hidden" name="original" value="{{ original }}">
-
-      <p class="select-hint">Select <strong>as many transactions as you
-        need</strong> — groups are rendered as a table in the PDF:</p>
 
       <div class="table-wrap">
         <table class="tx-table">
           <thead>
             <tr>
-              <th class="col-pick">Pick</th>
+              <th>Correspondant</th>
+              <th>Receipts</th>
+              <th>Total (XAF)</th>
               <th class="col-name">Customer name</th>
-              {% for col in model.header %}<th>{{ col }}</th>{% endfor %}
+              <th class="col-name">AR account number</th>
             </tr>
           </thead>
           <tbody>
-            {% for row in model.rows %}
+            {% for c in model.correspondants %}
             <tr>
-              <td class="col-pick">
-                <input type="checkbox" name="selected" value="{{ row.index }}"
-                       class="rowpick" form="genform">
+              <td>{{ c.correspondant }}</td>
+              <td>{{ c.count }}</td>
+              <td>{{ c.total_fmt }}</td>
+              <td class="col-name">
+                <input type="text" name="name_{{ c.correspondant }}"
+                       value="{{ c.name }}" placeholder="Add name…"
+                       class="name-input {% if c.name %}known{% endif %}"
+                       form="genform">
               </td>
               <td class="col-name">
-                <input type="text" name="name_{{ row.index }}"
-                       value="{{ row.name }}" placeholder="Add name…"
-                       class="name-input {% if row.name %}known{% endif %}"
+                <input type="text" name="acct_{{ c.correspondant }}"
+                       value="{{ c.account }}" placeholder="AR account…"
+                       class="name-input {% if c.account %}known{% endif %}"
                        form="genform">
-                <div class="key-hint">{{ model.key_col }}: {{ row.key }}</div>
               </td>
-              {% for col in model.header %}
-                <td>{{ row.data[col] }}</td>
-              {% endfor %}
             </tr>
             {% endfor %}
           </tbody>
@@ -63,41 +59,40 @@
       </div>
 
       <div class="send-row">
-        <label class="field">
-          <span>Email to</span>
-          <input type="email" name="recipient" value="{{ recipient }}"
-                 placeholder="finance@example.com">
-        </label>
+        <p class="muted">{{ model.totals.count }} Orange-branded receipt(s) will
+          be generated and bundled into one ZIP — a folder per correspondant.</p>
         <div class="actions">
-          <button class="btn" type="submit" name="action" value="download">
-            Generate PDF only
-          </button>
-          <button class="btn btn-primary" type="submit" name="action" value="email">
-            Generate &amp; email
+          <button class="btn btn-primary" type="submit">
+            Generate receipts (ZIP)
           </button>
         </div>
       </div>
     </form>
-    {% endif %}
-  </section>
 
-  <script>
-    // Allow at most {{ max_tx }} selected transactions.
-    const MAX = {{ max_tx }};
-    const boxes = () => Array.from(document.querySelectorAll('.rowpick'));
-    document.addEventListener('change', (e) => {
-      if (!e.target.classList.contains('rowpick')) return;
-      const checked = boxes().filter(b => b.checked);
-      if (checked.length > MAX) {
-        e.target.checked = false;
-        alert('You can select at most ' + MAX + ' transaction(s).');
-      }
-    });
-    document.getElementById('genform')?.addEventListener('submit', (e) => {
-      if (boxes().filter(b => b.checked).length === 0) {
-        e.preventDefault();
-        alert('Please tick at least one transaction.');
-      }
-    });
-  </script>
+    <details class="meta-box" style="margin-top:18px;">
+      <summary>All {{ model.totals.count }} collections (detail)</summary>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="tx-table">
+          <thead>
+            <tr>
+              <th>N°</th><th>Date</th><th>Heure</th><th>Référence</th>
+              <th>Correspondant</th><th>Montant (XAF)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tx in model.collections %}
+            <tr>
+              <td>{{ tx.num }}</td>
+              <td>{{ tx.date }}</td>
+              <td>{{ tx.time }}</td>
+              <td>{{ tx.reference }}</td>
+              <td>{{ tx.correspondant }}</td>
+              <td>{{ "{:,.0f}".format(tx.credit).replace(",", " ") }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
 {% endblock %}

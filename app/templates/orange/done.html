@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Orange Money receipt · {{ cfg.app_name }}{% endblock %}
+{% block title %}Orange Money receipts · {{ cfg.app_name }}{% endblock %}
 {% block content %}
   <nav class="crumbs">
     <a href="/">Dashboard</a> /
@@ -7,26 +7,26 @@
   </nav>
 
   <section class="panel">
-    <h1>✅ Receipt generated</h1>
+    <h1>✅ Receipts generated</h1>
     <p class="lead">
-      {{ count }} transaction(s)
-      {% if customer %}for <strong>{{ customer }}</strong>{% endif %}
-      converted to PDF.
+      <strong>{{ result.count }}</strong> Orange-branded receipt(s) across
+      <strong>{{ result.correspondant_count }}</strong> correspondant(s)
+      {% if result.month_label %}for <strong>{{ result.month_label }}</strong>{% endif %} —
+      total credited <strong>{{ result.credited_fmt }} XAF</strong>.
     </p>
-
-    {% if email_status %}
-      <div class="alert alert-{{ email_status[0] }}">{{ email_status[1] }}</div>
-    {% endif %}
+    <p class="muted">The ZIP contains one folder per correspondant; customers
+      with a saved name/account carry that on their receipts.</p>
 
     <div class="download-row">
-      <a class="btn btn-primary" href="/download/{{ pdf_name }}">⬇ Download PDF</a>
-      {% if eml_name %}
-        <a class="btn" href="/download/{{ eml_name }}">⬇ Download email (.eml)</a>
-      {% endif %}
+      <a class="btn btn-primary"
+         href="/download/{{ zip_file }}?download_as={{ result.zip_name | urlencode }}">
+        ⬇ Download receipts ({{ result.zip_name }})
+      </a>
     </div>
 
     <div class="next-row">
-      <a href="/tools/orange-cameroun">← Convert another file</a>
+      <a href="/tools/orange-cameroun">← Process another statement</a> ·
+      <a href="/tools/orange-cameroun/customers">View saved customers</a>
     </div>
   </section>
 {% endblock %}

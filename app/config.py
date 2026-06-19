@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v7.9 — 18 Jun 2026 · CtP hold register now reads the trial-balance Account Stop/Open (X) correctly — account-number column no longer shadowed by 'Customer Name'"
+APP_VERSION = "v8.0 — 19 Jun 2026 · Orange Money: upload the monthly statement → one branded PDF receipt per successful collection, a folder per correspondant in a single ZIP; remembers each customer's name + AR account by number (auto-filled next upload); retired the old Mobile Money tool"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

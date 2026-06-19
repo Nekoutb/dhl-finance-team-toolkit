@@ -54,9 +54,8 @@
     { ico: "🧭", label: "Receivables — CtP Portal", href: "/tools/ongoing-ctp-monitoring", keys: "g c" },
     { ico: "🔗", label: "Remittance & allocation portal", href: "/tools/remittance-portal", keys: "g r" },
     { ico: "🏦", label: "Bank statements — open AR appearing on the bank statements", href: "/tools/bank-statements", keys: "g b" },
-    { ico: "📱", label: "Mobile Money (Orange & MTN) → PDF", href: "/tools/momo", keys: "g m" },
     { ico: "🧮", label: "Vendor invoice allocation (MTN / Orange / ENEO)", href: "/tools/vendor-invoice-allocation", keys: "g i" },
-    { ico: "📄", label: "Orange Cameroun → PDF", href: "/tools/orange-cameroun", keys: "g o" },
+    { ico: "📄", label: "Orange Money → PDF", href: "/tools/orange-cameroun", keys: "g o" },
     { ico: "🛡️", label: "Vendor NIU verification", href: "/tools/vendor-niu", keys: "g v" },
     { ico: "📊", label: "Variance analysis — CY vs PY", href: "/tools/variance-analysis", keys: "g a" },
     { ico: "⚖️", label: "Vendor invoice compliance engine", href: "/tools/invoice-compliance", keys: "g e" },
@@ -206,7 +205,9 @@
   }
   document.addEventListener("click", function (e) {
     const th = e.target.closest(".tx-table thead th");
-    if (!th || e.target.closest("input,button,a,form")) return;
+    // Sort on header clicks only — but allow tables that live inside a <form>
+    // (e.g. the Orange review grid) to sort; just ignore clicks on controls.
+    if (!th || e.target.closest("input,button,a")) return;
     const table = th.closest("table");
     const tbody = table.tBodies[0];
     if (!tbody || tbody.rows.length < 2) return;

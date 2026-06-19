@@ -7,30 +7,39 @@
   </nav>
 
   <section class="panel">
-    <h1>Saved customer names</h1>
-    <p class="lead">{{ names|length }} customer(s) remembered. These auto-fill
-      when a matching account/number appears in a future upload.</p>
+    <h1>Saved customers</h1>
+    <p class="lead">{{ names|length }} customer(s) remembered. The name and AR
+      account auto-fill whenever the matching correspondant number appears in a
+      future statement.</p>
 
     {% if names %}
       <div class="table-wrap">
         <table class="tx-table">
-          <thead><tr><th>Account / number (key)</th><th>Customer name</th><th></th></tr></thead>
+          <thead><tr>
+            <th>Correspondant number</th><th>Customer name</th>
+            <th>AR account number</th><th></th>
+          </tr></thead>
           <tbody>
             {% for key, name in names.items() %}
-              <tr><td>{{ key }}</td><td>{{ name }}</td>
+              <tr>
+                <td>{{ key }}</td>
+                <td>{{ name }}</td>
+                <td>{{ accounts.get(key, "—") }}</td>
                 <td>
                   <form action="/tools/orange-cameroun/customers/delete"
                         method="post" class="row-form">
                     <input type="hidden" name="key" value="{{ key }}">
                     <button class="btn btn-small" type="submit">🗑 Delete</button>
                   </form>
-                </td></tr>
+                </td>
+              </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     {% else %}
-      <p>No names saved yet. Add one while reviewing a transaction.</p>
+      <p>No customers saved yet. Add names &amp; accounts while reviewing a
+         statement.</p>
     {% endif %}
   </section>
 {% endblock %}

@@ -25,7 +25,7 @@ from .services import (acf_reader, ai_ocr, ar_master, auth, bank_statement,
                        cheques, compliance, ctp_dashboard, ctp_rules, customers,
                        dgi, emailer, eno_allocation, holds, inbox, remittance_pdf,
                        remittance_store, variance, vendors, xlsx_report)
-from .tools import bank, momo
+from .tools import bank
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -411,15 +411,17 @@ def orange_home(request: Request, error: str = ""):
 async def orange_upload(request: Request, file: UploadFile = File(...)):
     cfg = load_config()
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXT:
+
+    def _err(message, code=400):
         return templates.TemplateResponse("orange/upload.html", {
-            "request": request,
-            "cfg": cfg,
-            "tool": registry.by_slug("orange-cameroun"),
-            "error": f"Unsupported file type '{ext or 'unknown'}'. "
-                     "Please upload an Excel file (.xlsx, .xlsm or .xls).",
+            "request": request, "cfg": cfg,
+            "tool": registry.by_slug("orange-cameroun"), "error": message,
             "saved_count": len(customers.all_names(orange.TOOL_SLUG)),
-        }, status_code=400)
+        }, status_code=code)
+
+    if ext not in ALLOWED_EXT:
+        return _err(f"Unsupported file type '{ext or 'unknown'}'. Please upload "
+                    "the Orange Money statement (.xlsx or .xls).")
 
     token = uuid.uuid4().hex
     dest = UPLOAD_DIR / f"{token}{ext}"
@@ -428,23 +430,18 @@ async def orange_upload(request: Request, file: UploadFile = File(...)):
     try:
         model = orange.parse_for_review(dest)
     except Exception as exc:  # noqa: BLE001 - surface any parse error to the user
-        return templates.TemplateResponse("orange/upload.html", {
-            "request": request,
-            "cfg": cfg,
-            "tool": registry.by_slug("orange-cameroun"),
-            "error": f"Could not read that file: {exc}",
-            "saved_count": len(customers.all_names(orange.TOOL_SLUG)),
-        }, status_code=400)
+        return _err(f"Could not read that file: {exc}")
+
+    if not model["collections"]:
+        return _err("No successful collections (credits) were found. Make sure "
+                    "this is the Orange Money monthly ‘Relevé de vos opérations’ "
+                    "export for the merchant account.")
 
     return templates.TemplateResponse("orange/review.html", {
-        "request": request,
-        "cfg": cfg,
+        "request": request, "cfg": cfg,
         "tool": registry.by_slug("orange-cameroun"),
-        "model": model,
-        "token": token,
-        "original": file.filename or "orange_transaction.xlsx",
-        "recipient": cfg["orange_cameroun"]["default_recipient"],
-        "max_tx": orange.MAX_TRANSACTIONS,
+        "model": model, "token": token,
+        "original": file.filename or "orange_statement.xls",
     })
 
 
@@ -453,67 +450,33 @@ async def orange_generate(request: Request):
     cfg = load_config()
     form = await request.form()
     token = form.get("token", "")
-    original = form.get("original") or "orange_transaction.xlsx"
-    recipient = (form.get("recipient") or "").strip()
-    action = form.get("action") or "download"
-    selected = [int(s) for s in form.getlist("selected") if s.isdigit()]
 
     upload_path = _resolve_upload(token)
-    if not selected or upload_path is None:
-        msg = "Please select at least one transaction." if upload_path else \
-              "Your upload expired — please upload the file again."
+    if upload_path is None:
         return HTMLResponse(
-            f'<script>alert({msg!r});history.back();</script>', status_code=400)
+            "<script>alert('Your upload expired \\u2014 please upload the file "
+            "again.');history.back();</script>", status_code=400)
 
-    selected = selected[:orange.MAX_TRANSACTIONS]
-    names_map = {}
-    for idx in selected:
-        name = (form.get(f"name_{idx}") or "").strip()
-        if name:
-            names_map[idx] = name
+    # Per-correspondant identities the user confirmed/added on the review page.
+    identities = {}
+    for key, value in form.multi_items():
+        if key.startswith("name_"):
+            identities.setdefault(key[5:], {})["name"] = value
+        elif key.startswith("acct_"):
+            identities.setdefault(key[5:], {})["account"] = value
 
-    out_pdf = OUTPUT_DIR / f"{Path(original).stem}_{token[:8]}.pdf"
-    result = orange.build_receipt(upload_path, selected, names_map, cfg, out_pdf)
-
-    customer = result["customer_name"] or "the customer"
-    oc = cfg["orange_cameroun"]
-    subject = oc["email_subject_template"].format(customer=customer)
-    body = oc["email_body_template"].format(customer=customer)
-
-    email_status, eml_name = None, None
-    if action == "email":
-        smtp = cfg["smtp"]
-        if smtp.get("enabled") and recipient:
-            try:
-                emailer.send_via_smtp(smtp, recipient, subject, body, out_pdf)
-                email_status = ("ok", f"Email sent to {recipient}.")
-            except Exception as exc:  # noqa: BLE001
-                email_status = ("error", f"SMTP send failed: {exc}. "
-                                         "A downloadable .eml was created instead.")
-                eml_path = OUTPUT_DIR / f"{out_pdf.stem}.eml"
-                emailer.build_eml(eml_path, smtp.get("from_address", ""),
-                                  recipient, subject, body, out_pdf)
-                eml_name = eml_path.name
-        else:
-            eml_path = OUTPUT_DIR / f"{out_pdf.stem}.eml"
-            emailer.build_eml(eml_path, smtp.get("from_address", ""),
-                              recipient or "", subject, body, out_pdf)
-            eml_name = eml_path.name
-            reason = "SMTP is not configured" if not smtp.get("enabled") \
-                else "no recipient address was given"
-            email_status = ("info", f"Direct send skipped ({reason}). "
-                                    "Download the .eml below and send it from Outlook.")
+    try:
+        out_zip = OUTPUT_DIR / f"orange_{token[:12]}.zip"
+        result = orange.build_zip(upload_path, identities, out_zip)
+    except Exception as exc:  # noqa: BLE001
+        return HTMLResponse(
+            f"<script>alert({('Could not generate receipts: ' + str(exc))!r});"
+            "history.back();</script>", status_code=500)
 
     return templates.TemplateResponse("orange/done.html", {
-        "request": request,
-        "cfg": cfg,
+        "request": request, "cfg": cfg,
         "tool": registry.by_slug("orange-cameroun"),
-        "pdf_name": out_pdf.name,
-        "eml_name": eml_name,
-        "customer": result["customer_name"],
-        "count": result["count"],
-        "recipient": recipient,
-        "email_status": email_status,
+        "result": result, "zip_file": out_zip.name,
     })
 
 
@@ -521,17 +484,19 @@ async def orange_generate(request: Request):
 def orange_customers(request: Request):
     cfg = load_config()
     return templates.TemplateResponse("orange/customers.html", {
-        "request": request,
-        "cfg": cfg,
+        "request": request, "cfg": cfg,
         "tool": registry.by_slug("orange-cameroun"),
         "names": customers.all_names(orange.TOOL_SLUG),
+        "accounts": customers.all_names(orange.ACCT_SLUG),
     })
 
 
 @app.post("/tools/orange-cameroun/customers/delete")
 async def orange_customers_delete(request: Request):
     form = await request.form()
-    customers.delete_name(orange.TOOL_SLUG, form.get("key") or "")
+    key = form.get("key") or ""
+    customers.delete_name(orange.TOOL_SLUG, key)
+    customers.delete_name(orange.ACCT_SLUG, key)
     return RedirectResponse("/tools/orange-cameroun/customers", status_code=303)
 
 
@@ -1980,146 +1945,6 @@ def bank_export(token: str):
 
 
 # --------------------------------------------------------------------------- #
-# Mobile Money payments (Orange & MTN) -> PDF
-# --------------------------------------------------------------------------- #
-_MOMO_TOOL = registry.by_slug("momo")
-_MOMO_EXT = {".xlsx", ".xlsm", ".xls", ".pdf"}
-
-
-def _momo_home(request, error="", message="", status_code=200):
-    return templates.TemplateResponse("momo/upload.html", {
-        "request": request, "cfg": load_config(), "tool": _MOMO_TOOL,
-        "error": error, "message": message,
-        "saved_count": len(customers.all_names(momo.TOOL_SLUG)),
-        "settings": momo.load_settings(),
-        "smtp_enabled": bool(load_config()["smtp"].get("enabled")),
-    }, status_code=status_code)
-
-
-@app.get("/tools/momo", response_class=HTMLResponse)
-def momo_home(request: Request, error: str = "", message: str = ""):
-    return _momo_home(request, error=error, message=message)
-
-
-@app.post("/tools/momo/settings")
-async def momo_settings_save(request: Request):
-    form = await request.form()
-    recipient = (form.get("recipient") or "").strip()
-    settings = momo.load_settings()
-    settings["recipient"] = recipient if "@" in recipient else ""
-    momo.save_settings(settings)
-    msg = f"Saved — receipts will be emailed to {recipient}." if "@" in recipient \
-        else "Recipient cleared."
-    return redirect_msg("/tools/momo", message=msg)
-
-
-@app.post("/tools/momo/upload", response_class=HTMLResponse)
-async def momo_upload(request: Request, file: UploadFile = File(...)):
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in _MOMO_EXT:
-        return _momo_home(request, error=f"Unsupported file type "
-                          f"'{ext or 'unknown'}' — upload .xlsx, .xlsm, .xls or .pdf.",
-                          status_code=400)
-    token = uuid.uuid4().hex
-    dest = UPLOAD_DIR / f"momo_{token}{ext}"
-    dest.write_bytes(await file.read())
-    try:
-        model = momo.parse_for_review(dest, filename=file.filename or "")
-    except Exception as exc:  # noqa: BLE001
-        return _momo_home(request, error=f"Could not read that report: {exc}",
-                          status_code=400)
-    if not model["rows"]:
-        return _momo_home(request, error="No transaction lines were detected "
-                          "in that report — send me the file and I'll tune the "
-                          "parser to its layout.", status_code=400)
-    return templates.TemplateResponse("momo/review.html", {
-        "request": request, "cfg": load_config(), "tool": _MOMO_TOOL,
-        "model": model, "token": token,
-        "original": file.filename or f"momo_report{ext}",
-        "recipient": momo.load_settings().get("recipient", ""),
-    })
-
-
-@app.post("/tools/momo/generate", response_class=HTMLResponse)
-async def momo_generate(request: Request):
-    cfg = load_config()
-    form = await request.form()
-    token = form.get("token", "")
-    original = form.get("original") or "momo_report.xlsx"
-    action = form.get("action") or "download"
-    recipient = (form.get("recipient") or "").strip()
-    selected = [int(s) for s in form.getlist("selected") if s.isdigit()]
-    matches = list(UPLOAD_DIR.glob(f"momo_{token}.*")) if token.isalnum() else []
-    if not selected or not matches:
-        msg = "Please select at least one transaction." if matches else \
-              "Your upload expired — please upload the report again."
-        return HTMLResponse(
-            f'<script>alert({msg!r});history.back();</script>', status_code=400)
-    names_map = {idx: (form.get(f"name_{idx}") or "").strip()
-                 for idx in selected}
-    accounts_map = {idx: (form.get(f"acct_{idx}") or "").strip()
-                    for idx in selected}
-    result = momo.build_receipt(matches[0], selected, names_map, cfg,
-                                OUTPUT_DIR, filename=original,
-                                accounts_map=accounts_map)
-    out_pdf = result["pdf_path"]
-
-    email_status, eml_name = None, None
-    if action == "email":
-        who = result["customer_name"] or "the third party"
-        subject = (f"Mobile Money transaction {result['reference']} — {who}")
-        body = (f"Hello,\n\nPlease find attached the {result['provider']} "
-                f"transaction receipt {result['reference']}"
-                f" for {who}.\n\nKind regards,\nFinance Team")
-        smtp = cfg["smtp"]
-        if smtp.get("enabled") and recipient:
-            try:
-                emailer.send_via_smtp(smtp, recipient, subject, body, out_pdf)
-                email_status = ("ok", f"Receipt emailed to {recipient}.")
-            except Exception as exc:  # noqa: BLE001
-                eml = OUTPUT_DIR / f"{out_pdf.stem}.eml"
-                emailer.build_eml(eml, smtp.get("from_address", ""), recipient,
-                                  subject, body, out_pdf)
-                eml_name = eml.name
-                email_status = ("error", f"SMTP send failed: {exc}. A "
-                                         "ready-to-send .eml was created instead.")
-        else:
-            eml = OUTPUT_DIR / f"{out_pdf.stem}.eml"
-            emailer.build_eml(eml, smtp.get("from_address", ""), recipient or "",
-                              subject, body, out_pdf)
-            eml_name = eml.name
-            reason = "SMTP is not configured" if not smtp.get("enabled") \
-                else "no recipient address was given"
-            email_status = ("info", f"Direct send skipped ({reason}). Download "
-                                    "the .eml below and send it from Outlook.")
-
-    return templates.TemplateResponse("momo/done.html", {
-        "request": request, "cfg": cfg, "tool": _MOMO_TOOL,
-        "pdf_name": out_pdf.name, "result": result,
-        "email_status": email_status, "eml_name": eml_name,
-        "recipient": recipient,
-    })
-
-
-@app.get("/tools/momo/customers", response_class=HTMLResponse)
-def momo_customers(request: Request):
-    return templates.TemplateResponse("momo/customers.html", {
-        "request": request, "cfg": load_config(), "tool": _MOMO_TOOL,
-        "names": customers.all_names(momo.TOOL_SLUG),
-        "accounts": customers.all_names(momo.ACCT_SLUG),
-    })
-
-
-@app.post("/tools/momo/customers/delete")
-async def momo_customers_delete(request: Request):
-    form = await request.form()
-    key = form.get("key") or ""
-    customers.delete_name(momo.TOOL_SLUG, key)
-    customers.delete_name(momo.ACCT_SLUG, key)
-    return RedirectResponse("/tools/momo/customers", status_code=303)
-
-
-# --------------------------------------------------------------------------- #
 # Vendor Tax Status (NIU) Verification
 # --------------------------------------------------------------------------- #
 _VENDOR_TOOL = registry.by_slug("vendor-niu")
@@ -2800,7 +2625,7 @@ async def app_settings_test(request: Request):
 # Downloads
 # --------------------------------------------------------------------------- #
 @app.get("/download/{filename}")
-def download(filename: str):
+def download(filename: str, download_as: str = ""):
     safe = Path(filename).name  # strip any path components
     path = OUTPUT_DIR / safe
     if not path.exists():
@@ -2810,6 +2635,11 @@ def download(filename: str):
         media = "message/rfc822"
     elif lower.endswith((".xlsx", ".xlsm")):
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif lower.endswith(".zip"):
+        media = "application/zip"
     else:
         media = "application/pdf"
-    return FileResponse(path, media_type=media, filename=safe)
+    # Optional friendly download name (e.g. a zip stored under a token but
+    # presented as "Collections Avril 2026 - 658902134.zip").
+    dl_name = Path(download_as).name if download_as else safe
+    return FileResponse(path, media_type=media, filename=dl_name)

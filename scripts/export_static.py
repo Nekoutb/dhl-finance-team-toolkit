@@ -48,7 +48,6 @@ REWRITES = [
     ('action="/tools/ongoing-ctp-monitoring/master"', 'action="#"'),
     ('action="/tools/remittance-portal/contacts/delete"', 'action="#"'),
     ('action="/tools/orange-cameroun/customers/delete"', 'action="#"'),
-    ('action="/tools/momo/customers/delete"', 'action="#"'),
     ('action="/tools/remittance-portal/upload"', 'action="#"'),
     ('action="/tools/remittance-portal/settings"', 'action="#"'),
     ('action="/settings/smtp/test"', 'action="#"'),
@@ -59,11 +58,6 @@ REWRITES = [
     ('action="/tools/vendor-invoice-allocation/eno/key"', 'action="#"'),
     ('action="/tools/vendor-invoice-allocation/eno/generate"', 'action="#"'),
     ('/tools/vendor-invoice-allocation', 'vendor-invoice-allocation.html'),
-    ('action="/tools/momo/upload"', 'action="#"'),
-    ('action="/tools/momo/generate"', 'action="#"'),
-    ('action="/tools/momo/settings"', 'action="#"'),
-    ('/tools/momo/customers', 'momo-customers.html'),
-    ('/tools/momo', 'momo.html'),
     ('action="/tools/vendor-niu/certificates"', 'action="#"'),
     ('action="/tools/vendor-niu/paste"', 'action="#"'),
     ('action="/tools/vendor-niu/upload"', 'action="#"'),
@@ -138,8 +132,6 @@ Orange: <a href="orange-cameroun.html">Upload</a>
 <a href="orange-review.html">Review</a>
 <a href="orange-done.html">Done</a>
 <a href="orange-customers.html">Saved names</a> ·
-MoMo: <a href="momo.html">Upload</a>
-<a href="momo-review.html">Review</a>
 <a href="vendor-invoice-allocation.html">Invoice allocation</a> ·
 CtP: <a href="ongoing-ctp.html">Upload</a>
 <a href="ongoing-dashboard.html">Dashboard</a>
@@ -223,14 +215,6 @@ def main():
     })
     write_page("orange-done.html", done_html)
     write_page("orange-customers.html", get("/tools/orange-cameroun/customers"))
-
-    # ---- Mobile Money (Orange & MTN) flow -----------------------------------
-    MOMO_SAMPLE = ROOT / "samples" / "mtn_momo_sample.xlsx"
-    write_page("momo.html", get("/tools/momo"))
-    write_page("momo-review.html",
-               post("/tools/momo/upload",
-                    files={"file": (MOMO_SAMPLE.name, MOMO_SAMPLE.open("rb"),
-                                    XLSX_MIME)}))
 
     # ---- CtP Portal flow ----------------------------------------------------
     write_page("ongoing-ctp.html", get("/tools/ongoing-ctp-monitoring"))

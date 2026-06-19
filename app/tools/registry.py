@@ -68,19 +68,6 @@ TOOLS = [
     },
     # ---- Record to Report ---------------------------------------------------
     {
-        "slug": "momo",
-        "name": "Mobile Money Payments (Orange & MTN) → PDF",
-        "category": O2C,
-        "icon": "📱",
-        "status": "draft",
-        "description": (
-            "Upload the provider's mobile-money report (Excel or PDF). Pick one "
-            "transaction or a whole group and extract a PDF with the report "
-            "header + the selected lines. Third-party names are remembered and "
-            "auto-filled next time."
-        ),
-    },
-    {
         "slug": "vendor-invoice-allocation",
         "name": "Vendor Invoice Allocation",
         "category": R2R,

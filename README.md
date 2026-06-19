@@ -88,8 +88,8 @@ data/                   runtime data — git-ignored, stays on this machine
 ## Tests & preview
 
 ```powershell
-python scripts/httptest.py            # Orange flow      (+ _momo, _remit,
-python scripts/httptest_ctp.py        # CtP flow            _bank, _vendor,
+python scripts/httptest.py            # Orange flow      (+ _remit, _bank,
+python scripts/httptest_ctp.py        # CtP flow            _vendor,
 python scripts/httptest_smtp.py       # settings            _xls selftest)
 python scripts/export_static.py       # 24-page offline HTML preview
 ```

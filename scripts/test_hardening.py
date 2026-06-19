@@ -16,13 +16,13 @@ client = TestClient(main.app)
 
 # --- fix 7: oversized upload refused by the middleware (413) -----------------
 big = main.MAX_UPLOAD_BYTES + 1
-r = client.post("/tools/momo/upload",
+r = client.post("/tools/orange-cameroun/upload",
                 headers={"content-length": str(big)},
                 files={"file": ("huge.xlsx", b"x")})  # header is what's checked
 assert r.status_code == 413, r.status_code
 assert "Upload too large" in r.text
 # a normal small upload still works (not blocked by the guard)
-r = client.get("/tools/momo")
+r = client.get("/tools/orange-cameroun")
 assert r.status_code == 200
 print("ok: >50MB upload refused (413); normal requests unaffected")
 

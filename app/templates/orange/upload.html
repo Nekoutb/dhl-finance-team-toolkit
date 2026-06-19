@@ -5,7 +5,10 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">{{ tool.description }}</p>
+    <p class="lead">Upload the Orange Money monthly statement
+      (<em>Relevé de vos opérations</em>). The tool keeps the successful
+      collections — one Orange-branded PDF receipt per payment — organised into
+      a folder per correspondant, zipped for download.</p>
 
     {% if error %}
       <div class="alert alert-error">{{ error }}</div>
@@ -15,7 +18,7 @@
           method="post" enctype="multipart/form-data">
       <label class="filedrop">
         <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
-        <span class="filedrop-text">Choose the Orange Cameroun Excel file
+        <span class="filedrop-text">Choose the Orange Money statement
           (.xlsx / .xls)</span>
       </label>
       <button class="btn btn-primary" type="submit">Upload &amp; review</button>
@@ -24,13 +27,20 @@
     <div class="hint">
       <p><strong>How it works</strong></p>
       <ol>
-        <li>Upload the export — the tool finds the table and lists every transaction.</li>
-        <li>Tick the <strong>1 or 2</strong> transaction line(s) you need.</li>
-        <li>Confirm or type the customer's name (remembered for next time —
-            {{ saved_count }} saved so far).</li>
-        <li>Generate the PDF and email it.</li>
+        <li>Upload the monthly statement — failed (“Echec”) transactions and
+            outgoing C2C transfers are dropped automatically; only successful
+            collections (credits) are kept.</li>
+        <li>Review the collections grouped by <strong>correspondant</strong> and
+            confirm or add each customer’s <strong>name</strong> and
+            <strong>account number</strong> — known ones are pre-filled
+            ({{ saved_count }} saved so far).</li>
+        <li>Generate — every successful payment becomes an Orange-branded
+            receipt, bundled into a single ZIP with one folder per
+            correspondant.</li>
       </ol>
-      <p><a href="/tools/orange-cameroun/customers">View saved customer names →</a></p>
+      <p>Names &amp; accounts are remembered by correspondant number, so each
+         upload identifies more customers automatically.
+         <a href="/tools/orange-cameroun/customers">View saved customers →</a></p>
     </div>
   </section>
 {% endblock %}
