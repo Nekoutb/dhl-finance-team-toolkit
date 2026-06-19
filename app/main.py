@@ -1944,9 +1944,19 @@ _BANK_TOOL = registry.by_slug("bank-statements")
 
 
 def _bank_home(request, error="", message="", status_code=200):
+    cfg = load_config()
+    banks = cfg.get("banks", []) or []
+    slots = [{"name": n, "token": bank.bank_token(n),
+              "report": bank.slot_report(n)} for n in banks]
+    slot_tokens = {s["token"] for s in slots}
+    # Any stored reports not tied to a current bank slot (legacy / pre-slots) —
+    # surfaced so they can be cleared, keeping one statement per bank.
+    legacy = [r for r in bank.list_reports(limit=50)
+              if r["token"] not in slot_tokens]
     return templates.TemplateResponse("bank/upload.html", {
-        "request": request, "cfg": load_config(), "tool": _BANK_TOOL,
-        "error": error, "message": message, "recent": bank.list_reports(),
+        "request": request, "cfg": cfg, "tool": _BANK_TOOL,
+        "error": error, "message": message,
+        "slots": slots, "legacy": legacy,
         "has_ar": bool(ctp.list_results(limit=1)),
         "max_files": bank.MAX_FILES,
     }, status_code=status_code)
@@ -1958,14 +1968,25 @@ def bank_home(request: Request, error: str = "", message: str = ""):
 
 
 @app.post("/tools/bank-statements/upload")
-async def bank_upload(request: Request, file: list[UploadFile] = File(...)):
+async def bank_upload(request: Request, bank_name: str = Form("", alias="bank"),
+                      file: list[UploadFile] = File(...)):
+    cfg = load_config()
+    banks = cfg.get("banks", []) or []
+    name = (bank_name or "").strip()
+    if not banks:
+        return _bank_home(request, error="No banks configured yet — add your "
+                          "banks in Settings → Bank statements first.",
+                          status_code=400)
+    if name not in banks:
+        return _bank_home(request, error="Choose one of your configured banks "
+                          "for this statement.", status_code=400)
     files = [f for f in (file or []) if f and f.filename]
     if not files:
         return _bank_home(request, error="No statement received.", status_code=400)
     if len(files) > bank.MAX_FILES:
         return _bank_home(request, error=f"Too many files ({len(files)}) — "
-                          f"upload a maximum of {bank.MAX_FILES} statements at "
-                          "a time.", status_code=400)
+                          f"upload a maximum of {bank.MAX_FILES} files at a time.",
+                          status_code=400)
     stored = []
     for f in files:
         ext = Path(f.filename or "").suffix.lower()
@@ -1977,25 +1998,27 @@ async def bank_upload(request: Request, file: list[UploadFile] = File(...)):
         dest = UPLOAD_DIR / f"bankstmt_{uuid.uuid4().hex[:8]}{ext}"
         dest.write_bytes(await f.read())
         stored.append((dest, f.filename or "statement.xlsx"))
-    ai_cfg = load_config().get("ai")
+    ai_cfg = cfg.get("ai")
     ai_key = bool((ai_cfg or {}).get("api_key", "").strip())
+    # The bank slot's stable token: uploading OVERRIDES that bank's statement.
+    token = bank.bank_token(name)
     # AI-read PDF/scanned statements on a BACKGROUND thread — that call can
-    # exceed the reverse-proxy timeout (502). Spreadsheets read instantly, so
-    # they stay synchronous (no polling page).
+    # exceed the reverse-proxy timeout (502). Spreadsheets read instantly.
     needs_ai = ai_key and any(Path(n).suffix.lower() in bank._AI_EXT
                               for _p, n in stored)
     if needs_ai:
-        token = bank.start_report(stored, ai_cfg=ai_cfg)
+        bank.start_report(stored, ai_cfg=ai_cfg, token=token, bank_slot=name)
         return RedirectResponse(
             f"/tools/bank-statements/results/{token}", status_code=303)
     try:
-        report = bank.build_report(stored, ai_cfg=ai_cfg)
+        report = bank.build_report(stored, ai_cfg=ai_cfg, token=token,
+                                   bank_slot=name)
     except Exception as exc:  # noqa: BLE001
         return _bank_home(request, error=f"Could not read the statement(s): {exc}",
                           status_code=400)
     bank.save_report(report)
     return RedirectResponse(
-        f"/tools/bank-statements/results/{report['token']}", status_code=303)
+        f"/tools/bank-statements/results/{token}", status_code=303)
 
 
 @app.post("/tools/bank-statements/results/{token}/delete")
@@ -2573,6 +2596,7 @@ def app_settings(request: Request, message: str = "", error: str = ""):
         "two_factor": bool(auth_cfg.get("two_factor")),
         "turnstile": cfg.get("turnstile", {}),
         "turnstile_active": turnstile.active(cfg),
+        "banks": cfg.get("banks", []),
     })
 
 
@@ -2758,6 +2782,24 @@ async def app_settings_security(request: Request):
         "enabled but missing keys" if new_cfg["turnstile"].get("enabled") else "off")
     return RedirectResponse(
         f"/settings?message=Security saved — two-factor {tf}; Turnstile {ts}.",
+        status_code=303)
+
+
+@app.post("/settings/banks")
+async def app_settings_banks(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return blocked
+    form = await request.form()
+    names, seen = [], set()
+    for line in (form.get("banks") or "").splitlines():
+        n = line.strip()
+        if n and n.lower() not in seen:        # trim blanks + de-dup
+            names.append(n)
+            seen.add(n.lower())
+    save_user_config({"banks": names})         # a list REPLACES (allows removal)
+    return RedirectResponse(
+        f"/settings?message=Saved {len(names)} bank(s) — one upload slot each.",
         status_code=303)
 
 

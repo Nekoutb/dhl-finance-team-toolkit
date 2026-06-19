@@ -257,8 +257,10 @@ def main():
                post("/tools/ongoing-ctp-monitoring/email",
                     data={"report": report, "recipient": ""}))
 
-    # ---- Bank statements (uses the CtP analysis above for the AR link) -----
+    # ---- Bank statements (per-bank slot; uses the CtP analysis for the AR link)
+    client.post("/settings/banks", data={"banks": "Ecobank Cameroun"})
     rr = client.post("/tools/bank-statements/upload",
+                     data={"bank": "Ecobank Cameroun"},
                      files={"file": (BANK_SAMPLE.name, BANK_SAMPLE.open("rb"),
                                      XLSX_MIME)}, follow_redirects=False)
     bank_token = re.search(r"results/([0-9a-f]+)", rr.headers["location"]).group(1)

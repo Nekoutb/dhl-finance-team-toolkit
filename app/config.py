@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.1 — 19 Jun 2026 · Security: two-factor authentication (authenticator-app TOTP) for all staff, enrolled on first sign-in, with admin reset; Cloudflare Turnstile bot-protection on the login page (configured in Settings)"
+APP_VERSION = "v8.2 — 19 Jun 2026 · Bank statements: define your banks in Settings, then one upload slot per bank — uploading replaces that bank's statement, so the platform holds one current statement per bank"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -69,6 +69,10 @@ DEFAULT_CONFIG = {
         "niu": "",
         "legal_name": "",
     },
+    # Bank statements: the admin defines the banks (one slot each) in Settings.
+    # Each configured bank holds exactly one current statement; re-uploading
+    # overrides it. Empty = no slots yet (configure in Settings → Bank statements).
+    "banks": [],
     # Staff login. OFF locally (login-free dev); turned ON for public
     # deployment via scripts/set_password.py. secure_cookies -> True behind
     # HTTPS so the session cookie is never sent in clear.

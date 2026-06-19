@@ -7,6 +7,7 @@ position (net AR, overdue, risk status, coverage of the payment).
 
 Reports persist under data/bank/<token>.json so they can be revisited.
 """
+import hashlib
 import json
 import re
 import threading
@@ -98,10 +99,26 @@ def _read_statement(path, source, ai_cfg):
         "table reader", note
 
 
-def build_report(files, ai_cfg=None):
+def bank_token(bank_name):
+    """Stable 12-hex id for a configured bank slot — re-uploading the same bank
+    reuses this token, so its single current statement is overwritten."""
+    key = "bankslot:" + (bank_name or "").strip().lower()
+    return hashlib.md5(key.encode("utf-8")).hexdigest()[:12]
+
+
+def slot_report(bank_name):
+    """The current statement report for a bank slot, or None."""
+    return load_report(bank_token(bank_name))
+
+
+def build_report(files, ai_cfg=None, token=None, bank_slot=""):
     """``files`` = list of (path, source_name) — up to MAX_FILES statements,
-    combined into one collection report with the bank identified per file.
-    PDF/scanned statements are read by AI when ``ai_cfg`` has an API key."""
+    combined into one collection report. PDF/scanned statements are read by AI
+    when ``ai_cfg`` has an API key.
+
+    ``token`` pins the report id (a bank slot reuses its stable token so an
+    upload OVERRIDES that bank's previous statement); ``bank_slot`` is the
+    configured bank name that owns this statement (used as the bank label)."""
     if not isinstance(files, (list, tuple)):
         files = [(files, "")]
     files = list(files)[:MAX_FILES]
@@ -111,6 +128,8 @@ def build_report(files, ai_cfg=None):
     statement_lines = []        # every line (credit + debit) for cross-tool search
     for path, source in files:
         lines, bank_name, method, note = _read_statement(path, source, ai_cfg)
+        if bank_slot:           # the configured slot name is the bank of record
+            bank_name = bank_slot
         file_credits = [dict(ln, bank=bank_name)
                         for ln in lines if ln["credit"] > 0]
         credits.extend(file_credits)
@@ -188,7 +207,8 @@ def build_report(files, ai_cfg=None):
     total_credited = sum(ln["credit"] for ln in credits)
     matched_total = sum(e["collected"] for e in matched)
     return {
-        "token": uuid.uuid4().hex[:12],
+        "token": token or uuid.uuid4().hex[:12],
+        "bank_slot": bank_slot,
         "status": "done",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": " + ".join(s for _p, s in files if s) or "statement",
@@ -218,17 +238,19 @@ def build_report(files, ai_cfg=None):
     }
 
 
-def start_report(files, ai_cfg=None):
+def start_report(files, ai_cfg=None, token=None, bank_slot=""):
     """Kick off the report on a BACKGROUND thread and return its token at once.
 
     Reading PDF statements with the AI can take a minute or more; doing it in
     the request would hit the reverse-proxy timeout (502). The results page
     polls the saved report until ``status`` flips from 'running' to 'done'.
-    """
+
+    ``token``/``bank_slot`` pin the report to a configured bank slot so the
+    finished statement overrides that bank's previous one."""
     files = list(files)[:MAX_FILES]
-    token = uuid.uuid4().hex[:12]
+    token = token or uuid.uuid4().hex[:12]
     save_report({
-        "token": token, "status": "running",
+        "token": token, "bank_slot": bank_slot, "status": "running",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": " + ".join(s for _p, s in files if s) or "statement",
         "file_count": len(files),
@@ -236,13 +258,13 @@ def start_report(files, ai_cfg=None):
 
     def _runner():
         try:
-            report = build_report(files, ai_cfg=ai_cfg)
-            report["token"] = token
+            report = build_report(files, ai_cfg=ai_cfg, token=token,
+                                   bank_slot=bank_slot)
             report["status"] = "done"
             save_report(report)
         except Exception as exc:  # noqa: BLE001 — surface, never crash silently
             save_report({
-                "token": token, "status": "error",
+                "token": token, "bank_slot": bank_slot, "status": "error",
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "source": " + ".join(s for _p, s in files if s) or "statement",
                 "error": f"{type(exc).__name__}: {exc}",

@@ -161,6 +161,29 @@
     </form>
   </section>
 
+  <!-- ===== Bank statements — configurable banks ===== -->
+  <section class="panel">
+    <h2 class="section-title">🏦 Bank statements — your banks</h2>
+    <p class="lead">List your banks (one per line). Each gets its own upload
+      slot on the <a href="/tools/bank-statements">Bank statements</a> page, and
+      uploading a statement replaces that bank's previous one.</p>
+    <div class="alert alert-{{ 'ok' if banks else 'info' }}">
+      {% if banks %}<strong>{{ banks|length }} bank(s)</strong> configured:
+        {{ banks|join(', ') }}.
+      {% else %}<strong>No banks yet</strong> — add them below to create the
+        upload slots.{% endif %}
+    </div>
+    <form action="/settings/banks" method="post">
+      <label class="field" style="max-width:480px;">
+        <span>Banks — one name per line</span>
+        <textarea name="banks" rows="6" class="name-input"
+                  style="width:100%;font-family:inherit;padding:8px;"
+                  placeholder="BICEC&#10;Afriland First Bank&#10;Société Générale&#10;Ecobank">{{ banks|join('\n') }}</textarea>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:8px;">Save banks</button>
+    </form>
+  </section>
+
   <!-- ===== Company identity (compliance checks) ===== -->
   <section class="panel">
     <h2 class="section-title">🏢 Company identity — DHL taxpayer ID &amp; legal

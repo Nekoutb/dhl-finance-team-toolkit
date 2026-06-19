@@ -50,11 +50,12 @@ pd.DataFrame([
     {"Date": "2026-06-10", "Description": "CHEQUE 0012345 DEPOSIT", "Credit": 1500000},
     {"Date": "2026-06-11", "Description": "MISC TRANSFER", "Credit": 100},
 ]).to_excel(bank_xlsx, index=False)
-r = client.post("/tools/bank-statements/upload",
-                files={"file": ("Afriland.xlsx", bank_xlsx.read_bytes(), XLSX)},
-                follow_redirects=False)
-assert r.status_code == 303, r.status_code
-btoken = re.search(r"results/([0-9a-f]+)", r.headers["location"]).group(1)
+# Seed the central section directly (the HTTP per-bank slot upload is covered
+# by test_bank_slots.py / httptest_bank.py); this only needs a stored report so
+# all_statement_lines exposes the line for cheque matching.
+report = bank.build_report([(bank_xlsx, "Afriland.xlsx")], bank_slot="Afriland")
+bank.save_report(report)
+btoken = report["token"]
 all_rows, summary = bank.all_statement_lines()
 assert cheques.find_appearances("0012345", all_rows), "central bank line not found"
 print("ok: Bank Statements section exposes searchable lines (all_statement_lines)")

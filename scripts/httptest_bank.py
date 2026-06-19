@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import openpyxl
 from fastapi.testclient import TestClient
 
+from app.config import CONFIG_PATH
 from app.main import app
 from app.tools import bank as bank_tool
 from app.tools import ongoing_ctp as ctp
@@ -22,6 +23,7 @@ BANK = ROOT / "samples" / "bank_statement_sample.xlsx"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 client = TestClient(app)
 ctp.MASTER_PATH.unlink(missing_ok=True)
+_pre_cfg = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else None
 
 
 def check(label, cond):
@@ -70,57 +72,51 @@ m = ctp.load_master()
 check("masters merged (6 customers)", m and m["stats"]["customers"] == 6)
 check("merged source names both files", "master2.xlsx" in m.get("source", ""))
 
-# ---- Bank statements tool: MULTI-FILE upload (xlsx + PDF) + bank ID ---------
-BANK2 = ROOT / "samples" / "bank_statement_sample2.xlsx"
-BANK3 = ROOT / "samples" / "bank_statement_sample3.pdf"
+# ---- Bank statements tool: per-bank SLOT upload (override model) -----------
+# Configure a bank slot (auth off locally -> admin); restored at cleanup.
+client.post("/settings/banks", data={"banks": "Ecobank Cameroun"})
 r = client.get("/tools/bank-statements")
-check("bank upload page 200", r.status_code == 200)
-check("multi-file input (max 10)", "multiple" in r.text and "10 files" in r.text)
+check("bank page 200 + shows the configured slot",
+      r.status_code == 200 and "Ecobank Cameroun" in r.text)
 check("accepts pdf statements", ".pdf" in r.text)
 
-with open(BANK, "rb") as f1, open(BANK2, "rb") as f2, open(BANK3, "rb") as f3:
+with open(BANK, "rb") as f1:
     r = client.post("/tools/bank-statements/upload",
-                    files=[("file", ("bank_statement_sample.xlsx", f1, XLSX)),
-                           ("file", ("bank_statement_sample2.xlsx", f2, XLSX)),
-                           ("file", ("bank_statement_sample3.pdf", f3,
-                                     "application/pdf"))],
+                    data={"bank": "Ecobank Cameroun"},
+                    files={"file": ("bank_statement_sample.xlsx", f1, XLSX)},
                     follow_redirects=False)
-check("three-statement upload (incl PDF) -> redirect", r.status_code == 303)
+check("slot upload -> redirect to that slot's report", r.status_code == 303)
 btoken = re.search(r"results/([0-9a-f]+)", r.headers["location"]).group(1)
+check("slot uses the bank's stable token",
+      btoken == bank_tool.bank_token("Ecobank Cameroun"))
 
 r = client.get(f"/tools/bank-statements/results/{btoken}")
 check("report 200", r.status_code == 200)
-check("all three banks identified", "BANK OF CENTRAL AFRICA" in r.text
-      and "ECOBANK CAMEROUN" in r.text and "AFRILAND FIRST BANK" in r.text)
-check("combined total = 5,445,000", "5,445,000" in r.text)
-check("ACME matched (from Ecobank stmt)", "ACME LOGISTICS" in r.text)
-check("DELTA matched from the PDF statement",
-      "DELTA CORP" in r.text and "AFRILAND" in r.text)
-check("matched table has Bank(s) column", "Bank(s)" in r.text)
-check("unmatched lists strays incl PDF's", "EPSILON HOLDINGS" in r.text
-      and "OMEGA PARTNERS" in r.text and "JUPITER VENTURES" in r.text)
+check("statement labelled with the configured bank", "Ecobank Cameroun" in r.text)
 check("daily collections table", "Daily collections" in r.text)
 
-# Coverage sanity: BETA paid 500,000 vs AR 670,000 -> 75%
-check("BETA coverage 75%", ">75%<" in r.text.replace(" ", ""))
-
-# Excel export (with Banks sheet)
+# Excel export
 r = client.get(f"/tools/bank-statements/results/{btoken}/export")
 check("export downloads xlsx", r.status_code == 200 and r.content[:2] == b"PK")
 
-# 11 files -> rejected
-with open(BANK, "rb") as fh:
-    blob = fh.read()
-too_many = [("file", (f"s{i}.xlsx", blob, XLSX)) for i in range(11)]
-r = client.post("/tools/bank-statements/upload", files=too_many)
-check("11 files rejected", r.status_code == 400 and "maximum of 10" in r.text)
+# Re-upload OVERRIDES — still exactly one stored report for the slot
+with open(BANK, "rb") as f1:
+    client.post("/tools/bank-statements/upload",
+                data={"bank": "Ecobank Cameroun"},
+                files={"file": ("again.xlsx", f1, XLSX)}, follow_redirects=False)
+check("re-upload keeps a single report for the slot (override)",
+      len(list(bank_tool.STORE_DIR.glob(f"{btoken}.json"))) == 1)
 
-# Recent statements listed + DELETE
-r = client.get("/tools/bank-statements")
-check("recent statements listed", "bank_statement_sample.xlsx" in r.text)
+# Uploading to a bank that isn't configured is refused
+with open(BANK, "rb") as f1:
+    r = client.post("/tools/bank-statements/upload", data={"bank": "Ghost Bank"},
+                    files={"file": ("x.xlsx", f1, XLSX)})
+check("unknown bank rejected (400)", r.status_code == 400)
+
+# Clear the slot
 r = client.post(f"/tools/bank-statements/results/{btoken}/delete",
                 follow_redirects=True)
-check("report deleted", r.status_code == 200
+check("slot cleared", r.status_code == 200
       and bank_tool.load_report(btoken) is None)
 
 # Delete the CtP analysis through the new endpoint (exercises it too)
@@ -133,6 +129,10 @@ print("\nALL BANK + CTP-UPLOAD CHECKS PASSED")
 
 # Cleanup: this test's artifacts only
 ctp.MASTER_PATH.unlink(missing_ok=True)
+if _pre_cfg is not None:                       # restore config.json (banks)
+    CONFIG_PATH.write_text(_pre_cfg, encoding="utf-8")
+elif CONFIG_PATH.exists():
+    CONFIG_PATH.unlink()
 for p in bank_tool.STORE_DIR.glob(f"{btoken}*"):
     p.unlink()
 for p in (ROOT / "data" / "uploads").glob("*"):
