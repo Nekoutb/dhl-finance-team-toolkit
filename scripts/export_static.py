@@ -58,15 +58,6 @@ REWRITES = [
     ('action="/tools/vendor-invoice-allocation/eno/key"', 'action="#"'),
     ('action="/tools/vendor-invoice-allocation/eno/generate"', 'action="#"'),
     ('/tools/vendor-invoice-allocation', 'vendor-invoice-allocation.html'),
-    ('action="/tools/vendor-niu/certificates"', 'action="#"'),
-    ('action="/tools/vendor-niu/paste"', 'action="#"'),
-    ('action="/tools/vendor-niu/upload"', 'action="#"'),
-    ('action="/tools/vendor-niu/update"', 'action="#"'),
-    ('action="/tools/vendor-niu/remind"', 'action="#"'),
-    ('action="/tools/vendor-niu/verify"', 'action="#"'),
-    ('action="/tools/vendor-niu/delete"', 'action="#"'),
-    ('href="/tools/vendor-niu/export"', 'href="#"'),
-    ('/tools/vendor-niu', 'vendor-niu.html'),
     ('/tools/orange-cameroun/customers', 'orange-customers.html'),
     ('/tools/orange-cameroun', 'orange-cameroun.html'),
     ('/tools/ongoing-ctp-monitoring/analyze', '#'),
@@ -87,8 +78,6 @@ REWRITES = [
 REGEX_REWRITES = [
     (re.compile(r'action="/tools/[a-z-]+/(results|batch)/[0-9a-f]+/delete"'),
      'action="#"'),
-    (re.compile(r'href="/tools/vendor-niu/certificate/[PM]\d{12}[A-Z]"'),
-     'href="#"'),
     (re.compile(r'href="/tools/bank-statements/results/[0-9a-f]+/export"'),
      'href="#"'),
     (re.compile(r'href="/tools/bank-statements/results/[0-9a-f]+"'),
@@ -148,7 +137,6 @@ Remittance: <a href="remittance-portal.html">Upload GL</a>
 <a href="remittance-settings.html">Settings</a> ·
 Customer portal: <a href="portal-statement.html">Statement</a>
 <a href="portal-done.html">Confirmation</a> ·
-<a href="vendor-niu.html">Vendor NIU</a>
 </div>
 """
 
@@ -329,34 +317,6 @@ def main():
                get("/tools/remittance-portal/allocations"))
     write_page("remittance-contacts.html",
                get("/tools/remittance-portal/contacts"))
-
-    # ---- Vendor NIU verification (seed demo rows, restore after) -----------
-    from app.services import vendors as _vendors
-    vjson = ROOT / "data" / "vendors.json"
-    pre_vendors = vjson.read_text(encoding="utf-8") if vjson.exists() else None
-    parsed, _rej = _vendors.parse_lines(
-        "SOCIETE GENERALE DES TRAVAUX; M012345678901A; ANR-2026-0042; "
-        "2026-05-12; compta@sgt-cm.example\n"
-        "CAMEROON SUPPLIES SARL; P098765432109B; ANR-2026-0117; "
-        "2026-02-20; finance@camsup.example")
-    _vendors.upsert_many(parsed)
-    _vendors.apply_result({
-        "niu": "M012345678901A", "status": "active", "message": "",
-        "raison_sociale": "SOCIETE GENERALE DES TRAVAUX SA", "sigle": "SGT",
-        "cni_rc": "RC/DLA/2010/B/123", "activite": "BTP",
-        "regime": "REEL", "centre": "CIME DOUALA 1",
-        "checked_at": "2026-06-10 16:00"})
-    _vendors.apply_result({
-        "niu": "P098765432109B", "status": "inactive",
-        "message": "Ce NIU est inactif", "raison_sociale": "CAMEROON SUPPLIES",
-        "sigle": "", "cni_rc": "", "activite": "COMMERCE GENERAL",
-        "regime": "SIMPLIFIE", "centre": "CDI WOURI",
-        "checked_at": "2026-06-10 16:00"})
-    write_page("vendor-niu.html", get("/tools/vendor-niu"))
-    if pre_vendors is not None:
-        vjson.write_text(pre_vendors, encoding="utf-8")
-    else:
-        vjson.unlink(missing_ok=True)
 
     # ---- Clean up everything the export created ----------------------------
     # Restore remittance settings + contacts exactly as they were.

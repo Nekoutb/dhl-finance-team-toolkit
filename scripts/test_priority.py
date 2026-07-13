@@ -93,6 +93,23 @@ try:
     assert "_priority.xlsx" in r.text
     print("ok: results page priority filter + dedicated priority Excel report")
 
+    # --- 6. priority view discloses ALL customers — no further filter/cap -----
+    assert "All priority customers" in pri.text, \
+        "complete priority listing section missing"
+    assert "no further filtering or sorting applied" in pri.text
+    assert "Showing top" not in pri.text, \
+        "priority view must not truncate any table (top-N cap leaked in)"
+    assert "All priority customers" not in full.text, \
+        "complete listing must only appear on the priority view"
+    print("ok: priority view lists every priority customer — no caps")
+
+    # --- 7. projected top-offenders section renders on both views -------------
+    for page in (full, pri):
+        assert "Projected top offenders at month-end" in page.text
+        assert "Projected over 60 days" in page.text
+        assert "Projected over 90 days" in page.text
+    print("ok: projected month-end top-offenders section on the dashboard")
+
 finally:
     if pri_snapshot is None:
         ctp.PRIORITY_PATH.unlink(missing_ok=True)

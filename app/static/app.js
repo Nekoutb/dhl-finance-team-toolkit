@@ -56,7 +56,6 @@
     { ico: "🏦", label: "Bank statements — open AR appearing on the bank statements", href: "/tools/bank-statements", keys: "g b" },
     { ico: "🧮", label: "Vendor invoice allocation (MTN / Orange / ENEO)", href: "/tools/vendor-invoice-allocation", keys: "g i" },
     { ico: "📄", label: "Orange Money → PDF", href: "/tools/orange-cameroun", keys: "g o" },
-    { ico: "🛡️", label: "Vendor NIU verification", href: "/tools/vendor-niu", keys: "g v" },
     { ico: "📊", label: "Variance analysis — CY vs PY", href: "/tools/variance-analysis", keys: "g a" },
     { ico: "⚖️", label: "Vendor invoice compliance engine", href: "/tools/invoice-compliance", keys: "g e" },
     { ico: "🗂", label: "Credit-hold register", href: "/tools/ongoing-ctp-monitoring/holds", keys: "" },

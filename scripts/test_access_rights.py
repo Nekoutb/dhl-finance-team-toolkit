@@ -38,10 +38,10 @@ def check(label, cond):
 
 # --- 1. pure access-level logic ---------------------------------------------
 acfg = {"enabled": True, "users": {"a": "x", "e": "x"}, "admins": ["a"],
-        "access": {"e": {"orange-cameroun": "read", "vendor-niu": "modify"}}}
+        "access": {"e": {"orange-cameroun": "read", "bank-statements": "modify"}}}
 check("admin gets modify everywhere", auth.area_level(acfg, "a", "variance-analysis") == "modify")
 check("employee read area", auth.area_level(acfg, "e", "orange-cameroun") == "read")
-check("employee modify area", auth.area_level(acfg, "e", "vendor-niu") == "modify")
+check("employee modify area", auth.area_level(acfg, "e", "bank-statements") == "modify")
 check("employee ungranted area = none", auth.area_level(acfg, "e", "variance-analysis") == "none")
 check("can_read true / can_modify false on read area",
       auth.can_read(acfg, "e", "orange-cameroun") and not auth.can_modify(acfg, "e", "orange-cameroun"))
@@ -54,7 +54,7 @@ raw["auth"] = {
     "enabled": True, "secret_key": "test-secret-key", "secure_cookies": False,
     "users": {"adm": auth.hash_password(PW), "emp": auth.hash_password(PW)},
     "admins": ["adm"],
-    "access": {"emp": {"orange-cameroun": "read", "vendor-niu": "modify"}},
+    "access": {"emp": {"orange-cameroun": "read", "bank-statements": "modify"}},
 }
 CONFIG_PATH.write_text(json.dumps(raw), encoding="utf-8")
 
@@ -75,8 +75,8 @@ login("emp")
 check("read area: GET allowed", client.get("/tools/orange-cameroun").status_code == 200)
 r = client.post("/tools/orange-cameroun/upload", follow_redirects=False)
 check("read area: POST (modify) blocked 403", r.status_code == 403 and "Read-only access" in r.text)
-check("modify area: GET allowed", client.get("/tools/vendor-niu").status_code == 200)
-r = client.post("/tools/vendor-niu/email", data={"niu": "ZZZNONE", "email": ""},
+check("modify area: GET allowed", client.get("/tools/bank-statements").status_code == 200)
+r = client.post("/tools/bank-statements/upload", data={"bank": ""},
                 follow_redirects=False)
 check("modify area: POST not blocked", r.status_code != 403)
 r = client.get("/tools/variance-analysis", follow_redirects=False)
@@ -84,7 +84,7 @@ check("ungranted area: GET blocked 403", r.status_code == 403 and "No access to 
 
 # nav + landing show only granted areas
 home = client.get("/").text
-check("landing shows granted areas", "Orange Money" in home and "Vendor NIU check" in home)
+check("landing shows granted areas", "Orange Money" in home and "Bank Statements" in home)
 check("landing hides ungranted areas",
       "Variance analysis" not in home and "CtP Portal" not in home)
 
@@ -112,7 +112,7 @@ check("admin sees Administration page", r.status_code == 200
 check("admin matrix includes the Dashboard area", "Dashboard (home overview)" in r.text)
 r = client.post("/admin/access",
                 data={"username": "emp", "access:dashboard": "read",
-                      "access:vendor-niu": "modify",
+                      "access:bank-statements": "modify",
                       "access:orange-cameroun": "read",
                       "access:variance-analysis": "modify"},
                 follow_redirects=False)

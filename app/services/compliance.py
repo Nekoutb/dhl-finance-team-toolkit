@@ -8,7 +8,7 @@ deterministically against:
       foreign suppliers — form checks are waived (noted) for them.
   II. Conditions de FOND — the substance tests that make the charge
       deductible: supplier on the DGI active-taxpayer file (checked LIVE on
-      Fiscalis via the vendor-NIU service), the ≥ FCFA 100,000 no-cash rule,
+      Fiscalis via the dgi service), the ≥ FCFA 100,000 no-cash rule,
       tax-haven exposure, plus the judgement items (réalité, rattachement,
       non-exagération, plafonds) raised as review points — they cannot be
       proven from the invoice alone.

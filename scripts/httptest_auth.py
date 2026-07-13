@@ -48,7 +48,7 @@ save_user_config({"auth": {
 r = client.get("/", follow_redirects=False)
 check("gated: dashboard redirects to /login", r.status_code == 303
       and "/login" in r.headers.get("location", ""))
-r = client.get("/tools/vendor-niu", follow_redirects=False)
+r = client.get("/tools/variance-analysis", follow_redirects=False)
 check("gated: a tool redirects to /login", r.status_code == 303)
 
 # Public paths stay open even when gated
@@ -65,13 +65,13 @@ check("wrong password rejected (401)", r.status_code == 401)
 
 # Correct password -> cookie -> access granted
 r = client.post("/login", data={"username": "finance",
-                "password": "s3cret-pass", "next": "/tools/vendor-niu"},
+                "password": "s3cret-pass", "next": "/tools/variance-analysis"},
                 follow_redirects=False)
 check("login sets session cookie", r.status_code == 303
       and auth.COOKIE in r.cookies)
 client.cookies.set(auth.COOKIE, r.cookies[auth.COOKIE])
 check("authed: tool now reachable",
-      client.get("/tools/vendor-niu").status_code == 200)
+      client.get("/tools/variance-analysis").status_code == 200)
 check("authed: topbar shows sign out", "/logout" in client.get("/").text)
 
 # --- Admin: settings page shows user management; onboard + password change --

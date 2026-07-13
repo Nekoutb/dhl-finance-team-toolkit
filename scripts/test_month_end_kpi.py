@@ -105,6 +105,18 @@ def main():
     assert today["below"]["count"] == me["below"]["count"] == 1
     print("ok: unapplied cash / on-hold-negative / below-threshold unchanged")
 
+    # --- 6. projected top-offender LISTS (the dashboard's new section) ------
+    t60 = {c["key"] for c in today["over60_customers"]}
+    t90 = {c["key"] for c in today["over90_customers"]}
+    m60 = {c["key"] for c in me["over60_customers"]}
+    m90 = {c["key"] for c in me["over90_customers"]}
+    assert t60 == {"B", "D"} and t90 == {"B"}, (t60, t90)
+    assert m60 == {"A", "B", "D"} and m90 == {"B", "D"}, (m60, m90)
+    # the "new at month-end" delta the template flags: projected minus today
+    assert m60 - t60 == {"A"}, "Alpha becomes an over-60 offender only at ME"
+    assert m90 - t90 == {"D"}, "Delta becomes an over-90 offender only at ME"
+    print("ok: projected offender lists + new-at-month-end delta (A / D)")
+
     print("\nALL MONTH-END KPI TESTS PASSED")
 
 

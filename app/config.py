@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.3 — 19 Jun 2026 · Refresh on analysis pages: re-link a stored analysis to your latest data without re-uploading — bank report → newest AR, CtP → current master + credit holds, cheque batch → current bank lines"
+APP_VERSION = "v8.4 — 3 Jul 2026 · CtP: projected month-end top offenders (over 60/90) as their own section with 'new at month-end' flags; priority view discloses ALL priority customers (no caps/filtering/sorting); Vendor NIU verification removed"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -49,18 +49,6 @@ DEFAULT_CONFIG = {
     "ai": {
         "api_key": "",
         "model": "claude-opus-4-8",
-    },
-    # Inbound mailbox (IMAP) — lets the SaaS read vendors' email replies and
-    # auto-apply updated tax certificates without manual upload. Username /
-    # password default to the SMTP mailbox (same account) when left blank.
-    "imap": {
-        "enabled": False,
-        "host": "",
-        "port": 993,
-        "username": "",
-        "password": "",
-        "mailbox": "INBOX",
-        "since_days": 30,
     },
     # Our own identity, set by the admin in Settings. The invoice compliance
     # engine verifies every vendor invoice is billed to THIS taxpayer ID and

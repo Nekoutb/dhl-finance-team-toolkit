@@ -1,9 +1,10 @@
 """The catalogue of finance functions shown on the dashboard.
 
 Two business functions (per the user's process landscape):
-  - Order to Cash   : receivables — CtP Portal, remittance & allocation
-  - Record to Report: conversions & compliance — Mobile Money / Orange to PDF,
-                      vendor NIU verification
+  - Order to Cash   : receivables — CtP Portal, remittance & allocation,
+                      bank statements, cheques, Orange Money receipts
+  - Record to Report: conversions & compliance — invoice allocation,
+                      variance analysis, invoice compliance
 
 Add a dict to surface a new tool. ``status: "live"``/"draft" link to a working
 page; ``"coming_soon"`` are placeholders awaiting the user's procedure.
@@ -89,18 +90,6 @@ TOOLS = [
             "Extract one transaction or a whole group from the Orange Cameroun "
             "Excel export into a PDF receipt — document header & logo included, "
             "customer names remembered — and email it."
-        ),
-    },
-    {
-        "slug": "vendor-niu",
-        "name": "Vendor Tax Status (NIU) Verification",
-        "category": R2R,
-        "icon": "🛡️",
-        "status": "draft",
-        "description": (
-            "Paste vendors (name, taxpayer ID/NIU, tax clearance certificate). "
-            "The app checks each NIU on the DGI Fiscalis platform, records the "
-            "taxpayer's status, and exports the table to Excel."
         ),
     },
     {

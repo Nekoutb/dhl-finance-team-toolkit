@@ -44,19 +44,10 @@ used by another app on this machine — the toolkit lives on **8801**.
 
 ### Record to Report
 
-- **📱 Mobile Money (Orange & MTN) → PDF** — upload the provider report
-  (Excel or PDF), select one transaction or any group, extract a receipt that
-  carries the document's own header/logo; file names start with the
-  transaction reference (e.g. `C00598_…`). Third-party names and account
-  numbers are remembered and auto-filled. Send by email directly.
-- **📄 Orange Money → PDF** — the original single-provider variant.
-- **🛡️ Vendor Tax Status (NIU) Verification** — paste vendors or upload the
-  Excel vendor list (name, NIU, tax clearance certificate, issue date, email).
-  Each NIU is checked live on **DGI Fiscalis** ("Vérifier un NIU");
-  certificates are valid **3 months** from issue. The report applies the
-  payment control — **OK TO PAY only when the certificate is valid and the
-  NIU is ACTIVE** — and one click emails non-compliant vendors that overdue
-  invoices will not be paid until the situation is regularised.
+- **📄 Orange Money → PDF** — upload the monthly statement (Relevé de vos
+  opérations); every successful collection becomes an Orange-branded PDF
+  receipt, one folder per correspondant, in a single ZIP. Customer names + AR
+  accounts are remembered per correspondant and auto-filled next upload.
 
 ## Settings
 
@@ -76,7 +67,7 @@ app/
                         pdf_table_reader, header_assets, pdf_writer,
                         ctp_rules (Credit Policy v3.3), ctp_dashboard,
                         ar_master, bank_statement, dgi (Fiscalis client),
-                        vendors, holds, customers, emailer, stores…
+                        holds, customers, emailer, stores…
   tools/                one module per tool + registry.py (dashboard catalogue)
   templates/ static/    UI (liquid-glass design system, app.js)
 scripts/                sample generators, test suites (httptest_*.py),
@@ -89,8 +80,8 @@ data/                   runtime data — git-ignored, stays on this machine
 
 ```powershell
 python scripts/httptest.py            # Orange flow      (+ _remit, _bank,
-python scripts/httptest_ctp.py        # CtP flow            _vendor,
-python scripts/httptest_smtp.py       # settings            _xls selftest)
+python scripts/httptest_ctp.py        # CtP flow            _xls selftest)
+python scripts/httptest_smtp.py       # settings
 python scripts/export_static.py       # 24-page offline HTML preview
 ```
 

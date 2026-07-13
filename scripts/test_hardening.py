@@ -40,7 +40,6 @@ checks = {
     "/tools/ongoing-ctp-monitoring": "CtP Portal ·",
     "/tools/variance-analysis": "Variance analysis ·",
     "/tools/invoice-compliance": "Invoice compliance ·",
-    "/tools/vendor-niu": "Vendor NIU check ·",
 }
 for path, want in checks.items():
     r = client.get(path)

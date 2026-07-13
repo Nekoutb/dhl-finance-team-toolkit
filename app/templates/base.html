@@ -56,7 +56,7 @@
       <span class="nav-label">Orange Money → PDF</span></a>{% endif %}
     {% endif %}
 
-    {% if _allowed is none or ['vendor-invoice-allocation','variance-analysis','invoice-compliance','vendor-niu']|select('in', _allowed)|list %}
+    {% if _allowed is none or ['vendor-invoice-allocation','variance-analysis','invoice-compliance']|select('in', _allowed)|list %}
     <div class="nav-section">Record to Report</div>
     {% if _allowed is none or 'vendor-invoice-allocation' in _allowed %}
     <a class="nav-item {% if 'vendor-invoice-allocation' in path %}active{% endif %}" href="/tools/vendor-invoice-allocation">
@@ -70,10 +70,6 @@
     <a class="nav-item {% if 'invoice-compliance' in path %}active{% endif %}" href="/tools/invoice-compliance">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4.5V20"/><path d="M8.5 20h7"/><path d="M5.5 7h13"/><path d="M5.5 7 3.2 12.3a2.9 2.9 0 0 0 4.6 0L5.5 7"/><path d="M18.5 7l-2.3 5.3a2.9 2.9 0 0 0 4.6 0L18.5 7"/></svg></span>
       <span class="nav-label">Invoice compliance</span></a>{% endif %}
-    {% if _allowed is none or 'vendor-niu' in _allowed %}
-    <a class="nav-item {% if 'vendor-niu' in path %}active{% endif %}" href="/tools/vendor-niu">
-      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.5 5 6.2v5.2c0 4.6 3.2 7.8 7 9.1 3.8-1.3 7-4.5 7-9.1V6.2z"/><path d="m9.2 12 2 2 3.6-4.2"/></svg></span>
-      <span class="nav-label">Vendor NIU check</span></a>{% endif %}
     {% endif %}
 
     {% if request.state.is_admin is not defined or request.state.is_admin %}

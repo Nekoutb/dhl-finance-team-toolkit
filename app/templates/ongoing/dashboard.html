@@ -9,22 +9,29 @@
 {% macro hc_th() %}<th>Current Credit Hold status</th><th>Critical</th>{% endmacro %}
 {% macro hc(c) %}<td>{% if c.currently_held %}<span class="pill pill-stop">Stop</span>{% else %}<span class="pill pill-ok">Open</span>{% endif %}</td><td>{% if c.critical %}<span class="pill pill-stop">Critical</span>{% else %}<span class="note-inline">No</span>{% endif %}</td>{% endmacro %}
 
-{% macro offender_table(rows, field) %}
+{# limit=0 (priority view) lists EVERY customer — no top-N truncation.
+   today_keys: in the month-end PROJECTION, pass the keys of TODAY's offenders —
+   anyone absent from it becomes an offender only by period close and gets the
+   "new at month-end" flag. #}
+{% macro offender_table(rows, field, limit=30, today_keys=None) %}
   {% if rows %}
+  {% set shown = rows if not limit else rows[:limit] %}
   <div class="table-wrap"><table class="tx-table">
     <thead><tr><th>#</th><th>Customer</th><th>Account</th>
       <th>{{ 'Over 60d' if field == 'over60' else 'Over 90d' }}</th><th>Total AR</th>
       {{ hc_th() }}<th>Credit stop</th></tr></thead>
     <tbody>
-      {% for c in rows[:30] %}
-      <tr><td>{{ loop.index }}</td><td>{{ c.customer }}</td><td>{{ c.key }}</td>
+      {% for c in shown %}
+      <tr><td>{{ loop.index }}</td><td>{{ c.customer }}
+          {%- if today_keys is not none and c.key not in today_keys %} <span class="pill pill-watch">new at month-end</span>{% endif %}</td>
+        <td>{{ c.key }}</td>
         <td>{{ "{:,.0f}".format(c[field]) }}</td><td>{{ "{:,.0f}".format(c.total) }}</td>
         {{ hc(c) }}
         <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
       {% endfor %}
     </tbody>
   </table></div>
-  {% if rows|length > 30 %}<p class="note-small">Showing top 30 of {{ rows|length }}.</p>{% endif %}
+  {% if limit and rows|length > limit %}<p class="note-small">Showing top {{ limit }} of {{ rows|length }}.</p>{% endif %}
   {% else %}<p class="note-small">None.</p>{% endif %}
 {% endmacro %}
 
@@ -72,6 +79,32 @@
     {% endif %}
   </section>
 
+  {% if priority_on %}
+  <!-- ⭐ Every priority customer, complete — no filter, no sorting, no cap. -->
+  <section class="panel">
+    <h2 class="section-title">⭐ All priority customers
+      ({{ result.customers|length }})</h2>
+    <p class="lead">Every priority customer in this analysis is listed —
+      no further filtering or sorting applied.</p>
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>#</th><th>Customer</th><th>Account</th><th>Segment</th>
+        <th>Total AR (net)</th><th>Overdue</th><th>Max days overdue</th>
+        <th>Risk control</th>{{ hc_th() }}<th>Credit stop</th></tr></thead>
+      <tbody>
+        {% for c in result.customers %}
+        <tr><td>{{ loop.index }}</td><td>{{ c.customer }}</td><td>{{ c.key }}</td>
+          <td>{{ c.segment or '—' }}</td>
+          <td>{{ money(c.total_ar) }}</td><td>{{ money(c.overdue) }}</td>
+          <td>{{ c.max_days_overdue }}</td>
+          <td><span class="pill pill-{{ c.status_key }}">{{ c.status }}</span></td>
+          {{ hc(c) }}
+          <td><span class="pill pill-{{ c.credit_stop_key }}">{{ c.credit_stop }}</span></td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
   <!-- KPI strip — aged to the analysis date (today) -->
   <p class="kpi-line-lbl">As of {{ result.as_of }} <span class="kpi-line-tag">today</span></p>
   <div class="kpi-strip">
@@ -108,16 +141,45 @@
     <details class="drop">
       <summary><span class="drop-title">Receivables over 60 days</span>
         <span class="drop-val">{{ "{:.1f}".format(d.aging.over60_pct) }}% · {{ money(d.aging.over60) }} {{ cur }}</span></summary>
-      {{ offender_table(d.over60_customers, "over60") }}
+      {{ offender_table(d.over60_customers, "over60", 0 if priority_on else 30) }}
     </details>
     <details class="drop">
       <summary><span class="drop-title">Receivables over 90 days</span>
         <span class="drop-val">{{ "{:.1f}".format(d.aging.over90_pct) }}% · {{ money(d.aging.over90) }} {{ cur }}</span></summary>
-      {{ offender_table(d.over90_customers, "over90") }}
+      {{ offender_table(d.over90_customers, "over90", 0 if priority_on else 30) }}
     </details>
     <p class="note-small">Percentages are of gross receivables ({{ money(d.gross_ar) }} {{ cur }}),
       aged from the document/invoice date.</p>
   </section>
+
+  {% if dash_me and month_end %}
+  <!-- 1b. PROJECTED ageing & top offenders at month-end -->
+  <section class="panel">
+    <h2 class="section-title">Projected top offenders at month-end
+      <span class="note-inline">({{ month_end }})</span></h2>
+    <p class="lead">The same over-60/90-day controls with every invoice aged to
+      <strong>{{ month_end }}</strong> instead of today — who the offenders will
+      be at period close if nothing is collected before then. Customers who are
+      not offenders today are flagged
+      <span class="pill pill-watch">new at month-end</span>.</p>
+    {% set cur60 = d.over60_customers | map(attribute='key') | list %}
+    {% set cur90 = d.over90_customers | map(attribute='key') | list %}
+    <details class="drop">
+      <summary><span class="drop-title">Projected over 60 days</span>
+        <span class="drop-val">{{ "{:.1f}".format(dash_me.aging.over60_pct) }}% · {{ money(dash_me.aging.over60) }} {{ cur }}</span></summary>
+      {{ offender_table(dash_me.over60_customers, "over60", 0 if priority_on else 30, cur60) }}
+    </details>
+    <details class="drop">
+      <summary><span class="drop-title">Projected over 90 days</span>
+        <span class="drop-val">{{ "{:.1f}".format(dash_me.aging.over90_pct) }}% · {{ money(dash_me.aging.over90) }} {{ cur }}</span></summary>
+      {{ offender_table(dash_me.over90_customers, "over90", 0 if priority_on else 30, cur90) }}
+    </details>
+    <p class="note-small">Projection: invoices aged from their document date to
+      {{ month_end }} (percentages of gross receivables,
+      {{ money(dash_me.gross_ar) }} {{ cur }}). Compare with the as-of-today
+      section above to see who newly crosses 60/90 days by period close.</p>
+  </section>
+  {% endif %}
 
   <!-- 2. Unapplied cash -->
   <section class="panel">
