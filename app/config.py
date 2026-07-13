@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.4 — 3 Jul 2026 · CtP: projected month-end top offenders (over 60/90) as their own section with 'new at month-end' flags; priority view discloses ALL priority customers (no caps/filtering/sorting); Vendor NIU verification removed"
+APP_VERSION = "v8.5 — 13 Jul 2026 · Electronic Cheque Register: cumulative register of every scanned cheque (N°, issuing bank, client, amount, upload date) with a green ✓ / red ✗ bank-statement match and the bank/date/amount/reference where it cleared; two-factor authentication removed (password sign-in only)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -68,9 +68,6 @@ DEFAULT_CONFIG = {
         "enabled": False,
         "secret_key": "",
         "secure_cookies": False,
-        # When true (and auth is enabled), every user must pass a TOTP
-        # authenticator code after their password, enrolling on first login.
-        "two_factor": False,
         "users": {},
     },
     # Cloudflare Turnstile — bot/abuse protection on the login form. Inactive

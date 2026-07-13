@@ -56,15 +56,16 @@ TOOLS = [
     },
     {
         "slug": "cheque-processing",
-        "name": "Cheque Payment Processing",
+        "name": "Electronic Cheque Register",
         "category": O2C,
         "icon": "💵",
         "status": "draft",
         "description": (
-            "Upload scanned cheques received from customers. The app reads each "
-            "cheque (number, customer, amount, date) and scans your bank "
-            "statements to confirm where each cheque number cleared — the bank, "
-            "the amount and the transaction date per statement."
+            "Upload scanned cheques received from customers. Each cheque is "
+            "read (cheque number, client, issuing bank, amount, date) into a "
+            "permanent register, and every cheque number is checked against "
+            "the bank statements on file — a green tick when it appears (with "
+            "the bank, date and amount credited), a red cross when not."
         ),
     },
     # ---- Record to Report ---------------------------------------------------

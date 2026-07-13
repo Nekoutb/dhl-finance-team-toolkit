@@ -1,34 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Cheque processing · {{ cfg.app_name }}{% endblock %}
+{% block title %}Electronic Cheque Register · {{ cfg.app_name }}{% endblock %}
 {% block content %}
   <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Upload the <strong>scanned cheques</strong> you have received
-      from customers — the app reads each cheque (cheque number, customer name,
-      amount and date) and presents them in a table. For every cheque number it
-      then scans the <strong>bank statements you uploaded in the
-      <a href="/tools/bank-statements">Bank Statements</a> section</strong> and
-      shows the <strong>bank</strong>, the <strong>amount</strong> and the
-      <strong>transaction date</strong> where that cheque cleared.</p>
+    <p class="lead">Upload the <strong>scanned cheques</strong> you receive from
+      customers — each cheque is read (cheque number, client name, issuing bank,
+      amount, date) and kept in the <strong>register below</strong>. Every
+      cheque number is then checked against the bank statements held in the
+      <a href="/tools/bank-statements">Bank Statements</a> section:
+      <span class="pill pill-ok">✓</span> when it appears — with the bank it was
+      credited on, the day, the amount and the statement reference seen —
+      <span class="pill pill-stop">✗</span> when it does not.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
 
   <section class="panel">
-    <h2 class="section-title">Process a batch of cheques</h2>
+    <h2 class="section-title">Upload scanned cheques</h2>
     {% if bank_lines %}
     <div class="alert alert-ok">Matching against <strong>{{ bank_lines }}</strong>
       bank-statement line(s) on file{% if bank_banks %} —
       {% for b in bank_banks %}{{ b.bank }} ({{ b.lines }}){% if not loop.last %} · {% endif %}{% endfor %}{% endif %}.
-      Add or update statements in the
-      <a href="/tools/bank-statements">Bank Statements</a> section.</div>
+      Add or replace statements in the
+      <a href="/tools/bank-statements">Bank Statements</a> section, then
+      <strong>Refresh matches</strong> below.</div>
     {% else %}
     <div class="alert alert-info">No bank statements are on file yet — upload them
       in the <a href="/tools/bank-statements">Bank Statements</a> section to
-      match cheque numbers. You can still read the cheques now; the bank-match
-      columns will be empty.</div>
+      match cheque numbers. You can still read cheques into the register now;
+      the match column will show ✗ until statements are on file.</div>
     {% endif %}
     {% if ai_ready %}
     <form action="/tools/cheque-processing/upload" method="post"
@@ -40,53 +42,78 @@
                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
           <span class="filedrop-text">Select the cheque scans — hold Ctrl to
             pick several. Each cheque is read by AI (a few seconds each, in
-            parallel) and matched against the bank statements on file.</span>
+            parallel), added to the register and matched against the bank
+            statements on file.</span>
         </label>
       </label>
-      <button class="btn btn-primary" type="submit">💵 Read cheques &amp; match</button>
+      <button class="btn btn-primary" type="submit">💵 Read cheques into the register</button>
     </form>
     {% else %}
     <div class="alert alert-info">AI reading is not configured yet — paste your
       Anthropic API key under <a href="/settings">Settings → AI document
       reading</a> to enable cheque reading.</div>
     {% endif %}
-
-    <div class="hint">
-      <strong>How it works</strong>
-      <ol>
-        <li>Each cheque scan is read for its <strong>cheque number</strong>,
-          <strong>customer name</strong> (the drawer/account holder),
-          <strong>amount</strong> and <strong>date</strong>.</li>
-        <li>Each cheque number is searched across <strong>all</strong> the bank
-          statements held in the
-          <a href="/tools/bank-statements">Bank Statements</a> section.</li>
-        <li>Where it appears, you see the <strong>bank</strong>, the
-          <strong>amount per statement</strong> and the
-          <strong>transaction date</strong> — so you can confirm the cheque
-          cleared.</li>
-      </ol>
-    </div>
   </section>
 
-  {% if recent %}
   <section class="panel">
-    <h2 class="section-title">Recent batches</h2>
+    <h2 class="section-title">Cheque register
+      <span class="note-inline">({{ register|length }} cheque(s) on file)</span></h2>
+    <div class="download-row" style="margin-bottom:10px;">
+      <form action="/tools/cheque-processing/register/refresh" method="post"
+            style="display:inline;">
+        <button class="btn" type="submit"
+                title="Re-check every cheque against the current bank statements">🔄 Refresh matches</button>
+      </form>
+    </div>
+    {% if register %}
     <div class="table-wrap" style="max-height:none;">
       <table class="tx-table">
-        <thead><tr><th>Created</th><th>Cheques</th><th>Progress</th><th></th></tr></thead>
+        <thead><tr>
+          <th>Uploaded</th><th>Cheque N°</th><th>Issuing bank</th>
+          <th>Client name</th><th>Cheque amount</th><th>Cheque date</th>
+          <th>On bank statement?</th><th>Bank credited</th><th>Date credited</th>
+          <th>Amount credited/debited</th><th>Reference seen on statement</th>
+          <th></th>
+        </tr></thead>
         <tbody>
-          {% for b in recent %}
+          {% for r in register %}
           <tr>
-            <td>{{ b.created_at }}</td>
-            <td class="num">{{ b.total }}</td>
-            <td>{% if b.status == 'done' %}<span class="pill pill-ok">done</span>
-                {% else %}<span class="pill pill-watch">{{ b.done }}/{{ b.total }}</span>{% endif %}</td>
-            <td><a href="/tools/cheque-processing/batch/{{ b.token }}">open results</a></td>
+            <td>{{ r.uploaded }}</td>
+            {% if r.status == 'done' %}
+            <td><strong>{{ r.cheque_number or '—' }}</strong></td>
+            <td>{{ r.issuing_bank or '—' }}</td>
+            <td>{{ r.customer or '—' }}</td>
+            <td>{% if r.amount is not none %}{{ "{:,.0f}".format(r.amount) }} {{ r.currency }}{% else %}—{% endif %}</td>
+            <td>{{ r.cheque_date or '—' }}</td>
+            <td style="text-align:center;">
+              {% if r.found %}<span class="pill pill-ok" title="Cheque number found on a bank statement">✓</span>
+              {% else %}<span class="pill pill-stop" title="Cheque number not found on any bank statement on file">✗</span>{% endif %}
+            </td>
+            <td>{% for a in r.appearances %}{{ a.bank or '—' }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
+            <td>{% for a in r.appearances %}{{ a.date or '—' }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
+            <td>{% for a in r.appearances %}{{ "{:,.0f}".format(a.amount or 0) }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
+            <td class="msg-cell">{% for a in r.appearances %}{{ a.text or '—' }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
+            {% elif r.status == 'error' %}
+            <td colspan="10"><span class="pill pill-stop">read failed</span>
+              <span class="note-inline">{{ r.filename }} — {{ r.error }}</span></td>
+            {% else %}
+            <td colspan="10"><span class="pill pill-watch">reading…</span>
+              <span class="note-inline">{{ r.filename }}</span></td>
+            {% endif %}
+            <td><a href="/tools/cheque-processing/batch/{{ r.batch }}">details</a></td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    <p class="note-small">✓ = the cheque number was read on a bank statement in
+      the application (bank, credit date, amount and the statement narration
+      shown). ✗ = the statements on file were read and the cheque number was not
+      found. Debit appearances (e.g. returned cheques) show with the amount
+      recorded on the statement.</p>
+    {% else %}
+    <p class="note-small">No cheques on the register yet — upload the first
+      scans above.</p>
+    {% endif %}
   </section>
-  {% endif %}
 {% endblock %}

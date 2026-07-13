@@ -105,6 +105,31 @@ try:
     home = client.get("/tools/cheque-processing")
     assert 'name="statements"' not in home.text, "cheque tool still has a bank upload"
     print("ok: cheques read + matched against central Bank Statements (no own upload)")
+
+    # --- 5. the ELECTRONIC CHEQUE REGISTER (cumulative, ticks, references) ---
+    assert found[0].get("text"), "appearance must carry the statement narration"
+    rows = cheques.register_rows()
+    reg = {r["cheque_number"]: r for r in rows if r["batch"] == ctoken}
+    assert reg["0012345"]["found"] is True, "found cheque must tick green"
+    assert reg["0099999"]["found"] is False, "absent cheque must tick red"
+    assert reg["0012345"]["customer"].startswith("Customer"), reg["0012345"]
+    assert reg["0012345"]["issuing_bank"] == "Standard Chartered"
+    assert reg["0012345"]["amount"] == 1500000.0
+    assert reg["0012345"]["uploaded"], "upload date must be on the register"
+    app_ = reg["0012345"]["appearances"][0]
+    assert app_["bank"] and app_["date"] == "2026-06-10" and "0012345" in app_["text"]
+
+    home = client.get("/tools/cheque-processing")
+    assert "Electronic Cheque Register" in home.text, "tool not renamed"
+    assert "Cheque register" in home.text and "Reference seen on statement" in home.text
+    assert ">✓<" in home.text and ">✗<" in home.text, "tick/cross markers missing"
+
+    # register-wide refresh re-matches every batch against current bank lines
+    r = client.post("/tools/cheque-processing/register/refresh",
+                    follow_redirects=False)
+    assert r.status_code == 303, r.status_code
+    assert cheques.register_rows(), "register survived the refresh"
+    print("ok: electronic cheque register — cumulative rows, ticks, references, refresh")
 finally:
     ai_ocr.extract_cheque, ai_ocr.is_configured = _orig_extract, _orig_ready
     if ctoken:

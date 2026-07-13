@@ -106,18 +106,12 @@
   {% endif %}
 
   {% if is_admin %}
-  <!-- ===== Security — 2FA & bot protection ===== -->
+  <!-- ===== Security — bot protection ===== -->
   <section class="panel">
-    <h2 class="section-title">🔐 Security — two-factor &amp; bot protection</h2>
-    <p class="lead">Require an authenticator-app code for every staff sign-in,
-      and shield the login page from bots with Cloudflare Turnstile.</p>
+    <h2 class="section-title">🔐 Security — bot protection</h2>
+    <p class="lead">Shield the login page from bots with Cloudflare
+      Turnstile.</p>
 
-    <div class="alert alert-{{ 'ok' if two_factor else 'info' }}">
-      Two-factor authentication:
-      {% if two_factor %}<strong>ON</strong> — all users enter a 6-digit
-        authenticator code after their password (each enrolls on next sign-in).
-      {% else %}<strong>off</strong> — password only.{% endif %}
-    </div>
     <div class="alert alert-{{ 'ok' if turnstile_active else 'info' }}">
       Cloudflare Turnstile:
       {% if turnstile_active %}<strong>ACTIVE</strong> on the login page.
@@ -127,13 +121,6 @@
     </div>
 
     <form action="/settings/security" method="post">
-      <label class="field" style="margin-bottom:14px;">
-        <span style="display:flex;align-items:center;gap:8px;">
-          <input type="checkbox" name="two_factor" {% if two_factor %}checked{% endif %}
-                 style="width:16px;height:16px;">
-          <strong>Require two-factor authentication for all users</strong></span>
-      </label>
-
       <h3 class="mini-title">Cloudflare Turnstile</h3>
       <p class="note-small">Create a Turnstile widget at
         <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">dash.cloudflare.com → Turnstile</a>

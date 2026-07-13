@@ -36,7 +36,8 @@ def find_appearances(cheque_no, bank_rows):
     'CHQ 123456' but neither the longer '1234567' nor a different '12345'.
     Exact (no leading-zero stripping) on purpose: for a reconciliation a false
     "cleared" is worse than a "not found — check manually". Each appearance:
-    {bank, amount, date}. De-duplicated on (bank, amount, date).
+    {bank, amount, date, text} — ``text`` is the statement narration the cheque
+    reference was seen in. De-duplicated on (bank, amount, date).
     """
     cheque_no = re.sub(r"\D", "", str(cheque_no or ""))
     if len(cheque_no) < MIN_CHEQUE_DIGITS:
@@ -50,7 +51,8 @@ def find_appearances(cheque_no, bank_rows):
             continue
         seen.add(key)
         out.append({"bank": r.get("bank", ""), "amount": r.get("amount"),
-                    "date": r.get("date", "")})
+                    "date": r.get("date", ""),
+                    "text": str(r.get("text", ""))[:120]})
     return out
 
 
@@ -144,6 +146,51 @@ def create_batch(token, cheques, bank_rows, bank_summary):
     }
     _save(token, payload)
     return payload
+
+
+def register_rows():
+    """The ELECTRONIC CHEQUE REGISTER: every cheque across ALL uploads, newest
+    first. One row per cheque: the read details (cheque no, issuing bank,
+    client, amount, date) + whether its number was found on any bank statement
+    on file, and where (bank credited, date, amount, narration seen)."""
+    rows = []
+    if not BATCH_DIR.exists():
+        return rows
+    for d in BATCH_DIR.iterdir():
+        b = load_batch(d.name) if d.is_dir() else None
+        if not b:
+            continue
+        for c in b["cheques"]:
+            res = c.get("result") or {}
+            rows.append({
+                "batch": d.name, "idx": c.get("idx", 0),
+                "uploaded": b.get("created_at", ""),
+                "filename": c.get("filename", ""),
+                "status": c.get("status", ""),
+                "error": c.get("error", ""),
+                "cheque_number": res.get("cheque_number", ""),
+                "customer": res.get("customer_name", ""),
+                "issuing_bank": res.get("drawee_bank", ""),
+                "amount": res.get("amount"),
+                "currency": res.get("amount_currency", ""),
+                "cheque_date": res.get("cheque_date", ""),
+                "found": bool(c.get("appearances")),
+                "appearances": c.get("appearances", []),
+            })
+    rows.sort(key=lambda r: (r["uploaded"], r["batch"], r["idx"]), reverse=True)
+    return rows
+
+
+def refresh_all(bank_rows, bank_summary):
+    """Re-match EVERY batch's cheques against the current bank statement lines
+    (register-wide refresh; no AI re-read). Returns the batch count refreshed."""
+    if not BATCH_DIR.exists():
+        return 0
+    n = 0
+    for d in BATCH_DIR.iterdir():
+        if d.is_dir() and refresh_matches(d.name, bank_rows, bank_summary):
+            n += 1
+    return n
 
 
 def refresh_matches(token, bank_rows, bank_summary):

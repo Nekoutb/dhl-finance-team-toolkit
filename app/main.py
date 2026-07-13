@@ -24,7 +24,7 @@ from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
 from .services import (ai_ocr, ar_master, auth, bank_statement,
                        cheques, compliance, ctp_dashboard, ctp_rules, customers,
                        emailer, eno_allocation, holds, remittance_pdf,
-                       remittance_store, turnstile, twofa, variance,
+                       remittance_store, turnstile, variance,
                        xlsx_report)
 from .tools import bank
 from .tools import ongoing_ctp as ctp
@@ -256,7 +256,7 @@ def _safe_next(nxt):
 
 
 def _finish_login(auth_cfg, username, nxt):
-    """Issue the full 12h session cookie and clear any pending-2FA cookie."""
+    """Issue the full 12h session cookie."""
     nxt = _safe_next(nxt)
     nxt = nxt + ("&" if "?" in nxt else "?") + "welcome=1"
     resp = RedirectResponse(nxt, status_code=303)
@@ -264,28 +264,7 @@ def _finish_login(auth_cfg, username, nxt):
         auth.COOKIE, auth.issue(auth_cfg.get("secret_key", ""), username),
         max_age=auth.MAX_AGE, httponly=True, samesite="lax",
         secure=bool(auth_cfg.get("secure_cookies")))
-    resp.delete_cookie(auth.PENDING_COOKIE)
     return resp
-
-
-def _start_2fa(auth_cfg, username, stage, nxt):
-    """Set the short-lived pending cookie and send the user to the 2FA step."""
-    target = "/login/enroll" if stage == "enroll" else "/login/verify"
-    nxt = _safe_next(nxt)
-    if nxt != "/":
-        target += "?" + urlencode({"next": nxt})
-    resp = RedirectResponse(target, status_code=303)
-    resp.set_cookie(
-        auth.PENDING_COOKIE,
-        auth.issue_pending(auth_cfg.get("secret_key", ""), username, stage),
-        max_age=auth.PENDING_MAX_AGE, httponly=True, samesite="lax",
-        secure=bool(auth_cfg.get("secure_cookies")))
-    return resp
-
-
-def _pending_user(cfg, request, stage):
-    return auth.read_pending(cfg.get("auth", {}).get("secret_key", ""),
-                             request.cookies.get(auth.PENDING_COOKIE), stage)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -325,11 +304,7 @@ async def login_submit(request: Request):
     stored = auth_cfg.get("users", {}).get(username)
     if stored and auth.verify_password(password, stored):
         auth.clear_failures(username)
-        if not auth.two_factor_required(auth_cfg):
-            return _finish_login(auth_cfg, username, nxt)
-        # Second factor required: verify an existing code, or enroll first.
-        stage = "verify" if auth.totp_confirmed(auth_cfg, username) else "enroll"
-        return _start_2fa(auth_cfg, username, stage, nxt)
+        return _finish_login(auth_cfg, username, nxt)
 
     client_ip = request.client.host if request.client else ""
     auth.record_failure(username, ip=client_ip)
@@ -338,101 +313,12 @@ async def login_submit(request: Request):
                        error="Incorrect username or password.")
 
 
-@app.get("/login/verify", response_class=HTMLResponse)
-def login_verify_form(request: Request, next: str = "/", error: str = ""):
-    cfg = load_config()
-    user = _pending_user(cfg, request, "verify")
-    if not user:
-        return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse("login_verify.html", {
-        "request": request, "cfg": cfg, "next": _safe_next(next),
-        "username": user, "error": error})
-
-
-@app.post("/login/verify")
-async def login_verify_submit(request: Request):
-    cfg = load_config()
-    auth_cfg = cfg.get("auth", {})
-    form = await request.form()
-    nxt = _safe_next(form.get("next") or "/")
-    user = _pending_user(cfg, request, "verify")
-    if not user:
-        return RedirectResponse("/login", status_code=303)
-
-    wait = auth.locked_for(user)
-    if wait:
-        return templates.TemplateResponse("login_verify.html", {
-            "request": request, "cfg": cfg, "next": nxt, "username": user,
-            "error": f"Too many attempts — locked for another "
-                     f"{max(1, wait // 60)} minute(s)."}, status_code=429)
-
-    secret = auth.totp_secret(auth_cfg, user)
-    if secret and twofa.verify(secret, form.get("code") or ""):
-        auth.clear_failures(user)
-        return _finish_login(auth_cfg, user, nxt)
-
-    auth.record_failure(user, ip=(request.client.host if request.client else ""))
-    await asyncio.sleep(auth.FAIL_DELAY)
-    return templates.TemplateResponse("login_verify.html", {
-        "request": request, "cfg": cfg, "next": nxt, "username": user,
-        "error": "Invalid code — open your authenticator app and enter the "
-                 "current 6-digit code."}, status_code=401)
-
-
-def _enroll_context(request, cfg, user, nxt, error=""):
-    """Reuse an unconfirmed secret if present, else mint one, and build the QR."""
-    secret = auth.totp_secret(cfg.get("auth", {}), user)
-    if not secret:
-        secret = twofa.new_secret()
-        auth.set_totp_secret(user, secret)
-    uri = twofa.provisioning_uri(secret, user)
-    return {"request": request, "cfg": cfg, "next": _safe_next(nxt),
-            "username": user, "secret": secret, "qr_svg": twofa.qr_svg(uri),
-            "error": error}
-
-
-@app.get("/login/enroll", response_class=HTMLResponse)
-def login_enroll_form(request: Request, next: str = "/", error: str = ""):
-    cfg = load_config()
-    user = _pending_user(cfg, request, "enroll")
-    if not user:
-        return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(
-        "login_enroll.html", _enroll_context(request, cfg, user, next, error))
-
-
-@app.post("/login/enroll")
-async def login_enroll_submit(request: Request):
-    cfg = load_config()
-    auth_cfg = cfg.get("auth", {})
-    form = await request.form()
-    nxt = _safe_next(form.get("next") or "/")
-    user = _pending_user(cfg, request, "enroll")
-    if not user:
-        return RedirectResponse("/login", status_code=303)
-
-    secret = auth.totp_secret(auth_cfg, user)
-    if secret and twofa.verify(secret, form.get("code") or ""):
-        auth.confirm_totp(user)
-        auth.clear_failures(user)
-        return _finish_login(auth_cfg, user, nxt)
-
-    await asyncio.sleep(auth.FAIL_DELAY)
-    return templates.TemplateResponse(
-        "login_enroll.html",
-        _enroll_context(request, cfg, user, nxt,
-                        error="That code didn't match — wait for the next "
-                              "6-digit code in your app and try again."),
-        status_code=401)
-
-
 @app.post("/logout")
 def logout():
     # POST-only so the cross-site CSRF gate covers it — a malicious
     # <img src=".../logout"> can no longer force-log-out a signed-in user.
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(auth.COOKIE)
-    resp.delete_cookie(auth.PENDING_COOKIE)
     return resp
 
 ALLOWED_EXT = {".xlsx", ".xlsm", ".xls"}
@@ -1834,6 +1720,7 @@ def _cheque_ctx(request, **extra):
            "message": "", "error": "", "recent": cheques.list_recent(),
            "ai_ready": ai_ocr.is_configured(cfg),
            "max_cheques": cheques.MAX_CHEQUES,
+           "register": cheques.register_rows(),
            "bank_lines": len(_rows), "bank_banks": bank_banks}
     ctx.update(extra)
     return ctx
@@ -1843,6 +1730,17 @@ def _cheque_ctx(request, **extra):
 def cheque_home(request: Request, message: str = "", error: str = ""):
     return templates.TemplateResponse(
         "cheques/index.html", _cheque_ctx(request, message=message, error=error))
+
+
+@app.post("/tools/cheque-processing/register/refresh")
+async def cheque_register_refresh(request: Request):
+    # Re-check EVERY cheque in the register against the current bank statement
+    # lines (no AI re-read) — run after new statements are uploaded.
+    bank_rows, bank_summary = bank.all_statement_lines()
+    n = cheques.refresh_all(bank_rows, bank_summary)
+    return redirect_msg("/tools/cheque-processing",
+                        message=f"Register refreshed — {n} upload(s) re-matched "
+                                f"against {len(bank_rows)} bank statement line(s).")
 
 
 @app.post("/tools/cheque-processing/upload")
@@ -2175,14 +2073,12 @@ def admin_home(request: Request, message: str = "", error: str = ""):
         "username": u,
         "is_admin": auth.is_admin(auth_cfg, u),
         "access": auth.get_access(auth_cfg, u),
-        "enrolled": auth.totp_confirmed(auth_cfg, u),
     } for u in auth.list_users()]
     return templates.TemplateResponse("admin.html", {
         "request": request, "cfg": cfg, "message": message, "error": error,
         "users": rows, "areas": _ASSIGNABLE_AREAS,
         "current_user": getattr(request.state, "user", None),
         "auth_enabled": auth.enabled(auth_cfg),
-        "two_factor_on": auth.two_factor_required(auth_cfg),
         "min_password": auth.MIN_PASSWORD_LEN,
     })
 
@@ -2211,22 +2107,6 @@ async def admin_set_access(request: Request):
                 f"({granted} area(s) granted).")
 
 
-@app.post("/admin/2fa/reset")
-async def admin_reset_2fa(request: Request):
-    blocked = _admin_block(request)
-    if blocked:
-        return RedirectResponse(
-            "/admin?error=Administrator access required.", status_code=303)
-    form = await request.form()
-    username = (form.get("username") or "").strip()
-    if username not in auth.list_users():
-        return RedirectResponse("/admin?error=Unknown user.", status_code=303)
-    auth.reset_totp(username)
-    return redirect_msg(
-        "/admin", message=f"Two-factor reset for '{username}' — they will set "
-                          "it up again on their next sign-in.")
-
-
 @app.get("/settings", response_class=HTMLResponse)
 def app_settings(request: Request, message: str = "", error: str = ""):
     cfg = load_config()
@@ -2241,7 +2121,6 @@ def app_settings(request: Request, message: str = "", error: str = ""):
         "is_admin": getattr(request.state, "is_admin", True),
         "ai": cfg.get("ai", {}),
         "ai_ready": ai_ocr.is_configured(cfg),
-        "two_factor": bool(auth_cfg.get("two_factor")),
         "turnstile": cfg.get("turnstile", {}),
         "turnstile_active": turnstile.active(cfg),
         "banks": cfg.get("banks", []),
@@ -2381,7 +2260,6 @@ async def app_settings_security(request: Request):
     cur = cfg.get("turnstile", {})
     secret = form.get("turnstile_secret") or ""
     updates = {
-        "auth": {"two_factor": form.get("two_factor") == "on"},
         "turnstile": {
             "enabled": form.get("turnstile_enabled") == "on",
             "site_key": (form.get("turnstile_site") or "").strip(),
@@ -2390,12 +2268,10 @@ async def app_settings_security(request: Request):
         },
     }
     new_cfg = save_user_config(updates)
-    tf = "ON — all users must use an authenticator app" \
-        if new_cfg["auth"].get("two_factor") else "off"
     ts = "active" if turnstile.active(new_cfg) else (
         "enabled but missing keys" if new_cfg["turnstile"].get("enabled") else "off")
     return RedirectResponse(
-        f"/settings?message=Security saved — two-factor {tf}; Turnstile {ts}.",
+        f"/settings?message=Security saved — Turnstile {ts}.",
         status_code=303)
 
 
