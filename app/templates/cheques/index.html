@@ -4,12 +4,13 @@
   <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
 
   <style>
-    /* Newly matched cheques: deep-blue highlight until finance treats them. */
-    tr.new-match td { background: #1e3a8a !important; color: #fff; }
-    tr.new-match td a { color: #bfdbfe; }
-    tr.new-match td .note-inline { color: #cbd5f5; }
-    .filedrop.dragover { outline: 2px dashed #1e3a8a; outline-offset: -6px;
-                         background: rgba(30, 58, 138, .08); }
+    /* Newly matched cheques: a gentle blue tint + accent bar (easy on the
+       eyes) until finance marks them treated. Works in light & dark themes. */
+    tr.new-match td { background: rgba(59, 130, 246, .10); }
+    tr.new-match td:first-child { box-shadow: inset 3px 0 0 #3b82f6; }
+    [data-theme="dark"] tr.new-match td { background: rgba(96, 165, 250, .14); }
+    .filedrop.dragover { outline: 2px dashed #3b82f6; outline-offset: -6px;
+                         background: rgba(59, 130, 246, .08); }
   </style>
 
   <section class="panel">
