@@ -116,8 +116,10 @@ try:
     assert reg["0012345"]["issuing_bank"] == "Standard Chartered"
     assert reg["0012345"]["amount"] == 1500000.0
     assert reg["0012345"]["uploaded"], "upload date must be on the register"
-    app_ = reg["0012345"]["appearances"][0]
-    assert app_["bank"] and app_["date"] == "2026-06-10" and "0012345" in app_["text"]
+    cleared = reg["0012345"]["cleared"]
+    assert cleared["bank"] and cleared["date"] == "2026-06-10" \
+        and "0012345" in cleared["text"]
+    assert reg["0099999"]["cleared"] is None
 
     home = client.get("/tools/cheque-processing")
     assert "Electronic Cheque Register" in home.text, "tool not renamed"
@@ -130,11 +132,116 @@ try:
     assert r.status_code == 303, r.status_code
     assert cheques.register_rows(), "register survived the refresh"
     print("ok: electronic cheque register — cumulative rows, ticks, references, refresh")
+
+    # --- 6. SINGLE DISCLOSURE: duplicates collapse; latest date wins ---------
+    dup_rows = [
+        {"bank": "Afriland", "text": "CHQ 0012345 EXTRACT JAN 2", "amount": 1500000.0, "date": "2026-01-01"},
+        {"bank": "Afriland", "text": "CHQ 0012345 EXTRACT JAN 3", "amount": 1500000.0, "date": "2026-01-01"},
+    ]
+    apps = cheques.find_appearances("0012345", dup_rows)
+    assert len(apps) == 1, "same clearing event on two extracts must disclose once"
+    multi = apps + [{"bank": "Ecobank", "amount": 200.0, "date": "2026-02-15", "text": "x 0012345"}]
+    assert cheques.primary_appearance(multi)["date"] == "2026-02-15", \
+        "the latest-dated appearance is the one disclosed"
+
+    # --- 7. first-match timestamp + treated flag + ordering ------------------
+    b0 = cheques.load_batch(ctoken)
+    m0 = next(c for c in b0["cheques"] if (c.get("result") or {}).get("cheque_number") == "0012345")
+    assert m0.get("matched_at"), "first match must be timestamped"
+    first_at = m0["matched_at"]
+    cheques.refresh_matches(ctoken, cheques._load_bank_rows(ctoken), b0.get("banks", []))
+    b1 = cheques.load_batch(ctoken)
+    m1 = next(c for c in b1["cheques"] if (c.get("result") or {}).get("cheque_number") == "0012345")
+    assert m1["matched_at"] == first_at, "matched_at must survive later refreshes"
+
+    rows = [r_ for r_ in cheques.register_rows() if r_["batch"] == ctoken]
+    assert rows[0]["new"] is True and rows[0]["cheque_number"] == "0012345", \
+        "newly matched cheque must be first on the register"
+    home = client.get("/tools/cheque-processing")
+    assert "new-match" in home.text and "NEW MATCH" in home.text
+    assert "Treated in accounting" in home.text and "Mark treated" in home.text
+    assert 'id="chqdrop"' in home.text, "drag-and-drop upload zone missing"
+
+    # mark treated (auth off locally = admin = finance-capable)
+    r = client.post("/tools/cheque-processing/register/treat",
+                    data={"batch": ctoken, "idx": str(m1["idx"])},
+                    follow_redirects=False)
+    assert r.status_code == 303, r.status_code
+    rows = [r_ for r_ in cheques.register_rows() if r_["batch"] == ctoken]
+    treated_row = next(r_ for r_ in rows if r_["cheque_number"] == "0012345")
+    assert treated_row["treated"] and treated_row["new"] is False, \
+        "treated cheque loses the new-match highlight"
+
+    # --- 8. deletion is impossible via HTTP ----------------------------------
+    r = client.post(f"/tools/cheque-processing/batch/{ctoken}/delete")
+    assert r.status_code in (404, 405), "delete route must be gone"
+    home = client.get("/tools/cheque-processing")
+    assert "Delete batch" not in home.text
+    print("ok: single disclosure, new-match highlight + treated column, no deletion")
 finally:
     ai_ocr.extract_cheque, ai_ocr.is_configured = _orig_extract, _orig_ready
     if ctoken:
         cheques.delete_batch(ctoken)
     bank.delete_report(btoken)
     bank_xlsx.unlink(missing_ok=True)
+
+# --- 9. "treated" is FINANCE-only: cheque profile denied, finance allowed ----
+import json  # noqa: E402
+
+from app.config import CONFIG_PATH  # noqa: E402
+from app.services import auth  # noqa: E402
+
+_pre_cfg = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else None
+TOK9 = "abc123def456"
+try:
+    CONFIG_PATH.write_text(json.dumps({"auth": {
+        "enabled": True, "secret_key": "test-secret-treat", "secure_cookies": False,
+        "users": {"cheque": auth.hash_password("nekout-test-pass"),
+                  "finance": auth.hash_password("nekout-test-pass")},
+        "admins": [],
+        "access": {"cheque": {"cheque-processing": "modify"},
+                   "finance": {"cheque-processing": "modify",
+                               "ongoing-ctp-monitoring": "modify"}},
+    }}), encoding="utf-8")
+    cheques.create_batch(TOK9, [], [], [])
+    p = cheques.load_batch(TOK9)
+    p["cheques"] = [{"idx": 0, "filename": "c.png", "stored": "c.png",
+                     "media": "image/png", "status": "done",
+                     "result": {"cheque_number": "0770001"},
+                     "appearances": [{"bank": "B", "amount": 1.0,
+                                      "date": "2026-01-01", "text": "0770001"}],
+                     "matched_at": "2026-01-02 09:00", "error": ""}]
+    cheques._save(TOK9, p)
+
+    def _login(user):
+        c = TestClient(main.app, follow_redirects=False)
+        r = c.post("/login", data={"username": user,
+                                   "password": "nekout-test-pass"})
+        assert r.status_code == 303 and c.cookies.get(auth.COOKIE), r.status_code
+        return c
+
+    c_chq = _login("cheque")
+    r = c_chq.post("/tools/cheque-processing/register/treat",
+                   data={"batch": TOK9, "idx": "0"})
+    assert r.status_code == 303 and "error=" in r.headers["location"], \
+        "cheque profile must NOT be able to mark treated"
+    assert not cheques.load_batch(TOK9)["cheques"][0].get("treated")
+    # the cheque profile sees no Mark-treated control on the page
+    page = c_chq.get("/tools/cheque-processing", follow_redirects=True)
+    assert "Mark treated" not in page.text and "pending" in page.text
+
+    c_fin = _login("finance")
+    r = c_fin.post("/tools/cheque-processing/register/treat",
+                   data={"batch": TOK9, "idx": "0"})
+    assert r.status_code == 303 and "message=" in r.headers["location"]
+    assert cheques.load_batch(TOK9)["cheques"][0].get("treated"), \
+        "finance profile must be able to mark treated"
+    print("ok: 'treated in accounting' — denied for cheque profile, allowed for finance")
+finally:
+    cheques.delete_batch(TOK9)
+    if _pre_cfg is not None:
+        CONFIG_PATH.write_text(_pre_cfg, encoding="utf-8")
+    elif CONFIG_PATH.exists():
+        CONFIG_PATH.unlink()
 
 print("\nALL CHEQUE PROCESSING TESTS PASSED")

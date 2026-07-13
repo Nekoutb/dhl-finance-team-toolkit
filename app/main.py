@@ -1721,6 +1721,7 @@ def _cheque_ctx(request, **extra):
            "ai_ready": ai_ocr.is_configured(cfg),
            "max_cheques": cheques.MAX_CHEQUES,
            "register": cheques.register_rows(),
+           "can_treat": _can_treat(request),
            "bank_lines": len(_rows), "bank_banks": bank_banks}
     ctx.update(extra)
     return ctx
@@ -1854,12 +1855,38 @@ async def cheque_refresh(token: str):
         f"/tools/cheque-processing/batch/{token}", status_code=303)
 
 
-@app.post("/tools/cheque-processing/batch/{token}/delete")
-async def cheque_delete(token: str):
-    cheques.delete_batch(token)
-    return RedirectResponse(
-        "/tools/cheque-processing?message=Cheque batch deleted.",
-        status_code=303)
+def _can_treat(request):
+    """Only the finance profile (CtP-Portal modify access) or an administrator
+    may mark a cheque as treated in the accounting records — the cheque-register
+    profile (cheque-processing access only) may not."""
+    if getattr(request.state, "is_admin", True):
+        return True
+    auth_cfg = load_config().get("auth", {})
+    return auth.can_modify(auth_cfg, getattr(request.state, "user", None),
+                           "ongoing-ctp-monitoring")
+
+
+@app.post("/tools/cheque-processing/register/treat")
+async def cheque_register_treat(request: Request):
+    if not _can_treat(request):
+        return redirect_msg("/tools/cheque-processing",
+                            error="Only the finance profile can mark a cheque "
+                                  "as treated in the accounting records.")
+    form = await request.form()
+    token = (form.get("batch") or "").strip()
+    try:
+        idx = int(form.get("idx") or "")
+    except ValueError:
+        idx = -1
+    on = form.get("action") != "unmark"
+    user = getattr(request.state, "user", None) or "finance"
+    if not re.fullmatch(r"[0-9a-f]+", token) or \
+            not cheques.set_treated(token, idx, by=user, on=on):
+        return redirect_msg("/tools/cheque-processing",
+                            error="That cheque was not found on the register.")
+    return redirect_msg("/tools/cheque-processing",
+                        message="Cheque marked as treated in the accounting "
+                                "records." if on else "Treated mark removed.")
 
 
 # --------------------------------------------------------------------------- #

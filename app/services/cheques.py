@@ -46,7 +46,14 @@ def find_appearances(cheque_no, bank_rows):
     for r in bank_rows:
         if cheque_no not in _digit_runs(r.get("text")):
             continue
-        key = (r.get("bank", ""), r.get("amount"), r.get("date", ""))
+        # The same clearing event often shows on several statement extracts
+        # (e.g. the Jan-2 extract and the fuller Jan-3 one both carry the Jan-1
+        # transaction) — key on bank+amount+date so it is disclosed ONCE.
+        try:
+            amt = round(float(r.get("amount") or 0), 2)
+        except (TypeError, ValueError):
+            amt = r.get("amount")
+        key = (r.get("bank", ""), amt, r.get("date", ""))
         if key in seen:
             continue
         seen.add(key)
@@ -54,6 +61,15 @@ def find_appearances(cheque_no, bank_rows):
                     "date": r.get("date", ""),
                     "text": str(r.get("text", ""))[:120]})
     return out
+
+
+def primary_appearance(appearances):
+    """The ONE clearing line disclosed on the register: the appearance with the
+    latest transaction date (a cheque clears once; later statement extracts
+    repeating the same event are deduplicated upstream)."""
+    if not appearances:
+        return None
+    return max(appearances, key=lambda a: str(a.get("date") or ""))
 
 
 # --------------------------------------------------------------------------- #
@@ -162,6 +178,8 @@ def register_rows():
             continue
         for c in b["cheques"]:
             res = c.get("result") or {}
+            treated = c.get("treated")
+            found = bool(c.get("appearances"))
             rows.append({
                 "batch": d.name, "idx": c.get("idx", 0),
                 "uploaded": b.get("created_at", ""),
@@ -174,11 +192,33 @@ def register_rows():
                 "amount": res.get("amount"),
                 "currency": res.get("amount_currency", ""),
                 "cheque_date": res.get("cheque_date", ""),
-                "found": bool(c.get("appearances")),
-                "appearances": c.get("appearances", []),
+                "found": found,
+                # ONE disclosed clearing line per cheque (latest-dated).
+                "cleared": primary_appearance(c.get("appearances")),
+                "matched_at": c.get("matched_at", ""),
+                "treated": treated,
+                # Newly matched = seen on a statement but not yet treated in the
+                # accounting records — surfaced at the top, highlighted.
+                "new": found and not treated,
             })
-    rows.sort(key=lambda r: (r["uploaded"], r["batch"], r["idx"]), reverse=True)
+    # Base order: newest activity first (first match date, else upload date)…
+    rows.sort(key=lambda r: (r["matched_at"] or r["uploaded"],
+                             r["batch"], r["idx"]), reverse=True)
+    # …then newly-matched cheques float to the top (stable sort keeps order).
+    rows.sort(key=lambda r: not r["new"])
     return rows
+
+
+def set_treated(token, idx, by, on=True):
+    """Mark a cheque as treated in the accounting records (finance only —
+    enforced by the route). Returns True when the cheque exists."""
+    payload = load_batch(token)
+    if not payload or not any(c["idx"] == idx for c in payload["cheques"]):
+        return False
+    _update_cheque(token, idx, {"treated": (
+        {"by": by or "finance", "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        if on else None)})
+    return True
 
 
 def refresh_all(bank_rows, bank_summary):
@@ -200,10 +240,17 @@ def refresh_matches(token, bank_rows, bank_summary):
     payload = load_batch(token)
     if not payload:
         return None
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     for c in payload["cheques"]:
         res = c.get("result")
         if res and res.get("cheque_number"):
             c["appearances"] = find_appearances(res["cheque_number"], bank_rows)
+            # First-match timestamp: set once, kept across later refreshes so a
+            # cheque is flagged "newly matched" only the first time it clears.
+            if c["appearances"] and not c.get("matched_at"):
+                c["matched_at"] = now
+            elif not c["appearances"]:
+                c.pop("matched_at", None)
     payload["banks"] = bank_summary
     payload["bank_line_count"] = len(bank_rows)
     payload["refreshed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -225,6 +272,8 @@ def _process_one(token, idx, ai_cfg, bank_rows):
         appearances = find_appearances(chq["cheque_number"], bank_rows)
         upd = {"status": "done", "result": chq,
                "appearances": appearances, "error": ""}
+        if appearances:      # first time this cheque is seen on a statement
+            upd["matched_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
         upd = {"status": "error", "result": None, "appearances": [],
                "error": str(exc)}

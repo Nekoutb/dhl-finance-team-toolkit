@@ -3,16 +3,27 @@
 {% block content %}
   <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
 
+  <style>
+    /* Newly matched cheques: deep-blue highlight until finance treats them. */
+    tr.new-match td { background: #1e3a8a !important; color: #fff; }
+    tr.new-match td a { color: #bfdbfe; }
+    tr.new-match td .note-inline { color: #cbd5f5; }
+    .filedrop.dragover { outline: 2px dashed #1e3a8a; outline-offset: -6px;
+                         background: rgba(30, 58, 138, .08); }
+  </style>
+
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
     <p class="lead">Upload the <strong>scanned cheques</strong> you receive from
       customers — each cheque is read (cheque number, client name, issuing bank,
-      amount, date) and kept in the <strong>register below</strong>. Every
-      cheque number is then checked against the bank statements held in the
+      amount, date) and kept permanently in the <strong>register below</strong>
+      (uploads cannot be deleted). Every cheque number is checked against the
+      bank statements held in the
       <a href="/tools/bank-statements">Bank Statements</a> section:
-      <span class="pill pill-ok">✓</span> when it appears — with the bank it was
-      credited on, the day, the amount and the statement reference seen —
-      <span class="pill pill-stop">✗</span> when it does not.</p>
+      <span class="pill pill-ok">✓</span> when it cleared — disclosed
+      <strong>once</strong>, with the bank, the day, the amount and the
+      statement reference — <span class="pill pill-stop">✗</span> when the
+      statements were read and it was not found.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
@@ -34,20 +45,53 @@
     {% endif %}
     {% if ai_ready %}
     <form action="/tools/cheque-processing/upload" method="post"
-          enctype="multipart/form-data" class="upload-form-stack">
+          enctype="multipart/form-data" class="upload-form-stack" id="chqform">
       <label class="field">
-        <span>Scanned cheques (up to {{ max_cheques }} — JPG, PNG, WEBP or PDF)</span>
-        <label class="filedrop">
-          <input type="file" name="cheques"
+        <span>Scanned cheques (up to {{ max_cheques }} at a time — JPG, PNG,
+          WEBP or PDF)</span>
+        <label class="filedrop" id="chqdrop">
+          <input type="file" name="cheques" id="chqfiles"
                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
-          <span class="filedrop-text">Select the cheque scans — hold Ctrl to
-            pick several. Each cheque is read by AI (a few seconds each, in
-            parallel), added to the register and matched against the bank
-            statements on file.</span>
+          <span class="filedrop-text" id="chqdroptext">Drag &amp; drop the
+            cheque scans here — or click to pick several (hold Ctrl). Each
+            cheque is read by AI, added to the register and matched against the
+            bank statements on file.</span>
         </label>
       </label>
       <button class="btn btn-primary" type="submit">💵 Read cheques into the register</button>
     </form>
+    <script>
+      // Drag & drop several cheques straight onto the upload box.
+      (function () {
+        var drop = document.getElementById("chqdrop");
+        var input = document.getElementById("chqfiles");
+        var text = document.getElementById("chqdroptext");
+        if (!drop || !input) return;
+        ["dragenter", "dragover"].forEach(function (ev) {
+          drop.addEventListener(ev, function (e) {
+            e.preventDefault(); e.stopPropagation();
+            drop.classList.add("dragover");
+          });
+        });
+        ["dragleave", "drop"].forEach(function (ev) {
+          drop.addEventListener(ev, function (e) {
+            e.preventDefault(); e.stopPropagation();
+            drop.classList.remove("dragover");
+          });
+        });
+        drop.addEventListener("drop", function (e) {
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+            input.files = e.dataTransfer.files;
+            if (text) text.textContent = e.dataTransfer.files.length +
+              " cheque scan(s) ready — click “Read cheques into the register”.";
+          }
+        });
+        input.addEventListener("change", function () {
+          if (text && input.files.length) text.textContent =
+            input.files.length + " cheque scan(s) ready — click “Read cheques into the register”.";
+        });
+      })();
+    </script>
     {% else %}
     <div class="alert alert-info">AI reading is not configured yet — paste your
       Anthropic API key under <a href="/settings">Settings → AI document
@@ -57,7 +101,7 @@
 
   <section class="panel">
     <h2 class="section-title">Cheque register
-      <span class="note-inline">({{ register|length }} cheque(s) on file)</span></h2>
+      <span class="note-inline">({{ register|length }} cheque(s) on file — permanent, no deletion)</span></h2>
     <div class="download-row" style="margin-bottom:10px;">
       <form action="/tools/cheque-processing/register/refresh" method="post"
             style="display:inline;">
@@ -73,14 +117,15 @@
           <th>Client name</th><th>Cheque amount</th><th>Cheque date</th>
           <th>On bank statement?</th><th>Bank credited</th><th>Date credited</th>
           <th>Amount credited/debited</th><th>Reference seen on statement</th>
-          <th></th>
+          <th>Treated in accounting</th><th></th>
         </tr></thead>
         <tbody>
           {% for r in register %}
-          <tr>
+          <tr{% if r.new %} class="new-match"{% endif %}>
             <td>{{ r.uploaded }}</td>
             {% if r.status == 'done' %}
-            <td><strong>{{ r.cheque_number or '—' }}</strong></td>
+            <td><strong>{{ r.cheque_number or '—' }}</strong>
+              {% if r.new %}<br><span class="pill pill-watch">NEW MATCH</span>{% endif %}</td>
             <td>{{ r.issuing_bank or '—' }}</td>
             <td>{{ r.customer or '—' }}</td>
             <td>{% if r.amount is not none %}{{ "{:,.0f}".format(r.amount) }} {{ r.currency }}{% else %}—{% endif %}</td>
@@ -89,15 +134,37 @@
               {% if r.found %}<span class="pill pill-ok" title="Cheque number found on a bank statement">✓</span>
               {% else %}<span class="pill pill-stop" title="Cheque number not found on any bank statement on file">✗</span>{% endif %}
             </td>
-            <td>{% for a in r.appearances %}{{ a.bank or '—' }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
-            <td>{% for a in r.appearances %}{{ a.date or '—' }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
-            <td>{% for a in r.appearances %}{{ "{:,.0f}".format(a.amount or 0) }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
-            <td class="msg-cell">{% for a in r.appearances %}{{ a.text or '—' }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
+            <td>{{ r.cleared.bank if r.cleared else '—' }}</td>
+            <td>{{ r.cleared.date if r.cleared else '—' }}</td>
+            <td>{% if r.cleared %}{{ "{:,.0f}".format(r.cleared.amount or 0) }}{% else %}—{% endif %}</td>
+            <td class="msg-cell">{{ r.cleared.text if r.cleared else '—' }}</td>
+            <td style="text-align:center;">
+              {% if r.treated %}
+                <span class="pill pill-ok" title="Treated by {{ r.treated.by }} on {{ r.treated.at }}">✓ treated</span>
+                {% if can_treat %}
+                <form action="/tools/cheque-processing/register/treat" method="post" class="row-form">
+                  <input type="hidden" name="batch" value="{{ r.batch }}">
+                  <input type="hidden" name="idx" value="{{ r.idx }}">
+                  <input type="hidden" name="action" value="unmark">
+                  <button class="btn btn-small" type="submit" title="Remove the treated mark">undo</button>
+                </form>
+                {% endif %}
+              {% elif can_treat %}
+                <form action="/tools/cheque-processing/register/treat" method="post" class="row-form">
+                  <input type="hidden" name="batch" value="{{ r.batch }}">
+                  <input type="hidden" name="idx" value="{{ r.idx }}">
+                  <button class="btn btn-small" type="submit"
+                          title="Mark this cheque as treated in the accounting records">Mark treated</button>
+                </form>
+              {% else %}
+                <span class="note-inline" title="Only the finance profile can mark a cheque as treated">pending</span>
+              {% endif %}
+            </td>
             {% elif r.status == 'error' %}
-            <td colspan="10"><span class="pill pill-stop">read failed</span>
+            <td colspan="11"><span class="pill pill-stop">read failed</span>
               <span class="note-inline">{{ r.filename }} — {{ r.error }}</span></td>
             {% else %}
-            <td colspan="10"><span class="pill pill-watch">reading…</span>
+            <td colspan="11"><span class="pill pill-watch">reading…</span>
               <span class="note-inline">{{ r.filename }}</span></td>
             {% endif %}
             <td><a href="/tools/cheque-processing/batch/{{ r.batch }}">details</a></td>
@@ -106,11 +173,14 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">✓ = the cheque number was read on a bank statement in
-      the application (bank, credit date, amount and the statement narration
-      shown). ✗ = the statements on file were read and the cheque number was not
-      found. Debit appearances (e.g. returned cheques) show with the amount
-      recorded on the statement.</p>
+    <p class="note-small">Each cheque's clearing is disclosed <strong>once</strong> —
+      the latest date its number appears on the statements (overlapping
+      statement extracts repeating the same transaction are not shown twice).
+      Rows in <strong>deep blue</strong> are newly matched cheques awaiting
+      accounting treatment — they stay at the top until the
+      <strong>finance profile</strong> marks them treated (the cheque-register
+      profile cannot). ✗ = the statements on file were read and the cheque
+      number was not found.</p>
     {% else %}
     <p class="note-small">No cheques on the register yet — upload the first
       scans above.</p>

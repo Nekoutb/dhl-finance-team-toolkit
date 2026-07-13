@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.5 — 13 Jul 2026 · Electronic Cheque Register: cumulative register of every scanned cheque (N°, issuing bank, client, amount, upload date) with a green ✓ / red ✗ bank-statement match and the bank/date/amount/reference where it cleared; two-factor authentication removed (password sign-in only)"
+APP_VERSION = "v8.6 — 13 Jul 2026 · Cheque register: uploads are permanent (no deletion), each clearing disclosed once (latest statement date, duplicates collapsed), drag-and-drop multi-cheque upload, newly matched cheques highlighted deep blue at the top, and a finance-only 'Treated in accounting' column"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

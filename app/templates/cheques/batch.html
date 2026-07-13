@@ -31,12 +31,10 @@
                 title="Re-check these cheques against the current bank statements">🔄 Refresh matches</button>
       </form>
       <a class="btn btn-primary" href="/tools/cheque-processing/batch/{{ token }}/export">⬇ Download cheque register (Excel)</a>
-      <a class="btn" href="/tools/cheque-processing">Process another batch</a>
-      <form action="/tools/cheque-processing/batch/{{ token }}/delete" method="post" class="row-form"
-            onsubmit="return confirm('Delete this cheque batch and its scans?');">
-        <button class="btn btn-small" type="submit">Delete batch</button>
-      </form>
+      <a class="btn" href="/tools/cheque-processing">← Back to the register</a>
     </div>
+    <p class="note-small">Cheques loaded into the register are permanent —
+      uploads cannot be deleted.</p>
     {% endif %}
   </section>
 
