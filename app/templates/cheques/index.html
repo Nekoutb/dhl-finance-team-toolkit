@@ -11,6 +11,12 @@
     [data-theme="dark"] tr.new-match td { background: rgba(96, 165, 250, .14); }
     .filedrop.dragover { outline: 2px dashed #3b82f6; outline-offset: -6px;
                          background: rgba(59, 130, 246, .08); }
+    /* The statement reference stays inside its own box — never overlaps the
+       neighbouring columns. */
+    .ref-box { max-width: 340px; min-width: 180px; white-space: normal;
+               overflow-wrap: anywhere; word-break: break-word;
+               background: rgba(100, 116, 139, .10); border-radius: 8px;
+               padding: 5px 9px; font-size: 12px; line-height: 1.35; }
   </style>
 
   <section class="panel">
@@ -103,12 +109,19 @@
   <section class="panel">
     <h2 class="section-title">Cheque register
       <span class="note-inline">({{ register|length }} cheque(s) on file — permanent, no deletion)</span></h2>
+    {% set reading = register | selectattr('status', 'in', ['pending', 'running']) | list %}
+    {% if reading %}
+    <script>setTimeout(function () { location.reload(); }, 5000);</script>
+    <div class="alert alert-info">Reading {{ reading|length }} cheque(s)… this
+      page refreshes itself automatically.</div>
+    {% endif %}
     <div class="download-row" style="margin-bottom:10px;">
       <form action="/tools/cheque-processing/register/refresh" method="post"
             style="display:inline;">
         <button class="btn" type="submit"
                 title="Re-check every cheque against the current bank statements">🔄 Refresh matches</button>
       </form>
+      <a class="btn" href="/tools/cheque-processing/register/export">⬇ Download the register (Excel)</a>
     </div>
     {% if register %}
     <div class="table-wrap" style="max-height:none;">
@@ -118,7 +131,7 @@
           <th>Client name</th><th>Cheque amount</th><th>Cheque date</th>
           <th>On bank statement?</th><th>Bank credited</th><th>Date credited</th>
           <th>Amount credited/debited</th><th>Reference seen on statement</th>
-          <th>Treated in accounting</th><th></th>
+          <th>Treated in accounting</th>
         </tr></thead>
         <tbody>
           {% for r in register %}
@@ -138,7 +151,7 @@
             <td>{{ r.cleared.bank if r.cleared else '—' }}</td>
             <td>{{ r.cleared.date if r.cleared else '—' }}</td>
             <td>{% if r.cleared %}{{ "{:,.0f}".format(r.cleared.amount or 0) }}{% else %}—{% endif %}</td>
-            <td class="msg-cell">{{ r.cleared.text if r.cleared else '—' }}</td>
+            <td>{% if r.cleared and r.cleared.text %}<div class="ref-box">{{ r.cleared.text }}</div>{% else %}—{% endif %}</td>
             <td style="text-align:center;">
               {% if r.treated %}
                 <span class="pill pill-ok" title="Treated by {{ r.treated.by }} on {{ r.treated.at }}">✓ treated</span>
@@ -168,7 +181,6 @@
             <td colspan="11"><span class="pill pill-watch">reading…</span>
               <span class="note-inline">{{ r.filename }}</span></td>
             {% endif %}
-            <td><a href="/tools/cheque-processing/batch/{{ r.batch }}">details</a></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -177,7 +189,7 @@
     <p class="note-small">Each cheque's clearing is disclosed <strong>once</strong> —
       the latest date its number appears on the statements (overlapping
       statement extracts repeating the same transaction are not shown twice).
-      Rows in <strong>deep blue</strong> are newly matched cheques awaiting
+      Rows highlighted in <strong>blue</strong> are newly matched cheques awaiting
       accounting treatment — they stay at the top until the
       <strong>finance profile</strong> marks them treated (the cheque-register
       profile cannot). ✗ = the statements on file were read and the cheque

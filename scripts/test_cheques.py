@@ -80,7 +80,10 @@ try:
     r = client.post("/tools/cheque-processing/upload", files=files,
                     follow_redirects=False)
     assert r.status_code == 303, r.status_code
-    ctoken = re.search(r"batch/([0-9a-f]+)", r.headers["location"]).group(1)
+    # Upload lands straight back on the register (no batch page any more).
+    assert r.headers["location"].startswith("/tools/cheque-processing"), \
+        r.headers["location"]
+    ctoken = cheques.list_recent(limit=1)[0]["token"]
 
     for _ in range(60):
         b = cheques.load_batch(ctoken)
@@ -97,13 +100,14 @@ try:
     assert found[0]["bank"], "bank name missing on the match"
     assert by_no["0099999"]["appearances"] == [], "absent cheque wrongly matched"
 
-    page = client.get(f"/tools/cheque-processing/batch/{ctoken}")
-    assert page.status_code == 200
-    assert "0012345" in page.text and "Not found" in page.text and "YES" in page.text
-    assert "/tools/bank-statements" in page.text, "no link to the Bank Statements section"
-    # the cheque upload form must NOT offer a bank-statement input
     home = client.get("/tools/cheque-processing")
+    assert home.status_code == 200 and "0012345" in home.text
+    assert "/tools/bank-statements" in home.text, "no link to the Bank Statements section"
+    # the cheque upload form must NOT offer a bank-statement input
     assert 'name="statements"' not in home.text, "cheque tool still has a bank upload"
+    # the batch details page is GONE (register only)
+    assert "details</a>" not in home.text, "details link must be removed"
+    assert client.get(f"/tools/cheque-processing/batch/{ctoken}").status_code == 404
     print("ok: cheques read + matched against central Bank Statements (no own upload)")
 
     # --- 5. the ELECTRONIC CHEQUE REGISTER (cumulative, ticks, references) ---
@@ -177,6 +181,11 @@ try:
     assert r.status_code in (404, 405), "delete route must be gone"
     home = client.get("/tools/cheque-processing")
     assert "Delete batch" not in home.text
+    # reference is rendered inside its bounded box (no column overlap)
+    assert 'class="ref-box"' in home.text, "reference box missing"
+    # whole-register Excel export
+    x = client.get("/tools/cheque-processing/register/export")
+    assert x.status_code == 200 and x.content[:2] == b"PK", "register export broken"
     print("ok: single disclosure, new-match highlight + treated column, no deletion")
 finally:
     ai_ocr.extract_cheque, ai_ocr.is_configured = _orig_extract, _orig_ready

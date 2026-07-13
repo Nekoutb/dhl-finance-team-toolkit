@@ -310,8 +310,9 @@ def delete_batch(token):
     shutil.rmtree(_batch_path(token), ignore_errors=True)
 
 
-def build_excel(out_path, payload):
-    """One-sheet cheque register: each cheque + where it appears on the banks."""
+def build_register_excel(out_path, rows):
+    """The full ELECTRONIC CHEQUE REGISTER as one Excel sheet — every cheque
+    ever uploaded, its single disclosed clearing line, and the treated mark."""
     import xlsxwriter
 
     wb = xlsxwriter.Workbook(str(out_path))
@@ -323,38 +324,44 @@ def build_excel(out_path, payload):
     no_f = wb.add_format({"border": 1, "bold": True, "font_color": "#bd3727"})
     num = wb.add_format({"border": 1, "num_format": "#,##0.00"})
 
-    ws = wb.add_worksheet("Cheques")
-    widths = [22, 16, 26, 16, 14, 20, 16, 22, 18, 16]
+    ws = wb.add_worksheet("Cheque register")
+    widths = [17, 14, 22, 28, 14, 12, 22, 18, 22, 13, 16, 46, 22]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
-    headers = ["File", "Cheque number", "Customer name", "Amount", "Cheque date",
-               "Drawee bank", "On bank statement?", "Bank(s)",
-               "Amount per statement", "Transaction date"]
+    headers = ["Uploaded", "Cheque N°", "Issuing bank", "Client name",
+               "Cheque amount", "Cheque date", "Scan file",
+               "On bank statement?", "Bank credited", "Date credited",
+               "Amount credited/debited", "Reference seen on statement",
+               "Treated in accounting"]
     for c, h in enumerate(headers):
         ws.write(0, c, h, head)
     r = 1
-    for c in payload["cheques"]:
-        ws.write(r, 0, c["filename"], cell)
-        res = c.get("result")
-        if c["status"] == "error" or not res:
-            ws.write(r, 1, "ERROR", no_f)
-            ws.write(r, 2, c.get("error", ""), wrap)
+    for row in rows:
+        ws.write(r, 0, row["uploaded"], cell)
+        if row["status"] != "done":
+            ws.write(r, 1, row["status"].upper(), no_f)
+            ws.write(r, 2, row.get("error", ""), wrap)
+            ws.write(r, 6, row.get("filename", ""), cell)
             r += 1
             continue
-        ws.write(r, 1, res.get("cheque_number", ""), cell)
-        ws.write(r, 2, res.get("customer_name", ""), cell)
-        amt = res.get("amount")
-        ws.write_number(r, 3, amt, num) if isinstance(amt, (int, float)) \
-            else ws.write(r, 3, "", cell)
-        ws.write(r, 4, res.get("cheque_date", ""), cell)
-        ws.write(r, 5, res.get("drawee_bank", ""), cell)
-        apps = c.get("appearances", [])
-        ws.write(r, 6, "YES" if apps else "NOT FOUND", ok_f if apps else no_f)
-        ws.write(r, 7, "\n".join(a["bank"] for a in apps), wrap)
-        ws.write(r, 8, "\n".join(f"{a['amount']:,.2f}"
-                                 if isinstance(a["amount"], (int, float))
-                                 else str(a["amount"]) for a in apps), wrap)
-        ws.write(r, 9, "\n".join(a["date"] for a in apps), wrap)
+        ws.write(r, 1, row["cheque_number"], cell)
+        ws.write(r, 2, row["issuing_bank"], cell)
+        ws.write(r, 3, row["customer"], cell)
+        amt = row["amount"]
+        ws.write_number(r, 4, amt, num) if isinstance(amt, (int, float))             else ws.write(r, 4, "", cell)
+        ws.write(r, 5, row["cheque_date"], cell)
+        ws.write(r, 6, row.get("filename", ""), cell)
+        ws.write(r, 7, "YES" if row["found"] else "NOT FOUND",
+                 ok_f if row["found"] else no_f)
+        cl = row.get("cleared") or {}
+        ws.write(r, 8, cl.get("bank", ""), cell)
+        ws.write(r, 9, cl.get("date", ""), cell)
+        ca = cl.get("amount")
+        ws.write_number(r, 10, ca, num) if isinstance(ca, (int, float))             else ws.write(r, 10, "", cell)
+        ws.write(r, 11, cl.get("text", ""), wrap)
+        t = row.get("treated")
+        ws.write(r, 12, f"YES — {t['by']} ({t['at']})" if t else "pending",
+                 ok_f if t else cell)
         r += 1
     wb.close()
     return out_path

@@ -1792,67 +1792,19 @@ async def cheque_upload(request: Request):
 
     cheques.create_batch(token, cheque_meta, bank_rows, bank_summary)
     cheques.run_batch_async(token)
-    return RedirectResponse(f"/tools/cheque-processing/batch/{token}",
-                            status_code=303)
+    # Straight back to the register — it self-refreshes while cheques are read.
+    return redirect_msg("/tools/cheque-processing",
+                        message=f"{len(cheque_meta)} cheque(s) uploaded — "
+                                "reading them into the register now.")
 
 
-@app.get("/tools/cheque-processing/batch/{token}", response_class=HTMLResponse)
-def cheque_batch(request: Request, token: str):
-    if not re.fullmatch(r"[0-9a-f]+", token or ""):
-        return HTMLResponse("Invalid reference.", status_code=400)
-    payload = cheques.load_batch(token)
-    if not payload:
-        return HTMLResponse("Batch not found.", status_code=404)
-    done = sum(1 for c in payload["cheques"] if c["status"] != "pending")
-    found = sum(1 for c in payload["cheques"] if c.get("appearances"))
-    return templates.TemplateResponse("cheques/batch.html", {
-        "request": request, "cfg": load_config(), "tool": _CHEQUE_TOOL,
-        "batch": payload, "token": token, "done": done,
-        "total": len(payload["cheques"]), "found": found,
-        "running": payload["status"] != "done"})
-
-
-@app.get("/tools/cheque-processing/batch/{token}/export")
-def cheque_export(token: str):
-    if not re.fullmatch(r"[0-9a-f]+", token or ""):
-        return HTMLResponse("Invalid reference.", status_code=400)
-    payload = cheques.load_batch(token)
-    if not payload:
-        return HTMLResponse("Batch not found.", status_code=404)
-    out = cheques.BATCH_DIR / token / "cheques.xlsx"
-    cheques.build_excel(out, payload)
-    return FileResponse(out, filename=f"cheques_{token[:8]}.xlsx",
+@app.get("/tools/cheque-processing/register/export")
+def cheque_register_export():
+    out = OUTPUT_DIR / "Electronic_cheque_register.xlsx"
+    cheques.build_register_excel(out, cheques.register_rows())
+    return FileResponse(out, filename="Electronic_cheque_register.xlsx",
                         media_type="application/vnd.openxmlformats-officedocument"
                                    ".spreadsheetml.sheet")
-
-
-@app.get("/tools/cheque-processing/batch/{token}/scan/{idx}")
-def cheque_scan(token: str, idx: int):
-    if not re.fullmatch(r"[0-9a-f]+", token or "") or idx < 0 or idx > 999:
-        return HTMLResponse("Invalid reference.", status_code=400)
-    payload = cheques.load_batch(token)
-    entry = next((c for c in (payload or {}).get("cheques", [])
-                  if c["idx"] == idx), None)
-    if not entry:
-        return HTMLResponse("Cheque not found.", status_code=404)
-    path = cheques.BATCH_DIR / token / entry["stored"]
-    if not path.exists():
-        return HTMLResponse("Cheque not found.", status_code=404)
-    return FileResponse(path, media_type=entry.get("media")
-                        or "application/octet-stream")
-
-
-@app.post("/tools/cheque-processing/batch/{token}/refresh")
-async def cheque_refresh(token: str):
-    # Re-match the read cheques against the CURRENT bank statement lines
-    # (no AI re-read) — picks up changed/added bank statements.
-    bank_rows, bank_summary = bank.all_statement_lines()
-    if cheques.refresh_matches(token, bank_rows, bank_summary) is None:
-        return RedirectResponse(
-            "/tools/cheque-processing?error=That batch was not found.",
-            status_code=303)
-    return RedirectResponse(
-        f"/tools/cheque-processing/batch/{token}", status_code=303)
 
 
 def _can_treat(request):

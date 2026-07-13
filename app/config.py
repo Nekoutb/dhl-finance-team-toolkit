@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.7 — 14 Jul 2026 · Cheque register: softer new-match highlight — a light blue tint with a slim accent bar (normal text colours) instead of the solid deep-blue rows"
+APP_VERSION = "v8.8 — 14 Jul 2026 · Cheque register: removed the details page (uploads land straight on the self-refreshing register), the statement reference now sits in its own box (no column overlap), and the Excel export covers the whole register"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
