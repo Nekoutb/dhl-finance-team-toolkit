@@ -1798,6 +1798,20 @@ async def cheque_upload(request: Request):
                                 "reading them into the register now.")
 
 
+@app.post("/tools/cheque-processing/register/resume")
+async def cheque_register_resume(request: Request):
+    # Restart the background AI reader for any upload stuck with pending
+    # cheques (stalled read / service restart mid-batch).
+    n = cheques.resume_pending()
+    if not n:
+        return redirect_msg("/tools/cheque-processing",
+                            message="Nothing to resume — no cheque is waiting "
+                                    "to be read.")
+    return redirect_msg("/tools/cheque-processing",
+                        message=f"Resumed reading for {n} upload(s) — the "
+                                "register refreshes as each cheque completes.")
+
+
 @app.get("/tools/cheque-processing/register/export")
 def cheque_register_export():
     out = OUTPUT_DIR / "Electronic_cheque_register.xlsx"

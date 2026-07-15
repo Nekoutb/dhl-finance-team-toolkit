@@ -194,6 +194,37 @@ finally:
     bank.delete_report(btoken)
     bank_xlsx.unlink(missing_ok=True)
 
+# --- 8b. stuck "reading…" cheques can be RESUMED ------------------------------
+_orig_extract2, _orig_ready2 = ai_ocr.extract_cheque, ai_ocr.is_configured
+ai_ocr.is_configured = lambda cfg: True
+ai_ocr.extract_cheque = _fake_extract
+TOKR = "beef00123abc"
+try:
+    # A batch whose reader thread died: cheque stuck on "pending".
+    scan_dir = cheques.BATCH_DIR / TOKR
+    scan_dir.mkdir(parents=True, exist_ok=True)
+    (scan_dir / "stuck.png").write_bytes(b"CHQ 0555123")
+    cheques.create_batch(TOKR, [{"filename": "stuck.png", "stored": "stuck.png",
+                                 "media": "image/png"}], [], [])
+    assert cheques.pending_count() >= 1
+    home = client.get("/tools/cheque-processing")
+    assert "Resume reading" in home.text, "resume button missing while pending"
+
+    r = client.post("/tools/cheque-processing/register/resume",
+                    follow_redirects=False)
+    assert r.status_code == 303, r.status_code
+    for _ in range(60):
+        b = cheques.load_batch(TOKR)
+        if b and b["status"] == "done":
+            break
+        time.sleep(0.2)
+    assert b and b["status"] == "done", "resume did not finish the stuck cheque"
+    assert b["cheques"][0]["result"]["cheque_number"] == "0555123"
+    print("ok: stuck pending cheques are resumable (register Resume button)")
+finally:
+    ai_ocr.extract_cheque, ai_ocr.is_configured = _orig_extract2, _orig_ready2
+    cheques.delete_batch(TOKR)
+
 # --- 9. "treated" is FINANCE-only: cheque profile denied, finance allowed ----
 import json  # noqa: E402
 

@@ -90,10 +90,21 @@ def _banks_file(token):
 _write_lock = threading.Lock()
 
 
+def _atomic_write(path, text):
+    """Write via a temp file + os.replace so a concurrent reader can NEVER see
+    a half-written file. (A parallel cheque-reader once read results.json
+    mid-write, got partial JSON, crashed silently and left its cheque stuck on
+    'pending' forever — this makes that impossible.)"""
+    import os
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _save(token, payload):
     with _write_lock:
-        _results_file(token).write_text(
-            json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _atomic_write(_results_file(token),
+                      json.dumps(payload, ensure_ascii=False))
 
 
 def _update_cheque(token, idx, updates):
@@ -106,8 +117,8 @@ def _update_cheque(token, idx, updates):
                 break
         if all(c["status"] != "pending" for c in payload["cheques"]):
             payload["status"] = "done"
-        _results_file(token).write_text(
-            json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _atomic_write(_results_file(token),
+                      json.dumps(payload, ensure_ascii=False))
 
 
 def load_batch(token):
@@ -148,8 +159,8 @@ def list_recent(limit=8):
 def create_batch(token, cheques, bank_rows, bank_summary):
     """``cheques`` = list of {filename, stored, media}; persist the batch."""
     _batch_path(token).mkdir(parents=True, exist_ok=True)
-    _banks_file(token).write_text(json.dumps({"rows": bank_rows},
-                                  ensure_ascii=False), encoding="utf-8")
+    _atomic_write(_banks_file(token),
+                  json.dumps({"rows": bank_rows}, ensure_ascii=False))
     payload = {
         "status": "running",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -255,14 +266,24 @@ def refresh_matches(token, bank_rows, bank_summary):
     payload["bank_line_count"] = len(bank_rows)
     payload["refreshed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     _save(token, payload)
-    _banks_file(token).write_text(json.dumps({"rows": bank_rows},
-                                  ensure_ascii=False), encoding="utf-8")
+    _atomic_write(_banks_file(token),
+                  json.dumps({"rows": bank_rows}, ensure_ascii=False))
     return payload
 
 
 def _process_one(token, idx, ai_cfg, bank_rows):
-    payload = load_batch(token)
-    entry = next((c for c in payload["cheques"] if c["idx"] == idx), None)
+    # Read under the write lock (with a retry) so a parallel worker's save can
+    # never hand us a partial file — a silent crash here used to leave the
+    # cheque stuck on "pending" with no error.
+    entry = None
+    for _ in range(3):
+        with _write_lock:
+            payload = load_batch(token)
+        if payload is not None:
+            entry = next((c for c in payload["cheques"] if c["idx"] == idx), None)
+            break
+        import time as _t
+        _t.sleep(0.2)
     if entry is None:
         return
     stored = _batch_path(token) / entry["stored"]
@@ -295,12 +316,40 @@ def run_batch_async(token):
         with ThreadPoolExecutor(max_workers=4) as pool:
             for idx in idxs:
                 pool.submit(_process_one, token, idx, ai_cfg, bank_rows)
+        # Safety net: retry anything still pending once, sequentially, then
+        # only report "done" when nothing is left pending.
         payload = load_batch(token)
         if payload:
+            for c in payload["cheques"]:
+                if c["status"] == "pending":
+                    _process_one(token, c["idx"], ai_cfg, bank_rows)
+        payload = load_batch(token)
+        if payload and all(c["status"] != "pending" for c in payload["cheques"]):
             payload["status"] = "done"
             _save(token, payload)
 
     threading.Thread(target=_runner, daemon=True).start()
+
+
+def pending_count():
+    """Cheques still awaiting an AI read across all uploads."""
+    return sum(1 for r in register_rows()
+               if r["status"] not in ("done", "error"))
+
+
+def resume_pending():
+    """Re-launch the background reader for every upload that still has pending
+    cheques (e.g. after a stalled read or a service restart mid-batch).
+    Returns the number of uploads resumed."""
+    if not BATCH_DIR.exists():
+        return 0
+    n = 0
+    for d in BATCH_DIR.iterdir():
+        b = load_batch(d.name) if d.is_dir() else None
+        if b and any(c["status"] == "pending" for c in b["cheques"]):
+            run_batch_async(d.name)
+            n += 1
+    return n
 
 
 def delete_batch(token):

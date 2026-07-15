@@ -113,7 +113,12 @@
     {% if reading %}
     <script>setTimeout(function () { location.reload(); }, 5000);</script>
     <div class="alert alert-info">Reading {{ reading|length }} cheque(s)… this
-      page refreshes itself automatically.</div>
+      page refreshes itself automatically. Stuck for more than a few minutes?
+      <form action="/tools/cheque-processing/register/resume" method="post"
+            style="display:inline;">
+        <button class="btn btn-small" type="submit">▶ Resume reading</button>
+      </form>
+    </div>
     {% endif %}
     <div class="download-row" style="margin-bottom:10px;">
       <form action="/tools/cheque-processing/register/refresh" method="post"
