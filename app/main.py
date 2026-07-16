@@ -2101,6 +2101,8 @@ def _bitcash_home(request, error="", message="", status_code=200):
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "error": error, "message": message,
         "current": st["current"], "chart": chart,
+        "recons": bitcash.list_recons(),
+        "ai_ready": ai_ocr.is_configured(load_config()),
     }, status_code=status_code)
 
 
@@ -2135,6 +2137,122 @@ async def bitcash_upload(request: Request,
                     f"item(s) of {counts['items']}")
     return redirect_msg("/tools/bit-cash-ar",
                         message="Uploaded — " + " · ".join(done))
+
+
+_STMT_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif",
+             ".xlsx", ".xlsm", ".xls"}
+
+
+@app.post("/tools/bit-cash-ar/recon/upload")
+async def bitcash_recon_upload(request: Request,
+                               statement: UploadFile = File(...)):
+    store = bitcash.rows_store()
+    if not store["bit"] or not store["cash"]:
+        return _bitcash_home(request, error="Upload the BIT and Cash AR files "
+                             "first — the statement is reconciled against "
+                             "them.", status_code=400)
+    ext = Path(statement.filename or "").suffix.lower()
+    if ext not in _STMT_EXT:
+        return _bitcash_home(request, error=f"Unsupported statement type "
+                             f"'{ext or 'unknown'}' — upload a PDF, an image "
+                             "or an Excel file.", status_code=400)
+    if ext in (".xlsx", ".xlsm", ".xls"):
+        media = "excel"
+    else:
+        media = ai_ocr.media_type_for(statement.filename) or "application/pdf"
+        if not ai_ocr.is_configured(load_config()):
+            return _bitcash_home(request, error="AI reading is not configured "
+                                 "— paste the Anthropic API key under Settings "
+                                 "→ AI document reading to read scanned "
+                                 "statements.", status_code=400)
+    dest = UPLOAD_DIR / f"stmt_{uuid.uuid4().hex[:8]}{ext}"
+    dest.write_bytes(await statement.read())
+    token = bitcash.create_recon_async(
+        dest, media, statement.filename or "statement",
+        getattr(request.state, "user", None) or "")
+    return RedirectResponse(f"/tools/bit-cash-ar/recon/{token}",
+                            status_code=303)
+
+
+@app.get("/tools/bit-cash-ar/recon/{token}", response_class=HTMLResponse)
+def bitcash_recon(request: Request, token: str, q: str = "",
+                  message: str = "", error: str = ""):
+    rec = bitcash.load_recon(token)
+    if rec is None:
+        return _bitcash_home(request, error="That reconciliation was not "
+                             "found.", status_code=404)
+    view = bitcash.recon_view(rec) if rec.get("status") in ("open", "approved") \
+        else None
+    return templates.TemplateResponse("bitcash/recon.html", {
+        "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
+        "rec": rec, "view": view, "token": token,
+        "q": q, "search_hits": bitcash.search_cash(q) if q else [],
+        "message": message, "error": error,
+    })
+
+
+@app.post("/tools/bit-cash-ar/recon/{token}/select")
+async def bitcash_recon_select(request: Request, token: str):
+    form = await request.form()
+    rec = bitcash.set_selection(token, form.getlist("ar"), form.get("bit"))
+    if rec is None:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="Selections can only change while the "
+                                  "reconciliation is open.")
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message="Selection saved.")
+
+
+@app.post("/tools/bit-cash-ar/recon/{token}/approve")
+async def bitcash_recon_approve(request: Request, token: str):
+    rec = bitcash.load_recon(token)
+    if rec is None:
+        return redirect_msg("/tools/bit-cash-ar", error="Not found.")
+    view = bitcash.recon_view(rec)
+    if rec.get("bit_selected") is None or not rec.get("ar_selected"):
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="Select the BIT payment and at least one "
+                                  "Cash AR invoice before approving.")
+    bitcash.set_status(token, True, getattr(request.state, "user", None))
+    note = "" if view["difference"] == 0 else \
+        f" (note: reconciliation difference {view['difference']:,.0f})"
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message="Reconciliation approved — it will be included "
+                                "in the journal entry." + note)
+
+
+@app.post("/tools/bit-cash-ar/recon/{token}/unapprove")
+async def bitcash_recon_unapprove(request: Request, token: str):
+    if bitcash.set_status(token, False, None) is None:
+        return redirect_msg("/tools/bit-cash-ar", error="Not found.")
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message="Approval removed — the sandbox is open again.")
+
+
+@app.post("/tools/bit-cash-ar/recon/{token}/delete")
+async def bitcash_recon_delete(token: str):
+    if not bitcash.delete_recon(token):
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="Approved reconciliations can't be deleted — "
+                                  "unapprove first.")
+    return redirect_msg("/tools/bit-cash-ar", message="Reconciliation removed.")
+
+
+@app.post("/tools/bit-cash-ar/journal")
+def bitcash_journal():
+    # POST so the per-area middleware requires MODIFY access to generate.
+    from datetime import datetime as _dt
+    now = _dt.now()
+    out = OUTPUT_DIR / f"cm01_journal_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    result = bitcash.build_journal(out, now=now)
+    if result is None:
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="No approved reconciliation is ready — "
+                                  "approve at least one sandbox (with a BIT "
+                                  "payment and invoices selected) first.")
+    return FileResponse(out, filename=result["name"],
+                        media_type="application/vnd.openxmlformats-officedocument"
+                                   ".spreadsheetml.sheet")
 
 
 # --------------------------------------------------------------------------- #

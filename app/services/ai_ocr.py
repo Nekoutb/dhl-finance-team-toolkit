@@ -494,6 +494,135 @@ def extract_bank_statement(file_bytes, media_type, ai_cfg):
     return {"bank_name": (data.get("bank_name") or "").strip(), "lines": lines}
 
 
+# --------------------------------------------------------------------------- #
+# Payment statement / remittance evidence (pick-up sheets, deposit slips)
+# --------------------------------------------------------------------------- #
+_STATEMENT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "label": {"type": "string",
+                  "description": "Who/what the statement is for (customer or "
+                                 "agent name, else the document title)"},
+        "date": {"type": "string",
+                 "description": "The statement/collection date as printed"},
+        "total": {"type": "number",
+                  "description": "The TOTAL amount of the statement (e.g. "
+                                 "TOTAL CASH RECEIVED, or the deposit slip "
+                                 "total). 0 when not printed."},
+        "lines": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "reference": {"type": "string",
+                                  "description": "The invoice/AWB reference "
+                                                 "(digits as printed)"},
+                    "description": {"type": "string",
+                                    "description": "Consignor/customer or "
+                                                   "line description"},
+                    "amount": {"type": "number"},
+                },
+                "required": ["reference", "description", "amount"],
+            },
+        },
+    },
+    "required": ["label", "date", "total", "lines"],
+}
+
+_STATEMENT_PROMPT = (
+    "This document is a customer PAYMENT STATEMENT / remittance evidence sent "
+    "to DHL's finance team (often a PICK-UP SHEET of cash shipments plus a "
+    "bank deposit slip, in English or French, possibly scanned). Extract:\n"
+    "- every detailed line: its invoice/AWB reference (the AWB.NUMBER or "
+    "invoice number — keep every digit exactly, including leading zeros) and "
+    "its amount;\n"
+    "- the TOTAL amount of the statement (TOTAL CASH RECEIVED / deposit slip "
+    "total / 'Nous portons au crédit' amount). If several totals are printed "
+    "use the overall amount actually paid to the bank;\n"
+    "- a short label (agent/customer name, else the document title) and the "
+    "statement date.\n"
+    "Ignore signatures, stamps, weights, piece counts and bank boilerplate. "
+    "Amounts are XAF — strip thousands separators."
+)
+
+
+def extract_payment_statement(file_bytes, media_type, ai_cfg):
+    """Read a payment statement (PDF or image) → {label, date, total, lines}.
+
+    Each line: {reference, description, amount}. Raises AiNotConfigured /
+    AiReadError like the other extractors.
+    """
+    api_key = (ai_cfg or {}).get("api_key", "").strip()
+    if not api_key:
+        raise AiNotConfigured(
+            "No Anthropic API key saved — paste it under Settings → "
+            "AI document reading.")
+    if len(file_bytes) > MAX_PDF_BYTES:
+        raise AiReadError("That statement is too large to send for AI reading "
+                          "(over 30 MB).")
+
+    b64 = base64.standard_b64encode(file_bytes).decode("ascii")
+    if media_type == "application/pdf":
+        media_block = {"type": "document",
+                       "source": {"type": "base64",
+                                  "media_type": "application/pdf", "data": b64}}
+    else:
+        media_block = {"type": "image",
+                       "source": {"type": "base64",
+                                  "media_type": media_type, "data": b64}}
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, timeout=300.0)
+    model = (ai_cfg or {}).get("model") or "claude-opus-4-8"
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            messages=[{
+                "role": "user",
+                "content": [media_block,
+                            {"type": "text", "text": _STATEMENT_PROMPT}],
+            }],
+            output_config={
+                "format": {"type": "json_schema", "schema": _STATEMENT_SCHEMA},
+            },
+        )
+    except anthropic.AuthenticationError:
+        raise AiReadError("The Anthropic API key was rejected — check it "
+                          "under Settings → AI document reading.")
+    except anthropic.RateLimitError:
+        raise AiReadError("Rate-limited by the Anthropic API — try again in a "
+                          "minute.")
+    except anthropic.APIStatusError as exc:
+        raise AiReadError(f"Anthropic API error ({exc.status_code}).")
+    except anthropic.APIConnectionError:
+        raise AiReadError("Could not reach the Anthropic API.")
+
+    if response.stop_reason == "max_tokens":
+        raise AiReadError("The statement was too long to read in one pass — "
+                          "split it and re-upload.")
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise AiReadError("The AI reply could not be parsed — re-upload the "
+                          "statement.")
+    lines = [{"reference": str(ln.get("reference") or "").strip(),
+              "description": str(ln.get("description") or "").strip(),
+              "amount": round(float(ln.get("amount") or 0), 2)}
+             for ln in data.get("lines", [])]
+    total = round(float(data.get("total") or 0), 2)
+    if not total and lines:
+        total = round(sum(l["amount"] for l in lines), 2)
+    return {"label": str(data.get("label") or "").strip(),
+            "date": str(data.get("date") or "").strip(),
+            "total": total, "lines": lines}
+
+
 def test_key(ai_cfg):
     """Cheap round-trip to confirm the saved key works. Raises AiReadError."""
     api_key = (ai_cfg or {}).get("api_key", "").strip()

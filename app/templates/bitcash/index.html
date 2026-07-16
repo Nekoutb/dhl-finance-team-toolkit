@@ -58,4 +58,76 @@
       (rows marked open/ouvert when the file has a status column, else every
       row) and added to today's point on the graph.</p>
   </section>
+
+  <!-- Reconciliations: customer payment statements vs Cash AR + BIT -->
+  <section class="panel">
+    <h2 class="section-title">Reconciliations — customer payment statements</h2>
+    <p class="lead">Upload the customer's payment statement (pick-up sheet /
+      remittance evidence — scanned PDF, photo or Excel). Its detailed invoice
+      references are identified in the <strong>Cash AR</strong> and its total
+      in the <strong>BIT</strong>; a sandbox opens for you to confirm, adjust
+      and approve. Approved sandboxes feed the journal entry.</p>
+    {% if ai_ready %}
+    <form action="/tools/bit-cash-ar/recon/upload" method="post"
+          enctype="multipart/form-data" class="upload-form-stack">
+      <label class="filedrop">
+        <input type="file" name="statement"
+               accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls" required>
+        <span class="filedrop-text">Choose the payment statement — scans are
+          read by AI (invoice references, amounts and the total).</span>
+      </label>
+      <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
+    </form>
+    {% else %}
+    <div class="alert alert-info">Scanned statements need the AI reader — paste
+      the Anthropic API key under <a href="/settings">Settings → AI document
+      reading</a>. Excel statements work without it.</div>
+    <form action="/tools/bit-cash-ar/recon/upload" method="post"
+          enctype="multipart/form-data" class="upload-form-stack">
+      <label class="filedrop">
+        <input type="file" name="statement" accept=".xlsx,.xlsm,.xls" required>
+        <span class="filedrop-text">Choose the payment statement (Excel).</span>
+      </label>
+      <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
+    </form>
+    {% endif %}
+
+    <div class="download-row" style="margin-top:14px;">
+      <form action="/tools/bit-cash-ar/journal" method="post"
+            style="display:inline;">
+        <button class="btn btn-primary" type="submit" data-busy-keep="1">📒
+          Generate journal entry (approved sandboxes)</button>
+      </form>
+    </div>
+
+    {% if recons %}
+    <div class="table-wrap" style="margin-top:12px;max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Uploaded</th><th>Statement</th><th>Total</th>
+          <th>Invoice lines</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for r in recons %}
+          <tr>
+            <td>{{ r.uploaded }}</td>
+            <td>{{ (r.statement.label if r.statement else '') or r.source }}</td>
+            <td>{% if r.statement %}{{ "{:,.0f}".format(r.statement.total) }}{% else %}—{% endif %}</td>
+            <td>{{ r.statement.lines|length if r.statement else '—' }}</td>
+            <td>
+              {% if r.status == 'approved' %}<span class="pill pill-ok">approved</span>
+              {% elif r.status == 'open' %}<span class="pill pill-watch">open</span>
+              {% elif r.status == 'reading' %}<span class="pill pill-watch">reading…</span>
+              {% else %}<span class="pill pill-stop">error</span>{% endif %}
+              {% if r.generated_at %}<span class="note-inline">JE {{ r.generated_at }}</span>{% endif %}
+            </td>
+            <td><a href="/tools/bit-cash-ar/recon/{{ r.token }}">open sandbox →</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="note-small" style="margin-top:10px;">No payment statements
+      uploaded yet.</p>
+    {% endif %}
+  </section>
 {% endblock %}

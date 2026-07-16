@@ -125,8 +125,10 @@ TOOLS = [
         "status": "draft",
         "description": (
             "Upload the Bank In Transit (BIT) and Cash Account Receivables "
-            "(Cash AR) files. The section discloses the number of OPEN BIT and "
-            "Cash AR items per day and plots them on a daily graph."
+            "(Cash AR) files — open items are counted per day and plotted. "
+            "Reconcile customer payment statements against both (invoices in "
+            "the Cash AR, the total paid in the BIT), approve each sandbox, "
+            "and generate the CM01 journal-entry file."
         ),
     },
     {

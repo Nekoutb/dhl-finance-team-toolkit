@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/bit-cash-ar">{{ tool.name }}</a> / Reconciliation
+  </nav>
+
+  <style>
+    tr.auto-match td { background: rgba(59, 130, 246, .10); }
+    tr.auto-match td:first-child { box-shadow: inset 3px 0 0 #3b82f6; }
+    [data-theme="dark"] tr.auto-match td { background: rgba(96, 165, 250, .14); }
+    .diff-ok { color: #157a4a; font-weight: 700; }
+    .diff-bad { color: #bd3727; font-weight: 700; }
+  </style>
+
+  {% if rec.status == 'reading' %}
+    <script>setTimeout(function () { location.reload(); }, 5000);</script>
+    <section class="panel">
+      <h1>Reading the payment statement…</h1>
+      <p class="lead">Uploaded {{ rec.uploaded }} · {{ rec.source }}. The scan
+        is being read by AI (invoice references, amounts and the total) and
+        matched against the Cash AR and BIT on file. This page refreshes
+        itself.</p>
+      <div class="progress"><i style="width:45%"></i></div>
+    </section>
+  {% elif rec.status == 'error' %}
+    <section class="panel">
+      <h1>Could not read the statement</h1>
+      <div class="alert alert-error">{{ rec.error }}</div>
+      <div class="download-row">
+        <a class="btn btn-primary" href="/tools/bit-cash-ar">← Back</a>
+      </div>
+      <form action="/tools/bit-cash-ar/recon/{{ token }}/delete" method="post">
+        <button class="btn btn-small" type="submit">Remove this upload</button>
+      </form>
+    </section>
+  {% else %}
+  {% set s = rec.statement %}
+  {% set open = rec.status == 'open' %}
+  <section class="panel">
+    <h1>Payment statement — {{ s.label or rec.source }}
+      {% if rec.status == 'approved' %}<span class="pill pill-ok">approved</span>
+      {% else %}<span class="pill pill-watch">open</span>{% endif %}</h1>
+    <p class="lead">Uploaded {{ rec.uploaded }}{% if rec.uploaded_by %} by
+      {{ rec.uploaded_by }}{% endif %} · statement date {{ s.date or '—' }} ·
+      total <strong>{{ "{:,.0f}".format(s.total) }} XAF</strong> ·
+      {{ s.lines|length }} invoice line(s).</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <!-- Reconciliation difference -->
+    <div class="kpi-strip">
+      <div class="kpi"><span class="kpi-num">{{ "{:,.0f}".format(view.ar_total) }}</span>
+        <span class="kpi-lbl">Selected invoices (Cash AR)</span></div>
+      <div class="kpi"><span class="kpi-num">{{ "{:,.0f}".format(view.bit_amount) }}</span>
+        <span class="kpi-lbl">Selected payment (BIT)</span></div>
+      <div class="kpi {% if view.difference %}kpi-warn{% endif %}">
+        <span class="kpi-num {{ 'diff-ok' if not view.difference else 'diff-bad' }}">{{ "{:,.0f}".format(view.difference) }}</span>
+        <span class="kpi-lbl">Reconciliation difference</span></div>
+    </div>
+
+    <div class="download-row" style="margin-top:8px;">
+      {% if open %}
+      <form action="/tools/bit-cash-ar/recon/{{ token }}/approve" method="post"
+            style="display:inline;">
+        <button class="btn btn-primary" type="submit"
+          {% if view.difference %}onclick="return confirm('There is a reconciliation difference of {{ "{:,.0f}".format(view.difference) }} — approve anyway?');"{% endif %}>
+          ✓ Mark reconciliation okay</button>
+      </form>
+      <form action="/tools/bit-cash-ar/recon/{{ token }}/delete" method="post"
+            style="display:inline;"
+            onsubmit="return confirm('Remove this statement and its sandbox?');">
+        <button class="btn btn-small" type="submit">Remove</button>
+      </form>
+      {% else %}
+      <form action="/tools/bit-cash-ar/recon/{{ token }}/unapprove" method="post"
+            style="display:inline;">
+        <button class="btn" type="submit">↺ Unapprove (reopen)</button>
+      </form>
+      <span class="note-inline">approved by {{ rec.approved_by or '—' }}
+        on {{ rec.approved_at }}</span>
+      {% endif %}
+      <a class="btn" href="/tools/bit-cash-ar">← All reconciliations</a>
+    </div>
+  </section>
+
+  <form action="/tools/bit-cash-ar/recon/{{ token }}/select" method="post"
+        id="selform">
+  <!-- 1. INVOICE LINES (above): the statement vs the Cash AR -->
+  <section class="panel">
+    <h2 class="section-title">Invoice lines — statement vs Cash AR</h2>
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Reference (AWB)</th><th>Consignor / description</th>
+          <th>Statement amount</th><th>Found in Cash AR?</th></tr></thead>
+        <tbody>
+          {% for ln in s.lines %}
+          <tr{% if ln.matched_ids %} class="auto-match"{% endif %}>
+            <td><strong>{{ ln.reference }}</strong></td>
+            <td>{{ ln.description or '—' }}</td>
+            <td>{{ "{:,.0f}".format(ln.amount) }}</td>
+            <td>{% if ln.matched_ids %}<span class="pill pill-ok">✓ matched</span>
+              {% else %}<span class="pill pill-stop">✗ not found</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="mini-title" style="margin-top:14px;">Cash AR invoices selected
+      for clearance</h3>
+    {% if view.ar_rows or open %}
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr>{% if open %}<th>Clear</th>{% endif %}<th>AWB / Assignment</th>
+          <th>Reference</th><th>Customer</th><th>SAP account</th>
+          <th>Amount</th><th>Doc N°</th><th></th></tr></thead>
+        <tbody>
+          {% for r in view.ar_rows %}
+          <tr{% if r.id in view.auto_matched_ids %} class="auto-match"{% endif %}>
+            {% if open %}
+            <td><input type="checkbox" name="ar" value="{{ r.id }}" checked
+                       form="selform"></td>
+            {% endif %}
+            <td><strong>{{ r.awb or r.assignment }}</strong></td>
+            <td>{{ r.reference }}</td>
+            <td>{{ r.customer }}</td>
+            <td>{{ r.sap_acct }}</td>
+            <td>{{ "{:,.0f}".format(r.amount) }}</td>
+            <td>{{ r.doc_no }}</td>
+            <td>{% if r.id in view.auto_matched_ids %}<span class="note-inline">seen on the statement</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+          {% if not view.ar_rows %}
+          <tr><td colspan="8" class="note-small">No invoice selected yet — use
+            the search below to pick the invoices this payment clears.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if open %}
+    <div class="inline-fields" style="margin-top:10px;">
+      <label class="field" style="min-width:300px;">
+        <span>Add other Cash AR invoices (search by AWB, reference or customer)</span>
+        <input type="text" name="q" value="{{ q }}" placeholder="e.g. 4596301334 or NOVIA"
+               form="qform">
+      </label>
+      <button class="btn" type="submit" form="qform" style="align-self:flex-end;">Search</button>
+    </div>
+    {% if q %}
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Add</th><th>AWB / Assignment</th><th>Reference</th>
+          <th>Customer</th><th>SAP account</th><th>Amount</th></tr></thead>
+        <tbody>
+          {% for r in search_hits if r.id not in rec.ar_selected %}
+          <tr>
+            <td><input type="checkbox" name="ar" value="{{ r.id }}" form="selform"></td>
+            <td>{{ r.awb or r.assignment }}</td><td>{{ r.reference }}</td>
+            <td>{{ r.customer }}</td><td>{{ r.sap_acct }}</td>
+            <td>{{ "{:,.0f}".format(r.amount) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="note-small">No further Cash AR invoice
+            matches “{{ q }}”.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% endif %}
+  </section>
+
+  <!-- 2. PAYMENT LINES (below): the BIT -->
+  <section class="panel">
+    <h2 class="section-title">Payment lines — statement total vs BIT</h2>
+    {% if rec.bit_duplicate %}
+    <div class="alert alert-error">⚠ The payment amount of
+      <strong>{{ "{:,.0f}".format(s.total) }}</strong> appears
+      <strong>{{ rec.bit_candidates|length }} times</strong> in the BIT —
+      investigate and select the appropriate line below.</div>
+    {% endif %}
+    {% if view.bit_candidates %}
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr>{% if open %}<th>Select</th>{% endif %}<th>G/L account</th>
+          <th>Assignment</th><th>Amount</th><th>Posting date</th>
+          <th>Reference</th><th>Text</th><th>Doc N°</th></tr></thead>
+        <tbody>
+          {% for r in view.bit_candidates %}
+          <tr{% if rec.bit_selected == r.id %} class="auto-match"{% endif %}>
+            {% if open %}
+            <td><input type="radio" name="bit" value="{{ r.id }}"
+                       {% if rec.bit_selected == r.id %}checked{% endif %}
+                       form="selform"></td>
+            {% endif %}
+            <td>{{ r.gl_account }}</td>
+            <td>{{ r.assignment }}</td>
+            <td><strong>{{ "{:,.0f}".format(r.amount) }}</strong></td>
+            <td>{{ r.posting_date }}</td>
+            <td>{{ r.reference }}</td>
+            <td class="msg-cell">{{ r.text }}</td>
+            <td>{{ r.doc_no }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="alert alert-error">✗ No BIT line equals the statement total of
+      <strong>{{ "{:,.0f}".format(s.total) }}</strong> — the payment may not
+      have reached the BIT yet. Re-upload a fresh BIT file and reopen this
+      sandbox, or investigate the amount.</div>
+    {% endif %}
+
+    {% if open %}
+    <button class="btn btn-primary" type="submit" form="selform"
+            style="margin-top:10px;">💾 Save selections</button>
+    {% endif %}
+  </section>
+  </form>
+  <form id="qform" action="/tools/bit-cash-ar/recon/{{ token }}" method="get"></form>
+  {% endif %}
+{% endblock %}
