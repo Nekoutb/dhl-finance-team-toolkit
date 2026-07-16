@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Quick Account Statement · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">{{ tool.description }}</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    {% if not customers %}
+      <div class="alert alert-info">No CtP analysis on file yet — run one in the
+        <a href="/tools/ongoing-ctp-monitoring">CtP Portal</a> and the customer
+        list appears here.</div>
+    {% else %}
+      <div class="alert alert-ok">Statements are built from the latest analysis
+        — as of <strong>{{ as_of }}</strong> ({{ source }}),
+        {{ customers|length }} customer(s) on file.</div>
+
+      <form action="/tools/quick-statement/generate" method="get"
+            class="upload-form">
+        <label class="field" style="min-width:380px;">
+          <span>Customer (type to search — name or account number)</span>
+          <input type="text" name="key" list="qs-customers" required
+                 placeholder="Start typing the customer name or account…"
+                 autocomplete="off">
+          <datalist id="qs-customers">
+            {% for c in customers %}
+            <option value="{{ c.key }}">{{ c.customer }} — {{ "{:,.0f}".format(c.total_ar) }} open</option>
+            {% endfor %}
+          </datalist>
+        </label>
+        <button class="btn btn-primary" type="submit">🧾 Generate statement (PDF)</button>
+      </form>
+      <p class="note-small">One click: the PDF downloads immediately, listing
+        every open item on the customer's account (invoices, credits and
+        payments on account) with due dates, days overdue and the open balance
+        — ready to send to the customer.</p>
+    {% endif %}
+  </section>
+{% endblock %}

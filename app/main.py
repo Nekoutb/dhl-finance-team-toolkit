@@ -22,11 +22,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
 from .services import (ai_ocr, ar_master, auth, bank_statement,
-                       cheques, compliance, ctp_dashboard, ctp_rules, customers,
+                       charts, cheques, ctp_dashboard, ctp_rules, customers,
                        emailer, eno_allocation, holds, remittance_pdf,
                        remittance_store, turnstile, variance,
                        xlsx_report)
-from .tools import bank
+from .tools import bank, bitcash
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -46,7 +46,6 @@ templates.env.globals["asset_v"] = ASSET_V
 
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024            # 50 MB per request
-MAX_BATCH_UPLOAD_BYTES = 150 * 1024 * 1024     # compliance: up to 25 PDFs
 
 # Per-area access control: every /tools/<slug> path is gated by the user's
 # access rights (set by an admin under Administration). The home Dashboard is
@@ -120,9 +119,7 @@ async def gate_and_cache(request: Request, call_next):
     # Upload abuse guard: refuse oversized request bodies BEFORE reading them
     # into memory. Browsers always send Content-Length on form posts.
     if request.method == "POST":
-        limit = (MAX_BATCH_UPLOAD_BYTES
-                 if request.url.path == "/tools/invoice-compliance/upload"
-                 else MAX_UPLOAD_BYTES)
+        limit = MAX_UPLOAD_BYTES
         length = request.headers.get("content-length", "")
         if length.isdigit() and int(length) > limit:
             return templates.TemplateResponse("error.html", {
@@ -838,21 +835,60 @@ def ongoing_dashboard(request: Request, token: str, threshold: str = "100000",
     # statement credit narrations (possible payments received). The statements
     # come from the single Bank Statements section (no upload on this page).
     bank_rows, _bank_banks = bank.all_statement_lines()
+    pseudo = {"lines": [{"description": r["text"], "amount": r["amount"],
+                         "credit": r["amount"], "debit": 0.0,
+                         "date": r["date"], "bank": r["bank"]}
+                        for r in bank_rows]} if bank_rows else None
     # Only customers ON HOLD can be "held customers paying" — match just those
     # (not all customers) so a large AR x many bank lines can't stall the page.
     held_custs = [c for c in result["customers"]
                   if c.get("currently_held") and c["total_ar"] > 0]
     held_paying = []
-    if bank_rows and held_custs:
-        pseudo = {"lines": [{"description": r["text"], "amount": r["amount"],
-                             "credit": r["amount"], "debit": 0.0,
-                             "date": r["date"], "bank": r["bank"]}
-                            for r in bank_rows]}
+    if pseudo and held_custs:
         held_paying = bank_statement.match_customers(held_custs, pseudo)
+    # Payments identification: every open-AR customer whose name closely
+    # matches a payer on the bank statements OR a client name on the cheque
+    # register — with the amount seen, the source, the bank and the date.
+    open_custs = [c for c in result["customers"] if c["total_ar"] > 0]
+    pay_id = []
+    if pseudo and open_custs:
+        for m in bank_statement.match_customers(open_custs, pseudo):
+            amt = m["bank_amount"]
+            if not isinstance(amt, (int, float)):
+                amt = bank_statement.parse_amount(amt)
+            pay_id.append({
+                "customer": m["customer"], "key": m["key"],
+                "payment_term": next(
+                    (c.get("payment_term", "") for c in open_custs
+                     if c["key"] == m["key"]), ""),
+                "total_ar": m["total_ar"], "amount": amt,
+                "source": "Bank", "bank": m.get("bank", ""),
+                "date": m["bank_date"], "score": m["score"]})
+    if open_custs:
+        for r in cheques.register_rows():
+            if r["status"] != "done" or not r.get("customer") \
+                    or r.get("duplicate_of"):
+                continue
+            best = bank_statement.best_customer_for(r["customer"], open_custs)
+            if not best:
+                continue
+            c, score = best
+            cl = r.get("cleared") or {}
+            pay_id.append({
+                "customer": c["customer"], "key": c["key"],
+                "payment_term": c.get("payment_term", ""),
+                "total_ar": c["total_ar"],
+                "amount": r.get("amount") or cl.get("amount") or 0,
+                "source": "Cheque",
+                "bank": cl.get("bank") or r.get("issuing_bank", ""),
+                "date": cl.get("date") or r.get("cheque_date", ""),
+                "score": score})
+    pay_id.sort(key=lambda x: -(x["amount"] or 0))
     return templates.TemplateResponse("ongoing/dashboard.html", _ongoing_ctx(
         request, result=result, dash=dash, dash_me=dash_me, month_end=me,
         hold_cmp=hold_cmp, token=token, threshold=thr,
-        held_paying=held_paying, bank_available=bool(bank_rows),
+        held_paying=held_paying, pay_id=pay_id,
+        bank_available=bool(bank_rows),
         bank_line_count=len(bank_rows),
         priority_on=priority_on, priority_count=len(pri_keys)))
 
@@ -1611,101 +1647,6 @@ def variance_export(token: str):
 
 
 # --------------------------------------------------------------------------- #
-# Vendor Invoice Compliance Engine — CGI checklist with AI OCR
-# --------------------------------------------------------------------------- #
-_COMP_TOOL = registry.by_slug("invoice-compliance")
-
-
-def _comp_ctx(request, **extra):
-    cfg = load_config()
-    ctx = {"request": request, "cfg": cfg, "tool": _COMP_TOOL,
-           "message": "", "error": "", "recent": compliance.list_recent(),
-           "ai_ready": ai_ocr.is_configured(cfg),
-           "max_invoices": compliance.MAX_INVOICES}
-    ctx.update(extra)
-    return ctx
-
-
-@app.get("/tools/invoice-compliance", response_class=HTMLResponse)
-def compliance_home(request: Request, message: str = "", error: str = ""):
-    return templates.TemplateResponse(
-        "compliance/index.html",
-        _comp_ctx(request, message=message, error=error))
-
-
-@app.post("/tools/invoice-compliance/upload")
-async def compliance_upload(request: Request):
-    cfg = load_config()
-    if not ai_ocr.is_configured(cfg):
-        return templates.TemplateResponse("compliance/index.html", _comp_ctx(
-            request, error="AI reading is not configured — paste your "
-            "Anthropic API key under Settings → AI document reading first."))
-    form = await request.form()
-    uploads = [u for u in form.getlist("invoices")
-               if u is not None and getattr(u, "filename", "")]
-    pdfs = [u for u in uploads
-            if Path(u.filename).suffix.lower() == ".pdf"]
-    if not pdfs:
-        return templates.TemplateResponse("compliance/index.html", _comp_ctx(
-            request, error="Choose at least one invoice PDF."))
-    if len(pdfs) > compliance.MAX_INVOICES:
-        return templates.TemplateResponse("compliance/index.html", _comp_ctx(
-            request, error=f"Maximum {compliance.MAX_INVOICES} invoices per "
-            "batch — split the upload."))
-    token = uuid.uuid4().hex[:12]
-    batch_dir = compliance.BATCH_DIR / token
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    names = []
-    for i, up in enumerate(pdfs):
-        (batch_dir / f"{i:03d}.pdf").write_bytes(await up.read())
-        names.append(Path(up.filename).name)
-    compliance.create_batch(token, names)
-    compliance.run_batch_async(token)
-    return RedirectResponse(f"/tools/invoice-compliance/batch/{token}",
-                            status_code=303)
-
-
-@app.get("/tools/invoice-compliance/batch/{token}", response_class=HTMLResponse)
-def compliance_batch(request: Request, token: str):
-    if not re.fullmatch(r"[0-9a-f]+", token or ""):
-        return HTMLResponse("Invalid reference.", status_code=400)
-    payload = compliance.load_batch(token)
-    if not payload:
-        return HTMLResponse("Batch not found.", status_code=404)
-    done = sum(1 for i in payload["invoices"] if i["status"] != "pending")
-    return templates.TemplateResponse("compliance/batch.html", {
-        "request": request, "cfg": load_config(), "tool": _COMP_TOOL,
-        "batch": payload, "token": token, "done": done,
-        "total": len(payload["invoices"]),
-        "running": payload["status"] != "done",
-    })
-
-
-@app.get("/tools/invoice-compliance/batch/{token}/export")
-def compliance_export(token: str):
-    if not re.fullmatch(r"[0-9a-f]+", token or ""):
-        return HTMLResponse("Invalid reference.", status_code=400)
-    payload = compliance.load_batch(token)
-    if not payload:
-        return HTMLResponse("Batch not found.", status_code=404)
-    out = compliance.BATCH_DIR / token / "report.xlsx"
-    compliance.build_excel(out, payload)
-    return FileResponse(out, filename=f"invoice_compliance_{token[:8]}.xlsx",
-                        media_type="application/vnd.openxmlformats-officedocument"
-                                   ".spreadsheetml.sheet")
-
-
-@app.get("/tools/invoice-compliance/batch/{token}/pdf/{idx}")
-def compliance_pdf(token: str, idx: int):
-    if not re.fullmatch(r"[0-9a-f]+", token or "") or idx < 0 or idx > 999:
-        return HTMLResponse("Invalid reference.", status_code=400)
-    path = compliance.BATCH_DIR / token / f"{idx:03d}.pdf"
-    if not path.exists():
-        return HTMLResponse("Invoice not found.", status_code=404)
-    return FileResponse(path, media_type="application/pdf")
-
-
-# --------------------------------------------------------------------------- #
 # Cheque Payment Processing
 # --------------------------------------------------------------------------- #
 _CHEQUE_TOOL = registry.by_slug("cheque-processing")
@@ -1716,12 +1657,26 @@ _MAX_CHEQUE_FILE_BYTES = 15 * 1024 * 1024
 def _cheque_ctx(request, **extra):
     cfg = load_config()
     _rows, bank_banks = bank.all_statement_lines()
+    register = cheques.register_rows()
+    # Today's headline numbers + the daily series for the graph. Recording on
+    # every render keeps the day's snapshot tracking the current truth.
+    stats = cheques.register_stats(register)
+    cheques.record_daily_stats(stats)
+    history = cheques.stats_history()
+    stats_chart = charts.line_svg(
+        [d[5:] for d, _v in history],            # MM-DD labels
+        [{"name": "Cheques on file", "color": "#3b82f6",
+          "values": [v["total"] for _d, v in history]},
+         {"name": "Unpresented", "color": "#dc2626",
+          "values": [v["unpresented"] for _d, v in history]}])
     ctx = {"request": request, "cfg": cfg, "tool": _CHEQUE_TOOL,
            "message": "", "error": "", "recent": cheques.list_recent(),
            "ai_ready": ai_ocr.is_configured(cfg),
            "max_cheques": cheques.MAX_CHEQUES,
-           "register": cheques.register_rows(),
+           "register": register, "stats": stats, "stats_chart": stats_chart,
            "can_treat": _can_treat(request),
+           # username -> display alias (set by an admin) for "Uploaded by".
+           "aliases": auth.alias_map(cfg.get("auth", {})),
            "bank_lines": len(_rows), "bank_banks": bank_banks}
     ctx.update(extra)
     return ctx
@@ -1790,7 +1745,8 @@ async def cheque_upload(request: Request):
         (batch_dir / stored).write_bytes(data)
         cheque_meta.append({"filename": name, "stored": stored, "media": media})
 
-    cheques.create_batch(token, cheque_meta, bank_rows, bank_summary)
+    cheques.create_batch(token, cheque_meta, bank_rows, bank_summary,
+                         uploaded_by=getattr(request.state, "user", None) or "")
     cheques.run_batch_async(token)
     # Straight back to the register — it self-refreshes while cheques are read.
     return redirect_msg("/tools/cheque-processing",
@@ -1864,17 +1820,22 @@ _BANK_TOOL = registry.by_slug("bank-statements")
 def _bank_home(request, error="", message="", status_code=200):
     cfg = load_config()
     banks = cfg.get("banks", []) or []
-    slots = [{"name": n, "token": bank.bank_token(n),
-              "report": bank.slot_report(n)} for n in banks]
-    slot_tokens = {s["token"] for s in slots}
-    # Any stored reports not tied to a current bank slot (legacy / pre-slots) —
-    # surfaced so they can be cleared, keeping one statement per bank.
+    # One card per configured bank: every month's statement on file (prior
+    # months are kept side by side; same month re-upload overrides).
+    slots, slot_tokens = [], set()
+    for n in banks:
+        monthly = bank.slot_reports(n)
+        slot_tokens.update(r.get("token", "") for r in monthly)
+        slots.append({"name": n, "months": monthly})
+    # Reports not tied to any configured bank (legacy / renamed banks) —
+    # surfaced so they can be cleared.
     legacy = [r for r in bank.list_reports(limit=50)
               if r["token"] not in slot_tokens]
     return templates.TemplateResponse("bank/upload.html", {
         "request": request, "cfg": cfg, "tool": _BANK_TOOL,
         "error": error, "message": message,
         "slots": slots, "legacy": legacy,
+        "this_month": datetime.now().strftime("%Y-%m"),
         "has_ar": bool(ctp.list_results(limit=1)),
         "max_files": bank.MAX_FILES,
     }, status_code=status_code)
@@ -1887,6 +1848,7 @@ def bank_home(request: Request, error: str = "", message: str = ""):
 
 @app.post("/tools/bank-statements/upload")
 async def bank_upload(request: Request, bank_name: str = Form("", alias="bank"),
+                      form_period: str = Form("", alias="period"),
                       file: list[UploadFile] = File(...)):
     cfg = load_config()
     banks = cfg.get("banks", []) or []
@@ -1918,19 +1880,24 @@ async def bank_upload(request: Request, bank_name: str = Form("", alias="bank"),
         stored.append((dest, f.filename or "statement.xlsx"))
     ai_cfg = cfg.get("ai")
     ai_key = bool((ai_cfg or {}).get("api_key", "").strip())
-    # The bank slot's stable token: uploading OVERRIDES that bank's statement.
-    token = bank.bank_token(name)
+    # Statement month (YYYY-MM): prior months are kept side by side and stay
+    # searchable; re-uploading the SAME bank+month overrides that statement.
+    period = (form_period or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", period):
+        period = datetime.now().strftime("%Y-%m")
+    token = bank.bank_token(name, period)
     # AI-read PDF/scanned statements on a BACKGROUND thread — that call can
     # exceed the reverse-proxy timeout (502). Spreadsheets read instantly.
     needs_ai = ai_key and any(Path(n).suffix.lower() in bank._AI_EXT
                               for _p, n in stored)
     if needs_ai:
-        bank.start_report(stored, ai_cfg=ai_cfg, token=token, bank_slot=name)
+        bank.start_report(stored, ai_cfg=ai_cfg, token=token, bank_slot=name,
+                          period=period)
         return RedirectResponse(
             f"/tools/bank-statements/results/{token}", status_code=303)
     try:
         report = bank.build_report(stored, ai_cfg=ai_cfg, token=token,
-                                   bank_slot=name)
+                                   bank_slot=name, period=period)
     except Exception as exc:  # noqa: BLE001
         return _bank_home(request, error=f"Could not read the statement(s): {exc}",
                           status_code=400)
@@ -2042,6 +2009,135 @@ def bank_export(token: str):
 
 
 # --------------------------------------------------------------------------- #
+# Quick Account Statement — one-click customer statement from the latest CtP
+# --------------------------------------------------------------------------- #
+_QSTMT_TOOL = registry.by_slug("quick-statement")
+
+
+def _latest_ctp_result():
+    recent = ctp.list_results(limit=1)
+    return (ctp.load_result(recent[0]["token"]), recent[0]["token"]) \
+        if recent else (None, None)
+
+
+@app.get("/tools/quick-statement", response_class=HTMLResponse)
+def quick_statement_home(request: Request, message: str = "", error: str = ""):
+    result, _tok = _latest_ctp_result()
+    custs = sorted(({"key": c["key"], "customer": c["customer"],
+                     "total_ar": c["total_ar"]}
+                    for c in (result or {}).get("customers", [])),
+                   key=lambda c: c["customer"])
+    return templates.TemplateResponse("quickstmt/index.html", {
+        "request": request, "cfg": load_config(), "tool": _QSTMT_TOOL,
+        "message": message, "error": error, "customers": custs,
+        "as_of": (result or {}).get("as_of", ""),
+        "source": (result or {}).get("source", ""),
+    })
+
+
+@app.get("/tools/quick-statement/generate")
+def quick_statement_generate(request: Request, key: str = ""):
+    result, _tok = _latest_ctp_result()
+    if not result:
+        return RedirectResponse("/tools/quick-statement?error=No CtP analysis "
+                                "on file yet — run one first.", status_code=303)
+    key = (key or "").strip()
+    cust = next((c for c in result["customers"] if str(c["key"]) == key), None)
+    if not cust:
+        return RedirectResponse("/tools/quick-statement?error=Choose a "
+                                "customer from the list.", status_code=303)
+    items = [i for i in result["invoices"]
+             if str(i.get("account") or i.get("customer")) == key]
+    items.sort(key=lambda i: str(i.get("invoice_date") or ""))
+    transactions = [{
+        "Document": i.get("invoice_no") or i.get("reference") or "—",
+        "Type": "Invoice" if i.get("kind") == "invoice" else "Credit/Payment",
+        "Invoice date": str(i.get("invoice_date") or ""),
+        "Due date": str(i.get("due_date") or ""),
+        "Days overdue": i.get("days_overdue", 0),
+        "Amount": f"{i.get('amount', 0):,.0f}",
+    } for i in items]
+    total = sum(i.get("amount", 0) for i in items)
+    overdue = sum(i.get("amount", 0) for i in items
+                  if i.get("kind") == "invoice" and i.get("days_overdue", 0) > 0)
+    cfg = load_config()
+    out = OUTPUT_DIR / (f"Statement_{re.sub(r'[^A-Za-z0-9_-]', '_', key)[:24]}"
+                        f"_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
+    from .services import pdf_writer
+    pdf_writer.build_pdf(
+        out,
+        company=cfg.get("organization", ""),
+        document_title=f"Account statement — {cust['customer']}",
+        metadata=[
+            f"As of {result.get('as_of', '')} · source: {result.get('source', '')}",
+            f"Open balance: {total:,.0f} {(result.get('currencies') or ['XAF'])[0]}"
+            f" · of which overdue: {overdue:,.0f}",
+            f"Generated on request · {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        ],
+        transactions=transactions,
+        customer_name=cust["customer"],
+        customer_account=str(cust["key"]),
+        layout="table",
+    )
+    return FileResponse(out, media_type="application/pdf", filename=out.name)
+
+
+# --------------------------------------------------------------------------- #
+# BIT & Cash AR — daily open-items tracking
+# --------------------------------------------------------------------------- #
+_BITCASH_TOOL = registry.by_slug("bit-cash-ar")
+
+
+def _bitcash_home(request, error="", message="", status_code=200):
+    st = bitcash.status()
+    history = st["history"]
+    chart = charts.line_svg(
+        [d[5:] for d, _v in history],
+        [{"name": "Open BIT items", "color": "#3b82f6",
+          "values": [v.get("bit_open") for _d, v in history]},
+         {"name": "Open Cash AR items", "color": "#16a34a",
+          "values": [v.get("cash_open") for _d, v in history]}])
+    return templates.TemplateResponse("bitcash/index.html", {
+        "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
+        "error": error, "message": message,
+        "current": st["current"], "chart": chart,
+    }, status_code=status_code)
+
+
+@app.get("/tools/bit-cash-ar", response_class=HTMLResponse)
+def bitcash_home(request: Request, message: str = "", error: str = ""):
+    return _bitcash_home(request, error=error, message=message)
+
+
+@app.post("/tools/bit-cash-ar/upload")
+async def bitcash_upload(request: Request,
+                         bit_file: UploadFile = File(None),
+                         cash_file: UploadFile = File(None)):
+    uploads = [("bit", bit_file), ("cash", cash_file)]
+    real = [(k, f) for k, f in uploads if f and f.filename]
+    if not real:
+        return _bitcash_home(request, error="Choose the BIT file, the Cash AR "
+                             "file, or both.", status_code=400)
+    done = []
+    for kind, f in real:
+        ext = Path(f.filename or "").suffix.lower()
+        if ext not in ALLOWED_EXT:
+            return _bitcash_home(request, error=f"{f.filename}: upload Excel "
+                                 "files (.xlsx/.xls).", status_code=400)
+        dest = UPLOAD_DIR / f"bitcash_{kind}_{uuid.uuid4().hex[:8]}{ext}"
+        dest.write_bytes(await f.read())
+        try:
+            counts = bitcash.record_upload(kind, dest, f.filename or "")
+        except Exception as exc:  # noqa: BLE001
+            return _bitcash_home(request, error=f"Could not read "
+                                 f"{f.filename}: {exc}", status_code=400)
+        done.append(f"{bitcash.KINDS[kind]}: {counts['open_items']} open "
+                    f"item(s) of {counts['items']}")
+    return redirect_msg("/tools/bit-cash-ar",
+                        message="Uploaded — " + " · ".join(done))
+
+
+# --------------------------------------------------------------------------- #
 # App settings (SMTP — locked into the SaaS via config.json)
 # --------------------------------------------------------------------------- #
 def _admin_block(request):
@@ -2066,6 +2162,7 @@ def admin_home(request: Request, message: str = "", error: str = ""):
         "username": u,
         "is_admin": auth.is_admin(auth_cfg, u),
         "access": auth.get_access(auth_cfg, u),
+        "alias": auth.get_alias(auth_cfg, u),
     } for u in auth.list_users()]
     return templates.TemplateResponse("admin.html", {
         "request": request, "cfg": cfg, "message": message, "error": error,
@@ -2098,6 +2195,25 @@ async def admin_set_access(request: Request):
         "/admin",
         message=f"Access rights updated for '{username}' "
                 f"({granted} area(s) granted).")
+
+
+@app.post("/admin/alias")
+async def admin_set_alias(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return RedirectResponse(
+            "/admin?error=Administrator access required.", status_code=303)
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    if username not in auth.list_users():
+        return RedirectResponse("/admin?error=Unknown user.", status_code=303)
+    alias = (form.get("alias") or "").strip()[:24]
+    auth.set_alias(username, alias)
+    return redirect_msg(
+        "/admin",
+        message=(f"Alias for '{username}' set to '{alias}' — uploads now show "
+                 f"as {alias}." if alias
+                 else f"Alias for '{username}' cleared."))
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -2190,22 +2306,6 @@ async def settings_change_password(request: Request):
     auth.change_password(user, new)
     return RedirectResponse("/settings?message=Your password has been changed.",
                             status_code=303)
-
-
-@app.post("/settings/company")
-async def settings_company_save(request: Request):
-    blocked = _admin_block(request)
-    if blocked:
-        return blocked
-    form = await request.form()
-    save_user_config({"company": {
-        "niu": (form.get("niu") or "").strip().upper().replace(" ", ""),
-        "legal_name": (form.get("legal_name") or "").strip(),
-    }})
-    return RedirectResponse(
-        "/settings?message=Company identity saved — the compliance engine "
-        "now verifies every invoice is billed to this NIU and legal name.",
-        status_code=303)
 
 
 @app.post("/settings/ai")

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}BIT & Cash AR · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">{{ tool.description }}</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <!-- Today's open items + the daily graph -->
+    <div class="kpi-strip">
+      <div class="kpi">
+        <span class="kpi-num">{{ current.bit.open_items if current.bit else '—' }}</span>
+        <span class="kpi-lbl">Open BIT items</span></div>
+      <div class="kpi">
+        <span class="kpi-num">{{ current.cash.open_items if current.cash else '—' }}</span>
+        <span class="kpi-lbl">Open Cash AR items</span></div>
+    </div>
+    {% if current.bit or current.cash %}
+    <p class="note-small">
+      {% if current.bit %}BIT: <strong>{{ current.bit.source }}</strong>
+        uploaded {{ current.bit.uploaded }} — {{ current.bit.open_items }} open
+        of {{ current.bit.items }} item(s)
+        {%- if current.bit.status_col %} (status column: {{ current.bit.status_col }}){% endif %}.{% endif %}
+      {% if current.cash %} Cash AR: <strong>{{ current.cash.source }}</strong>
+        uploaded {{ current.cash.uploaded }} — {{ current.cash.open_items }} open
+        of {{ current.cash.items }} item(s)
+        {%- if current.cash.status_col %} (status column: {{ current.cash.status_col }}){% endif %}.{% endif %}
+    </p>
+    {% endif %}
+    {% if chart %}
+    <div style="margin-top:10px;overflow-x:auto;">{{ chart|safe }}</div>
+    <p class="note-small">Open items per day, snapshotted at each upload — the
+      graph updates daily as new files are loaded.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Upload the BIT &amp; Cash AR files</h2>
+    <form action="/tools/bit-cash-ar/upload" method="post"
+          enctype="multipart/form-data" class="upload-form-stack">
+      <div class="inline-fields">
+        <label class="field" style="min-width:320px;">
+          <span>BIT — Bank In Transit file (.xlsx / .xls)</span>
+          <input type="file" name="bit_file" accept=".xlsx,.xlsm,.xls">
+        </label>
+        <label class="field" style="min-width:320px;">
+          <span>Cash AR — Cash Account Receivables file (.xlsx / .xls)</span>
+          <input type="file" name="cash_file" accept=".xlsx,.xlsm,.xls">
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit">Upload &amp; count open items</button>
+    </form>
+    <p class="note-small">Upload one file or both — each replaces the previous
+      file of its kind. The number of open items is counted at upload
+      (rows marked open/ouvert when the file has a status column, else every
+      row) and added to today's point on the graph.</p>
+  </section>
+{% endblock %}

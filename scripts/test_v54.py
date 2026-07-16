@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import main  # noqa: E402
 from app.config import CONFIG_PATH  # noqa: E402
-from app.services import auth, compliance  # noqa: E402
+from app.services import auth  # noqa: E402
 
 client = TestClient(main.app)
 cfg_snapshot = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else None
@@ -49,26 +49,6 @@ eml.unlink()
 from app.main import _ENO_DIR  # noqa: E402
 for p in _ENO_DIR.glob(f"{token}.*"):
     p.unlink()
-
-# --- 3. compliance result carries the taxpayer ID + DGI status ----------------
-def mention(present, value=""):
-    return {"present": present, "value": value}
-extraction = {k: mention(True, "x") for k in
-              ("supplier_name", "supplier_address", "supplier_rccm",
-               "client_name", "client_niu", "invoice_date", "invoice_number",
-               "transaction_detail", "amount_ht", "vat_rate_and_amount",
-               "amount_ttc", "electronic_invoicing_marker")}
-extraction.update(supplier_niu=mention(True, "M012345678901A"),
-                  exoneration_mention=mention(False),
-                  is_foreign_supplier=False, supplier_country="Cameroon",
-                  currency="XAF", total_ttc_numeric=50000, readability="good")
-res = compliance.evaluate(extraction, {"status": "active",
-                                       "raison_sociale": "ACME SARL"})
-assert res["supplier_niu"] == "M012345678901A"
-assert res["dgi_status"] == "active" and res["dgi_name"] == "ACME SARL"
-res2 = compliance.evaluate(dict(extraction, is_foreign_supplier=True), None)
-assert res2["dgi_status"] == "n/a (foreign)"
-print("ok: compliance result exposes taxpayer ID + DGI Fiscalis status")
 
 # --- 4. admin gating + welcome banner ------------------------------------------
 try:

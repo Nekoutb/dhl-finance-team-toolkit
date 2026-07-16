@@ -5,10 +5,11 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">One upload slot per bank. Uploading a statement
-      <strong>replaces</strong> that bank's previous one, so the platform always
-      holds exactly one current statement per bank and reads collections from
-      them.</p>
+    <p class="lead">One slot per bank, one statement per <strong>month</strong>.
+      Prior months stay on file and remain searchable (cheque matching and the
+      CtP dashboard read across all of them); re-uploading the
+      <strong>same bank and month</strong> replaces that statement and its
+      analysis.</p>
 
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
@@ -27,49 +28,59 @@
   </section>
 
   {% for s in slots %}
-  {% set r = s.report %}
   <section class="panel">
-    <h2 class="section-title">🏦 {{ s.name }}</h2>
-    {% if r and r.status == 'done' %}
-      <div class="alert alert-ok" style="margin-bottom:10px;">
-        <strong>Statement loaded</strong> ({{ r.created_at }}) —
-        {{ r.summary.credit_count }} credit(s),
-        total {{ "{:,.0f}".format(r.summary.total_credited) }} XAF
-        {% if r.summary.first_date %}· {{ r.summary.first_date }} → {{ r.summary.last_date }}{% endif %}
-        {% if r.summary.ai_used %}· read by AI{% endif %}.
-        <a href="/tools/bank-statements/results/{{ s.token }}">Open report →</a>
-      </div>
-    {% elif r and r.status == 'running' %}
-      <div class="alert alert-info" style="margin-bottom:10px;">
-        Statement is being read…
-        <a href="/tools/bank-statements/results/{{ s.token }}">View progress →</a>
-      </div>
-    {% elif r and r.status == 'error' %}
-      <div class="alert alert-error" style="margin-bottom:10px;">
-        Last read failed: {{ r.error }} — upload again below.
-      </div>
+    <h2 class="section-title">🏦 {{ s.name }}
+      <span class="note-inline">({{ s.months|length }} statement month(s) on file)</span></h2>
+
+    {% if s.months %}
+    <div class="table-wrap" style="max-height:none;margin-bottom:12px;">
+      <table class="tx-table">
+        <thead><tr><th>Statement month</th><th>Uploaded</th><th>Status</th>
+          <th>Credits</th><th>Total credited</th><th></th><th></th></tr></thead>
+        <tbody>
+          {% for r in s.months %}
+          <tr>
+            <td><strong>{{ r.period or '(no month set)' }}</strong></td>
+            <td>{{ r.created_at }}</td>
+            <td>{% if r.status == 'done' %}<span class="pill pill-ok">loaded</span>
+                {% elif r.status == 'running' %}<span class="pill pill-watch">reading…</span>
+                {% else %}<span class="pill pill-stop">error</span>{% endif %}</td>
+            <td>{{ r.summary.credit_count if r.summary else '—' }}</td>
+            <td>{% if r.summary %}{{ "{:,.0f}".format(r.summary.total_credited) }}{% else %}—{% endif %}</td>
+            <td><a href="/tools/bank-statements/results/{{ r.token }}">Open report →</a></td>
+            <td>
+              <form action="/tools/bank-statements/results/{{ r.token }}/delete"
+                    method="post" class="row-form" data-bank="{{ s.name }} {{ r.period }}"
+                    onsubmit="return confirm('Clear the ' + this.dataset.bank + ' statement?')">
+                <button class="btn btn-small" type="submit">🗑 Clear</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
-      <p class="note-small">No statement loaded yet.</p>
+      <p class="note-small">No statement loaded yet for this bank.</p>
     {% endif %}
 
     <form class="upload-form" action="/tools/bank-statements/upload"
           method="post" enctype="multipart/form-data">
       <input type="hidden" name="bank" value="{{ s.name }}">
+      <div class="inline-fields" style="margin-bottom:8px;">
+        <label class="field" style="max-width:200px;">
+          <span>Statement month</span>
+          <input type="month" name="period" value="{{ this_month }}" required>
+        </label>
+      </div>
       <label class="filedrop">
         <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required>
-        <span class="filedrop-text">{{ 'Replace' if r else 'Upload' }}
-          {{ s.name }} statement — Excel (.xlsx / .xls) or PDF</span>
+        <span class="filedrop-text">Upload the {{ s.name }} statement for the
+          chosen month — Excel (.xlsx / .xls) or PDF. Prior months stay on file
+          and searchable; re-uploading the same month replaces it.</span>
       </label>
-      <button class="btn btn-primary" type="submit">
-        {{ 'Replace statement' if r else 'Upload &amp; analyse' }}</button>
+      <button class="btn btn-primary" type="submit">Upload &amp; analyse</button>
     </form>
-    {% if r %}
-    <form action="/tools/bank-statements/results/{{ s.token }}/delete"
-          method="post" style="margin-top:8px;" data-bank="{{ s.name }}"
-          onsubmit="return confirm('Clear the ' + this.dataset.bank + ' statement?')">
-      <button class="btn btn-small" type="submit">🗑 Clear {{ s.name }} statement</button>
-    </form>
-    {% endif %}
   </section>
   {% endfor %}
 

@@ -88,7 +88,8 @@ try:
     assert page.status_code == 200, page.status_code
     for needle in ["Sent to third-party legal", "Critical customer analysis",
                    "Duty account analysis", "GAMMA", "D0000101",
-                   "Current Credit Hold status", "Critical"]:
+                   "Current Credit Hold status", "Critical",
+                   "Payments identification"]:
         check(f"dashboard renders: {needle}", needle in page.text)
     # the two mandatory columns also on the results (controls) report
     rpage = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}")
@@ -121,5 +122,7 @@ pseudo = {"lines": [{"description": gamma["customer"], "amount": 1.0,
 matches = bank_statement.match_customers(result["customers"], pseudo)
 check("bank match carries hold + critical flags",
       matches and "critical" in matches[0] and "currently_held" in matches[0])
+check("bank match discloses the bank it was seen on (once)",
+      matches[0].get("bank") == "X")
 
 print("\nALL CtP SECTION TESTS PASSED")

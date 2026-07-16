@@ -66,7 +66,7 @@ app/
   services/             shared engines: excel_reader (.xlsx/.xlsm/.xls),
                         pdf_table_reader, header_assets, pdf_writer,
                         ctp_rules (Credit Policy v3.3), ctp_dashboard,
-                        ar_master, bank_statement, dgi (Fiscalis client),
+                        ar_master, bank_statement, cheques,
                         holds, customers, emailer, stores…
   tools/                one module per tool + registry.py (dashboard catalogue)
   templates/ static/    UI (liquid-glass design system, app.js)

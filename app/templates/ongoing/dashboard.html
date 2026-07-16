@@ -397,12 +397,13 @@
       {% if held_paying %}
       <div class="table-wrap"><table class="tx-table">
         <thead><tr><th>Customer (on hold)</th><th>Account</th>{{ hc_th() }}<th>Open AR</th>
-          <th>Match</th><th>Bank narration</th><th>Bank amount</th><th>Date</th></tr></thead>
+          <th>Match</th><th>Seen on bank</th><th>Bank amount</th><th>Date</th></tr></thead>
         <tbody>
           {% for m in held_paying %}
           <tr><td>{{ m.customer }}</td><td>{{ m.key }}</td>{{ hc(m) }}<td>{{ money(m.total_ar) }}</td>
             <td>{{ "{:.0f}".format(m.score * 100) }}%</td>
-            <td>{{ m.bank_description }}</td><td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
+            <td><strong>{{ m.bank or '—' }}</strong></td>
+            <td>{{ m.bank_amount }}</td><td>{{ m.bank_date }}</td></tr>
           {% endfor %}
         </tbody>
       </table></div>
@@ -412,6 +413,45 @@
       {% else %}<p class="note-small" style="padding:10px 16px;">No customer on
         credit hold matched the credit narrations on file.</p>{% endif %}
     </details>
+    {% endif %}
+  </section>
+
+  <!-- Payments identification: AR names seen on cheques & bank statements -->
+  <section class="panel">
+    <h2 class="section-title">Payments identification — AR customers seen on
+      cheques &amp; bank statements</h2>
+    <p class="lead">Every customer with an open receivable whose name closely
+      matches a payer on the <a href="/tools/bank-statements">bank
+      statements</a> or a client name on the
+      <a href="/tools/cheque-processing">cheque register</a> — to facilitate
+      identifying who has paid.</p>
+    {% if pay_id %}
+    <div class="table-wrap"><table class="tx-table">
+      <thead><tr><th>Customer</th><th>Account</th><th>Payment terms</th>
+        <th>Receivable (net AR)</th><th>Amount seen</th><th>Cheque / Bank</th>
+        <th>Bank</th><th>Payment date</th><th>Match</th></tr></thead>
+      <tbody>
+        {% for p in pay_id %}
+        <tr>
+          <td>{{ p.customer }}</td><td>{{ p.key }}</td>
+          <td>{{ p.payment_term or '—' }}</td>
+          <td>{{ money(p.total_ar) }}</td>
+          <td><strong>{{ money(p.amount or 0) }}</strong></td>
+          <td>{% if p.source == 'Cheque' %}<span class="pill pill-manual">Cheque</span>
+              {% else %}<span class="pill pill-auto">Bank</span>{% endif %}</td>
+          <td>{{ p.bank or '—' }}</td>
+          <td>{{ p.date or '—' }}</td>
+          <td>{{ "{:.0f}".format(p.score * 100) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="note-small">Amounts and dates are as they appear on the bank
+      statement (or the cheque when it has not cleared yet). Payment terms come
+      from the master file — run 🔄 Refresh after updating it.</p>
+    {% else %}
+    <p class="note-small">No open-AR customer name was recognised on the bank
+      statements or the cheque register on file.</p>
     {% endif %}
   </section>
 {% endblock %}

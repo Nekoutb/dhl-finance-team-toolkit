@@ -99,19 +99,42 @@ def _read_statement(path, source, ai_cfg):
         "table reader", note
 
 
-def bank_token(bank_name):
-    """Stable 12-hex id for a configured bank slot — re-uploading the same bank
-    reuses this token, so its single current statement is overwritten."""
+def bank_token(bank_name, period=""):
+    """Stable 12-hex id for a configured bank slot + statement month
+    (YYYY-MM). Re-uploading the same bank for the same month overwrites that
+    month's statement; other months (e.g. prior months) accumulate and stay
+    searchable. Legacy (pre-period) slots used the bare bank key."""
     key = "bankslot:" + (bank_name or "").strip().lower()
+    if period:
+        key += "|" + str(period).strip()
     return hashlib.md5(key.encode("utf-8")).hexdigest()[:12]
 
 
-def slot_report(bank_name):
-    """The current statement report for a bank slot, or None."""
-    return load_report(bank_token(bank_name))
+def slot_report(bank_name, period=""):
+    """The statement report for a bank slot (+month), or None."""
+    return load_report(bank_token(bank_name, period))
 
 
-def build_report(files, ai_cfg=None, token=None, bank_slot=""):
+def slot_reports(bank_name):
+    """Every stored statement for a configured bank (all months), newest
+    period first — includes legacy pre-period uploads (period '')."""
+    name = (bank_name or "").strip()
+    out = []
+    if not STORE_DIR.exists():
+        return out
+    for path in STORE_DIR.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if (data.get("bank_slot") or "").strip().lower() == name.lower():
+            out.append(data)
+    out.sort(key=lambda d: (d.get("period", ""), d.get("created_at", "")),
+             reverse=True)
+    return out
+
+
+def build_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     """``files`` = list of (path, source_name) — up to MAX_FILES statements,
     combined into one collection report. PDF/scanned statements are read by AI
     when ``ai_cfg`` has an API key.
@@ -151,11 +174,12 @@ def build_report(files, ai_cfg=None, token=None, bank_slot=""):
     return _assemble_report(
         credits, statement_lines, banks, debits_total,
         token=token or uuid.uuid4().hex[:12], bank_slot=bank_slot,
+        period=period,
         source=" + ".join(s for _p, s in files if s) or "statement")
 
 
 def _assemble_report(credits, statement_lines, banks, debits_total, *,
-                     token, bank_slot, source):
+                     token, bank_slot, source, period=""):
     """Build the report dict from already-read lines, running the AR matching
     and grouping against the CURRENT latest CtP analysis. Shared by build_report
     (fresh upload) and refresh_report (re-link to the latest AR)."""
@@ -221,6 +245,7 @@ def _assemble_report(credits, statement_lines, banks, debits_total, *,
     return {
         "token": token,
         "bank_slot": bank_slot,
+        "period": period,
         "status": "done",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": source,
@@ -265,12 +290,12 @@ def refresh_report(token):
         credits, rep.get("statement_lines", []), rep.get("banks", []),
         rep.get("summary", {}).get("debits_total", 0.0),
         token=token, bank_slot=rep.get("bank_slot", ""),
-        source=rep.get("source", "statement"))
+        source=rep.get("source", "statement"), period=rep.get("period", ""))
     save_report(refreshed)
     return refreshed
 
 
-def start_report(files, ai_cfg=None, token=None, bank_slot=""):
+def start_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     """Kick off the report on a BACKGROUND thread and return its token at once.
 
     Reading PDF statements with the AI can take a minute or more; doing it in
@@ -282,7 +307,8 @@ def start_report(files, ai_cfg=None, token=None, bank_slot=""):
     files = list(files)[:MAX_FILES]
     token = token or uuid.uuid4().hex[:12]
     save_report({
-        "token": token, "bank_slot": bank_slot, "status": "running",
+        "token": token, "bank_slot": bank_slot, "period": period,
+        "status": "running",
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": " + ".join(s for _p, s in files if s) or "statement",
         "file_count": len(files),
@@ -291,12 +317,13 @@ def start_report(files, ai_cfg=None, token=None, bank_slot=""):
     def _runner():
         try:
             report = build_report(files, ai_cfg=ai_cfg, token=token,
-                                   bank_slot=bank_slot)
+                                   bank_slot=bank_slot, period=period)
             report["status"] = "done"
             save_report(report)
         except Exception as exc:  # noqa: BLE001 — surface, never crash silently
             save_report({
-                "token": token, "bank_slot": bank_slot, "status": "error",
+                "token": token, "bank_slot": bank_slot, "period": period,
+                "status": "error",
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "source": " + ".join(s for _p, s in files if s) or "statement",
                 "error": f"{type(exc).__name__}: {exc}",

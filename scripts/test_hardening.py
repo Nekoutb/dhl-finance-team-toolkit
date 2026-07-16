@@ -26,20 +26,12 @@ r = client.get("/tools/orange-cameroun")
 assert r.status_code == 200
 print("ok: >50MB upload refused (413); normal requests unaffected")
 
-# compliance allows a larger batch ceiling
-assert main.MAX_BATCH_UPLOAD_BYTES > main.MAX_UPLOAD_BYTES
-r = client.post("/tools/invoice-compliance/upload",
-                headers={"content-length": str(main.MAX_BATCH_UPLOAD_BYTES + 1)},
-                files={"invoices": ("x.pdf", b"x")})
-assert r.status_code == 413
-print("ok: compliance batch has its own higher ceiling")
-
 # --- fix 13: per-page browser titles ----------------------------------------
 checks = {
     "/": "Dashboard ·",
     "/tools/ongoing-ctp-monitoring": "CtP Portal ·",
     "/tools/variance-analysis": "Variance analysis ·",
-    "/tools/invoice-compliance": "Invoice compliance ·",
+    "/tools/cheque-processing": "Electronic Cheque Register ·",
 }
 for path, want in checks.items():
     r = client.get(path)

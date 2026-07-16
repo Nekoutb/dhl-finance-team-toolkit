@@ -87,8 +87,10 @@ with open(BANK, "rb") as f1:
                     follow_redirects=False)
 check("slot upload -> redirect to that slot's report", r.status_code == 303)
 btoken = re.search(r"results/([0-9a-f]+)", r.headers["location"]).group(1)
-check("slot uses the bank's stable token",
-      btoken == bank_tool.bank_token("Ecobank Cameroun"))
+from datetime import datetime as _dt
+check("slot uses the bank+month's stable token",
+      btoken == bank_tool.bank_token("Ecobank Cameroun",
+                                     _dt.now().strftime("%Y-%m")))
 
 r = client.get(f"/tools/bank-statements/results/{btoken}")
 check("report 200", r.status_code == 200)

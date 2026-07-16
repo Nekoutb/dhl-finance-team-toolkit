@@ -187,6 +187,58 @@ try:
     x = client.get("/tools/cheque-processing/register/export")
     assert x.status_code == 200 and x.content[:2] == b"PK", "register export broken"
     print("ok: single disclosure, new-match highlight + treated column, no deletion")
+
+    # --- 8b. clean reference snippet (no haphazard full narration) -----------
+    long_app = {"bank": "Afriland", "amount": 1.0, "date": "2026-06-10",
+                "text": "03/06 05/06 REF 991 TRX 3341 CHQ 0012345 DEPOSIT "
+                        "BATCH 8873 VAL 06/06 SUITE 7788 99887766"}
+    snip = cheques.ref_snippet(long_app, "0012345")
+    assert "0012345" in snip and len(snip) <= 80, snip
+    assert not snip.startswith("03/06"), "snippet must centre on the reference"
+    rowx = next(r_ for r_ in cheques.register_rows()
+                if r_["batch"] == ctoken and r_["cheque_number"] == "0012345")
+    assert rowx["ref_snippet"], "register rows must carry the snippet"
+
+    # --- 8c. daily stats + graph ---------------------------------------------
+    import tempfile as _tf
+    cheques.STATS_PATH = Path(_tf.mkdtemp(prefix="chqstats_")) / "stats.json"
+    rows_all = cheques.register_rows()
+    st = cheques.register_stats(rows_all)
+    mine = [r_ for r_ in rows_all if r_["batch"] == ctoken]
+    assert st["total"] >= 2 and st["unpresented"] >= 1, st
+    cheques.record_daily_stats(st)
+    hist = cheques.stats_history()
+    assert hist and hist[-1][1]["total"] == st["total"]
+    home = client.get("/tools/cheque-processing")
+    assert "Today's position" in home.text and "<svg" in home.text, \
+        "daily stats strip + graph missing"
+    print("ok: ref snippet, daily totals (total/unpresented) + graph")
+
+    # --- 8d. duplicate upload detection --------------------------------------
+    before = {d.name for d in cheques.BATCH_DIR.iterdir() if d.is_dir()}
+    r = client.post("/tools/cheque-processing/upload",
+                    files=[("cheques", ("chq_again.png", b"CHQ 0012345",
+                                        "image/png"))], follow_redirects=False)
+    assert r.status_code == 303
+    after = {d.name for d in cheques.BATCH_DIR.iterdir() if d.is_dir()}
+    dtoken = (after - before).pop()
+    for _ in range(80):
+        db = cheques.load_batch(dtoken)
+        if db and db["status"] == "done":
+            break
+        time.sleep(0.1)
+    dup_row = next(r_ for r_ in cheques.register_rows()
+                   if r_["batch"] == dtoken)
+    assert dup_row["duplicate_of"], "second upload of the same cheque must be flagged"
+    assert dup_row["duplicate_of"]["batch"] == ctoken
+    assert dup_row["duplicate_of"]["uploaded"], "original upload date must be shown"
+    st2 = cheques.register_stats(cheques.register_rows())
+    assert st2["duplicates"] >= 1, st2
+    assert st2["total"] == st["total"], "duplicates must not inflate the totals"
+    home = client.get("/tools/cheque-processing")
+    assert "DUPLICATE" in home.text and "Same cheque uploaded" in home.text
+    cheques.delete_batch(dtoken)
+    print("ok: duplicate uploads flagged with the original date + uploader")
 finally:
     ai_ocr.extract_cheque, ai_ocr.is_configured = _orig_extract, _orig_ready
     if ctoken:
@@ -243,7 +295,7 @@ try:
                    "finance": {"cheque-processing": "modify",
                                "ongoing-ctp-monitoring": "modify"}},
     }}), encoding="utf-8")
-    cheques.create_batch(TOK9, [], [], [])
+    cheques.create_batch(TOK9, [], [], [], uploaded_by="cheque")
     p = cheques.load_batch(TOK9)
     p["cheques"] = [{"idx": 0, "filename": "c.png", "stored": "c.png",
                      "media": "image/png", "status": "done",
@@ -277,6 +329,16 @@ try:
     assert cheques.load_batch(TOK9)["cheques"][0].get("treated"), \
         "finance profile must be able to mark treated"
     print("ok: 'treated in accounting' — denied for cheque profile, allowed for finance")
+
+    # --- 10. aliases: shown as "Uploaded by X1" on the register ---------------
+    assert auth.set_alias("cheque", "X1")
+    page = c_fin.get("/tools/cheque-processing", follow_redirects=True)
+    assert "X1" in page.text, "alias must replace the username on the register"
+    from app.config import load_config as _lc
+    assert auth.get_alias(_lc()["auth"], "cheque") == "X1"
+    auth.set_alias("cheque", "")            # clearing removes it
+    assert auth.get_alias(_lc()["auth"], "cheque") == ""
+    print("ok: uploader aliases (X1) shown on the register, admin-settable")
 finally:
     cheques.delete_batch(TOK9)
     if _pre_cfg is not None:

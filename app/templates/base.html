@@ -32,7 +32,7 @@
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg></span>
       <span class="nav-label">Dashboard</span></a>{% endif %}
 
-    {% if _allowed is none or ['ongoing-ctp-monitoring','remittance-portal','bank-statements','cheque-processing','orange-cameroun']|select('in', _allowed)|list %}
+    {% if _allowed is none or ['ongoing-ctp-monitoring','remittance-portal','bank-statements','cheque-processing','quick-statement','orange-cameroun']|select('in', _allowed)|list %}
     <div class="nav-section">Order to Cash</div>
     {% if _allowed is none or 'ongoing-ctp-monitoring' in _allowed %}
     <a class="nav-item {% if 'ongoing-ctp' in path %}active{% endif %}" href="/tools/ongoing-ctp-monitoring">
@@ -50,13 +50,17 @@
     <a class="nav-item {% if 'cheque-processing' in path %}active{% endif %}" href="/tools/cheque-processing">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M6.5 14.5h5M15 14.5h2.5"/></svg></span>
       <span class="nav-label">Cheque register</span></a>{% endif %}
+    {% if _allowed is none or 'quick-statement' in _allowed %}
+    <a class="nav-item {% if 'quick-statement' in path %}active{% endif %}" href="/tools/quick-statement">
+      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2"/><path d="M9 7.5h6M9 11h6M9 14.5h4"/></svg></span>
+      <span class="nav-label">Quick statement</span></a>{% endif %}
     {% if _allowed is none or 'orange-cameroun' in _allowed %}
     <a class="nav-item {% if 'orange-cameroun' in path %}active{% endif %}" href="/tools/orange-cameroun">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5"/><path d="M12 11.5v5"/><path d="m9.8 14.3 2.2 2.2 2.2-2.2"/></svg></span>
       <span class="nav-label">Orange Money → PDF</span></a>{% endif %}
     {% endif %}
 
-    {% if _allowed is none or ['vendor-invoice-allocation','variance-analysis','invoice-compliance']|select('in', _allowed)|list %}
+    {% if _allowed is none or ['vendor-invoice-allocation','variance-analysis','bit-cash-ar']|select('in', _allowed)|list %}
     <div class="nav-section">Record to Report</div>
     {% if _allowed is none or 'vendor-invoice-allocation' in _allowed %}
     <a class="nav-item {% if 'vendor-invoice-allocation' in path %}active{% endif %}" href="/tools/vendor-invoice-allocation">
@@ -66,10 +70,10 @@
     <a class="nav-item {% if 'variance-analysis' in path %}active{% endif %}" href="/tools/variance-analysis">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5V18a2 2 0 0 0 2 2h14"/><path d="m7.5 14.5 3.5-4 3 3 4.5-6"/></svg></span>
       <span class="nav-label">Variance analysis</span></a>{% endif %}
-    {% if _allowed is none or 'invoice-compliance' in _allowed %}
-    <a class="nav-item {% if 'invoice-compliance' in path %}active{% endif %}" href="/tools/invoice-compliance">
-      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4.5V20"/><path d="M8.5 20h7"/><path d="M5.5 7h13"/><path d="M5.5 7 3.2 12.3a2.9 2.9 0 0 0 4.6 0L5.5 7"/><path d="M18.5 7l-2.3 5.3a2.9 2.9 0 0 0 4.6 0L18.5 7"/></svg></span>
-      <span class="nav-label">Invoice compliance</span></a>{% endif %}
+    {% if _allowed is none or 'bit-cash-ar' in _allowed %}
+    <a class="nav-item {% if 'bit-cash-ar' in path %}active{% endif %}" href="/tools/bit-cash-ar">
+      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/><path d="M8 12h3M8 15.5h5"/></svg></span>
+      <span class="nav-label">BIT &amp; Cash AR</span></a>{% endif %}
     {% endif %}
 
     {% if request.state.is_admin is not defined or request.state.is_admin %}

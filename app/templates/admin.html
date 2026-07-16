@@ -48,6 +48,7 @@
         <span class="drop-title">{{ u.username }}
           {% if u.is_admin %}<span class="pill pill-ok">Administrator</span>
           {% else %}<span class="pill pill-manual">Employee</span>{% endif %}
+          {% if u.alias %}<span class="pill pill-auto" title="Display alias — uploads show this name">alias: {{ u.alias }}</span>{% endif %}
           {% if u.username == current_user %}<span class="note-inline">(you)</span>{% endif %}
         </span>
         <span class="drop-val">{% if u.is_admin %}full access{% else %}{{ u.access|length }} area(s) granted{% endif %}</span>
@@ -85,6 +86,17 @@
             Save access for {{ u.username }}</button>
         </form>
         {% endif %}
+        <form action="/admin/alias" method="post" style="margin-top:12px;"
+              class="confirm-row">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <label class="field" style="max-width:220px;">
+            <span>Alias (shown as “Uploaded by …” on the cheque register)</span>
+            <input type="text" name="alias" value="{{ u.alias }}"
+                   placeholder="e.g. X1" maxlength="24">
+          </label>
+          <button class="btn btn-small" type="submit" style="align-self:flex-end;">
+            Save alias</button>
+        </form>
         {% if u.username != current_user %}
         <form action="/settings/users/delete" method="post" style="margin-top:12px;"
               onsubmit="return confirm('Remove user {{ u.username }} and their access?');">

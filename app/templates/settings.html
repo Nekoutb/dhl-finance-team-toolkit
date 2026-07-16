@@ -171,41 +171,6 @@
     </form>
   </section>
 
-  <!-- ===== Company identity (compliance checks) ===== -->
-  <section class="panel">
-    <h2 class="section-title">🏢 Company identity — DHL taxpayer ID &amp; legal
-      name</h2>
-    <p class="lead">The Invoice Compliance Engine verifies every vendor invoice
-      is billed to <strong>this</strong> taxpayer ID (NIU) and legal name — a
-      mismatch fails the invoice with the remediation to request a corrected
-      one.</p>
-    <div class="alert alert-{{ 'ok' if cfg.company.niu or cfg.company.legal_name else 'info' }}">
-      {% if cfg.company.niu or cfg.company.legal_name %}
-        <strong>CONFIGURED</strong> — invoices must be billed to
-        {% if cfg.company.legal_name %}<strong>{{ cfg.company.legal_name }}</strong>{% endif %}
-        {% if cfg.company.niu %} (NIU <strong>{{ cfg.company.niu }}</strong>){% endif %}.
-      {% else %}
-        <strong>not configured</strong> — the billed-to checks are skipped
-        until you save DHL's NIU and legal name below.
-      {% endif %}
-    </div>
-    <form action="/settings/company" method="post">
-      <div class="inline-fields" style="margin-bottom:12px;">
-        <label class="field" style="min-width:280px;">
-          <span>DHL taxpayer ID (NIU — 14 characters, e.g. M012345678901A)</span>
-          <input type="text" name="niu" value="{{ cfg.company.niu }}"
-                 placeholder="M…">
-        </label>
-        <label class="field" style="min-width:340px;">
-          <span>DHL legal name (raison sociale, as it must appear on invoices)</span>
-          <input type="text" name="legal_name" value="{{ cfg.company.legal_name }}"
-                 placeholder="DHL EXPRESS CAMEROON SARL">
-        </label>
-      </div>
-      <button class="btn btn-primary" type="submit">Save company identity</button>
-    </form>
-  </section>
-
   <!-- ===== AI document reading ===== -->
   <section class="panel">
     <h2 class="section-title">🤖 AI document reading (Anthropic)</h2>

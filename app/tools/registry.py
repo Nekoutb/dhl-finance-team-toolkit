@@ -3,8 +3,7 @@
 Two business functions (per the user's process landscape):
   - Order to Cash   : receivables — CtP Portal, remittance & allocation,
                       bank statements, cheques, Orange Money receipts
-  - Record to Report: conversions & compliance — invoice allocation,
-                      variance analysis, invoice compliance
+  - Record to Report: conversions — invoice allocation, variance analysis
 
 Add a dict to surface a new tool. ``status: "live"``/"draft" link to a working
 page; ``"coming_soon"`` are placeholders awaiting the user's procedure.
@@ -68,6 +67,18 @@ TOOLS = [
             "the bank, date and amount credited), a red cross when not."
         ),
     },
+    {
+        "slug": "quick-statement",
+        "name": "Quick Account Statement",
+        "category": O2C,
+        "icon": "🧾",
+        "status": "draft",
+        "description": (
+            "Generate a customer account statement in one click, for customer "
+            "requests — built from the open items already on file in the "
+            "latest CtP analysis (no new upload needed)."
+        ),
+    },
     # ---- Record to Report ---------------------------------------------------
     {
         "slug": "vendor-invoice-allocation",
@@ -107,16 +118,15 @@ TOOLS = [
         ),
     },
     {
-        "slug": "invoice-compliance",
-        "name": "Vendor Invoice Compliance Engine",
+        "slug": "bit-cash-ar",
+        "name": "BIT & Cash AR",
         "category": R2R,
-        "icon": "⚖️",
+        "icon": "🏧",
         "status": "draft",
         "description": (
-            "Drop in up to 25 vendor invoices (scans included — AI reads "
-            "them). Each is checked against the CGI: Art. 150 (5) mandatory "
-            "mentions, DGI active-taxpayer status, the no-cash rule and more "
-            "— with a pass/fail verdict and the remediation to take."
+            "Upload the Bank In Transit (BIT) and Cash Account Receivables "
+            "(Cash AR) files. The section discloses the number of OPEN BIT and "
+            "Cash AR items per day and plots them on a daily graph."
         ),
     },
     {

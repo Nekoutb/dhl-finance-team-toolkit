@@ -277,9 +277,37 @@ def delete_user(username):
             a["admins"].remove(username)
         if username in a.get("access", {}):
             del a["access"][username]
+        a.get("aliases", {}).pop(username, None)
         _save_raw(cfg)
         return True
     return False
+
+
+# --- Display aliases (config.auth.aliases = {username: alias}) ---------------
+# Set by an admin; shown instead of the username where uploads are attributed
+# (e.g. the cheque register's "Uploaded by X1").
+def get_alias(auth_cfg, username):
+    return ((auth_cfg.get("aliases") or {}).get(username or "") or "")
+
+
+def alias_map(auth_cfg):
+    return dict(auth_cfg.get("aliases") or {})
+
+
+def set_alias(username, alias):
+    """Set (or clear, with a blank alias) a user's display alias."""
+    username = (username or "").strip()
+    if not username:
+        return False
+    cfg = _load_raw()
+    aliases = cfg.setdefault("auth", {}).setdefault("aliases", {})
+    alias = (alias or "").strip()
+    if alias:
+        aliases[username] = alias
+    else:
+        aliases.pop(username, None)
+    _save_raw(cfg)
+    return True
 
 
 def change_password(username, new_password):

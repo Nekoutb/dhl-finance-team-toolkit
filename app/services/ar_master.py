@@ -146,6 +146,7 @@ def parse_master(path):
             "critical": _is_yes(g("critical")) if "critical" in mapping else False,
             "on_hold": parse_hold_flag(hold_raw) if "hold" in mapping else None,
             "hold_raw": str(hold_raw if hold_raw is not None else "").strip(),
+            "payment_term": str(g("payment_term") or "").strip(),
             "credit_limit": _to_amount(g("credit_limit")) if g("credit_limit") not in (None, "") else None,
             "info": {h: ("" if data.get(h) is None else str(data.get(h)))
                      for h in info_columns},

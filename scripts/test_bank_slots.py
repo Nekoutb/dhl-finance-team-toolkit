@@ -74,22 +74,60 @@ check("all_statement_lines includes the slot's lines", len(rows) > 0)
 check("aggregation groups under the bank name",
       any(s["bank"] == "BICEC" for s in summary))
 
+# --- 4b. PRIOR MONTHS: same bank, different months accumulate ----------------
+t_jun = bank.bank_token("BICEC", "2026-06")
+t_jul = bank.bank_token("BICEC", "2026-07")
+check("different months -> different tokens", t_jun != t_jul != t)
+rep_jun = bank.build_report([(SAMPLE, "jun.xlsx")], token=t_jun,
+                            bank_slot="BICEC", period="2026-06")
+bank.save_report(rep_jun)
+rep_jul = bank.build_report([(SAMPLE, "jul.xlsx")], token=t_jul,
+                            bank_slot="BICEC", period="2026-07")
+bank.save_report(rep_jul)
+months = bank.slot_reports("BICEC")
+check("prior month kept alongside the new one (3 on file incl. legacy)",
+      len(months) == 3)
+check("months sorted newest first",
+      [m.get("period", "") for m in months][:2] == ["2026-07", "2026-06"])
+# same bank + same month still OVERRIDES
+bank.save_report(bank.build_report([(SAMPLE, "jun2.xlsx")], token=t_jun,
+                                   bank_slot="BICEC", period="2026-06"))
+check("same month re-upload overrides (still 3 on file)",
+      len(bank.slot_reports("BICEC")) == 3)
+check("override took the new source",
+      bank.slot_report("BICEC", "2026-06")["source"] == "jun2.xlsx")
+rows_all, _s = bank.all_statement_lines()
+check("cross-tool search sees ALL months' lines",
+      len(rows_all) > len(rows))
+
 # --- 5. HTTP: page renders a slot per configured bank ----------------------
 client = TestClient(main.app, follow_redirects=False)
 page = client.get("/tools/bank-statements")
 check("bank page 200", page.status_code == 200)
 check("shows both configured bank slots",
       "BICEC" in page.text and "Afriland First Bank" in page.text)
+check("month picker on the upload form", 'type="month"' in page.text)
+check("prior months listed on the bank card", "2026-06" in page.text)
 
-# --- 6. HTTP upload targets a slot and overrides ----------------------------
+# --- 6. HTTP upload targets a slot (bank + month) and overrides -------------
+from datetime import datetime as _dt
 with open(SAMPLE, "rb") as fh:
     r = client.post("/tools/bank-statements/upload",
-                    data={"bank": "Afriland First Bank"},
+                    data={"bank": "Afriland First Bank", "period": "2026-05"},
                     files={"file": ("afri.xlsx", fh, XLSX)})
-at = bank.bank_token("Afriland First Bank")
-check("upload redirects to that bank's slot report",
+at = bank.bank_token("Afriland First Bank", "2026-05")
+check("upload redirects to that bank+month's report",
       r.status_code == 303 and r.headers["location"].endswith(f"/results/{at}"))
-check("the slot now holds a statement", bank.slot_report("Afriland First Bank") is not None)
+check("the slot holds the month's statement",
+      bank.slot_report("Afriland First Bank", "2026-05") is not None)
+# a missing/invalid month falls back to the current month
+with open(SAMPLE, "rb") as fh:
+    r = client.post("/tools/bank-statements/upload",
+                    data={"bank": "Afriland First Bank", "period": "bogus"},
+                    files={"file": ("afri2.xlsx", fh, XLSX)})
+cur = bank.bank_token("Afriland First Bank", _dt.now().strftime("%Y-%m"))
+check("invalid month falls back to the current month",
+      r.status_code == 303 and r.headers["location"].endswith(f"/results/{cur}"))
 
 # --- 7. uploading to a non-configured bank is refused -----------------------
 with open(SAMPLE, "rb") as fh:

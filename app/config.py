@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v8.9 — 15 Jul 2026 · Cheque register: fixed cheques stuck on 'reading…' (a write/read race silently killed reader threads — batch files are now written atomically, leftovers retried) and added a Resume-reading button for any stalled upload"
+APP_VERSION = "v9.0 — 16 Jul 2026 · Cheque register: daily totals + graph (on-platform vs unpresented), duplicate-upload detection, uploader aliases (X1/X2), clean statement references; bank statements keep prior months; CtP payments identification + clean held-paying; Quick Account Statement; BIT & Cash AR; Invoice Compliance removed"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -49,13 +49,6 @@ DEFAULT_CONFIG = {
     "ai": {
         "api_key": "",
         "model": "claude-opus-4-8",
-    },
-    # Our own identity, set by the admin in Settings. The invoice compliance
-    # engine verifies every vendor invoice is billed to THIS taxpayer ID and
-    # legal name.
-    "company": {
-        "niu": "",
-        "legal_name": "",
     },
     # Bank statements: the admin defines the banks (one slot each) in Settings.
     # Each configured bank holds exactly one current statement; re-uploading

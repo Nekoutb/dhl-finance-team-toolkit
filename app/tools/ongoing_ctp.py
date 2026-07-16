@@ -318,6 +318,7 @@ def analyze(path, as_of=None, default_rank=51, master=None, tb=None):
             c["master_segment"] = m["segment"]
             c["segment"] = m["segment"] or c.get("segment", "")
             c["critical"] = bool(m.get("critical"))
+            c["payment_term"] = m.get("payment_term", "")
             diff = round(c["total_ar"] - m["balance"], 2)
             if abs(diff) <= max(1.0, abs(m["balance"]) * 0.0001):
                 matched += 1
@@ -558,6 +559,8 @@ def reapply_master(result):
         if m.get("segment"):
             c["segment"] = m["segment"]
         c["critical"] = bool(m.get("critical"))
+        if m.get("payment_term"):
+            c["payment_term"] = m["payment_term"]
         if m.get("plan"):
             c["plan"] = m["plan"]
             c["plan_label"] = ctp_rules.PLAN_LABELS.get(m["plan"], c.get("plan_label"))
