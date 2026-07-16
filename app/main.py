@@ -26,7 +26,7 @@ from .services import (ai_ocr, ar_master, auth, bank_statement,
                        emailer, eno_allocation, holds, remittance_pdf,
                        remittance_store, turnstile, variance,
                        xlsx_report)
-from .tools import bank, bitcash
+from .tools import bank, bitcash, quickstmt
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -2021,17 +2021,17 @@ def _latest_ctp_result():
 
 
 @app.get("/tools/quick-statement", response_class=HTMLResponse)
-def quick_statement_home(request: Request, message: str = "", error: str = ""):
+def quick_statement_home(request: Request, message: str = "", error: str = "",
+                         pdf: str = "", xlsx: str = ""):
     result, _tok = _latest_ctp_result()
-    custs = sorted(({"key": c["key"], "customer": c["customer"],
-                     "total_ar": c["total_ar"]}
-                    for c in (result or {}).get("customers", [])),
-                   key=lambda c: c["customer"])
     return templates.TemplateResponse("quickstmt/index.html", {
         "request": request, "cfg": load_config(), "tool": _QSTMT_TOOL,
-        "message": message, "error": error, "customers": custs,
+        "message": message, "error": error,
+        "customers": quickstmt.picker_entries(result),
         "as_of": (result or {}).get("as_of", ""),
         "source": (result or {}).get("source", ""),
+        "pdf": Path(pdf).name if pdf else "",
+        "xlsx": Path(xlsx).name if xlsx else "",
     })
 
 
@@ -2041,45 +2041,27 @@ def quick_statement_generate(request: Request, key: str = ""):
     if not result:
         return RedirectResponse("/tools/quick-statement?error=No CtP analysis "
                                 "on file yet — run one first.", status_code=303)
-    key = (key or "").strip()
-    cust = next((c for c in result["customers"] if str(c["key"]) == key), None)
-    if not cust:
+    data = quickstmt.statement_data(result, (key or "").strip())
+    if data is None:
         return RedirectResponse("/tools/quick-statement?error=Choose a "
                                 "customer from the list.", status_code=303)
-    items = [i for i in result["invoices"]
-             if str(i.get("account") or i.get("customer")) == key]
-    items.sort(key=lambda i: str(i.get("invoice_date") or ""))
-    transactions = [{
-        "Document": i.get("invoice_no") or i.get("reference") or "—",
-        "Type": "Invoice" if i.get("kind") == "invoice" else "Credit/Payment",
-        "Invoice date": str(i.get("invoice_date") or ""),
-        "Due date": str(i.get("due_date") or ""),
-        "Days overdue": i.get("days_overdue", 0),
-        "Amount": f"{i.get('amount', 0):,.0f}",
-    } for i in items]
-    total = sum(i.get("amount", 0) for i in items)
-    overdue = sum(i.get("amount", 0) for i in items
-                  if i.get("kind") == "invoice" and i.get("days_overdue", 0) > 0)
-    cfg = load_config()
-    out = OUTPUT_DIR / (f"Statement_{re.sub(r'[^A-Za-z0-9_-]', '_', key)[:24]}"
-                        f"_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
-    from .services import pdf_writer
-    pdf_writer.build_pdf(
-        out,
-        company=cfg.get("organization", ""),
-        document_title=f"Account statement — {cust['customer']}",
-        metadata=[
-            f"As of {result.get('as_of', '')} · source: {result.get('source', '')}",
-            f"Open balance: {total:,.0f} {(result.get('currencies') or ['XAF'])[0]}"
-            f" · of which overdue: {overdue:,.0f}",
-            f"Generated on request · {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        ],
-        transactions=transactions,
-        customer_name=cust["customer"],
-        customer_account=str(cust["key"]),
-        layout="table",
-    )
-    return FileResponse(out, media_type="application/pdf", filename=out.name)
+    # Unguessable suffix — /download is filename-keyed.
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", data["customer"])[:28]
+    stem = f"Statement_{safe}_{datetime.now().strftime('%Y%m%d')}_" \
+           f"{uuid.uuid4().hex[:8]}"
+    pdf_path = OUTPUT_DIR / f"{stem}.pdf"
+    xlsx_path = OUTPUT_DIR / f"{stem}.xlsx"
+    quickstmt.build_statement_pdf(pdf_path, data)
+    quickstmt.build_statement_xlsx(xlsx_path, data)
+    note = (f" ({len(data['accounts'])} accounts combined — same customer "
+            "name)") if data["combined"] else ""
+    return RedirectResponse(
+        "/tools/quick-statement?" + urlencode({
+            "message": f"Statement ready for {data['customer']}{note} — "
+                       f"{len(data['rows'])} open item(s), total "
+                       f"{data['total']:,.0f} {data['currency']}.",
+            "pdf": pdf_path.name, "xlsx": xlsx_path.name}),
+        status_code=303)
 
 
 # --------------------------------------------------------------------------- #

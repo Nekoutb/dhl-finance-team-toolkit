@@ -468,10 +468,13 @@ def build_journal(out_path, now=None):
     {count, lines, name} or None when nothing is approved/complete."""
     import openpyxl
 
+    from openpyxl.styles import Font
+
     approved = [r for r in list_recons() if r.get("status") == "approved"
                 and r.get("bit_selected") is not None and r.get("ar_selected")]
     if not approved:
         return None
+    arial = Font(name="Arial", size=10)
     now = now or datetime.now()
     data = rows_store()
     bit_by_id = {r["id"]: r for r in data["bit"]}
@@ -520,6 +523,8 @@ def build_journal(out_path, now=None):
             asg = ws.cell(row=r, column=14)                          # Assignment
             asg.value = str(assignment)
             asg.number_format = "@"
+            for col in range(1, 15):        # uniform Arial 10, no stray colours
+                ws.cell(row=r, column=col).font = arial
             r += 1
             lines += 1
 
@@ -530,9 +535,12 @@ def build_journal(out_path, now=None):
         bd = wb[bd_name]
         for i, bit in enumerate(bank_rows, start=2):
             for c, val in enumerate(bit.get("raw", []), start=1):
-                bd.cell(row=i, column=c,
-                        value=(float(val) if re.fullmatch(r"-?\d+\.?\d*", val)
-                               and c not in (9,) else val) if val else None)
+                cell = bd.cell(row=i, column=c,
+                               value=(float(val)
+                                      if re.fullmatch(r"-?\d+\.?\d*", val)
+                                      and c not in (9,) else val) if val
+                               else None)
+                cell.font = arial
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

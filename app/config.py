@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v9.1 — 16 Jul 2026 · BIT & Cash AR reconciliation: upload a customer payment statement (scans AI-read) — invoices identified in the Cash AR, the total in the BIT (duplicates flagged), a sandbox to adjust/approve, and one-click CM01 journal-entry generation from approved reconciliations"
+APP_VERSION = "v9.2 — 16 Jul 2026 · CM01 journal harmonised (Arial 10, clean colours, frozen headers); Quick Statement rebuilt: DHL-letterheaded PDF + Excel with the French credit-control letter, full invoice detail (reference, dates, terms, ageing, account) and automatic combining of same-name accounts"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

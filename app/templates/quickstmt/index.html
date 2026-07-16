@@ -9,6 +9,13 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+    {% if pdf or xlsx %}
+    <div class="download-row" style="margin:10px 0 14px;">
+      {% if pdf %}<a class="btn btn-primary" href="/download/{{ pdf }}">⬇ Download the statement (PDF)</a>{% endif %}
+      {% if xlsx %}<a class="btn" href="/download/{{ xlsx }}">⬇ Download the statement (Excel)</a>{% endif %}
+    </div>
+    {% endif %}
+
     {% if not customers %}
       <div class="alert alert-info">No CtP analysis on file yet — run one in the
         <a href="/tools/ongoing-ctp-monitoring">CtP Portal</a> and the customer
@@ -16,7 +23,7 @@
     {% else %}
       <div class="alert alert-ok">Statements are built from the latest analysis
         — as of <strong>{{ as_of }}</strong> ({{ source }}),
-        {{ customers|length }} customer(s) on file.</div>
+        {{ customers|length }} account(s) on file.</div>
 
       <form action="/tools/quick-statement/generate" method="get"
             class="upload-form">
@@ -27,16 +34,19 @@
                  autocomplete="off">
           <datalist id="qs-customers">
             {% for c in customers %}
-            <option value="{{ c.key }}">{{ c.customer }} — {{ "{:,.0f}".format(c.total_ar) }} open</option>
+            <option value="{{ c.key }}">{{ c.customer }} — {{ "{:,.0f}".format(c.total_ar) }} open{% if c.related %} · +{{ c.related }} more account(s), same name — combined{% endif %}</option>
             {% endfor %}
           </datalist>
         </label>
-        <button class="btn btn-primary" type="submit">🧾 Generate statement (PDF)</button>
+        <button class="btn btn-primary" type="submit">🧾 Generate statement (PDF + Excel)</button>
       </form>
-      <p class="note-small">One click: the PDF downloads immediately, listing
-        every open item on the customer's account (invoices, credits and
-        payments on account) with due dates, days overdue and the open balance
-        — ready to send to the customer.</p>
+      <p class="note-small">One click produces <strong>both versions</strong> —
+        a DHL-letterheaded PDF (with the credit-control letter in French) and
+        an Excel workbook — listing every open item with its invoice reference,
+        issue date, due date, amount, payment terms, ageing (from the invoice
+        date) and account number. When the <strong>same customer name</strong>
+        exists under <strong>two or more account numbers</strong>, the
+        statement combines those accounts automatically — and only then.</p>
     {% endif %}
   </section>
 {% endblock %}

@@ -218,9 +218,18 @@ amounts_40 = sum(r[11] for r in rows if r[10] == 40)
 amounts_15 = sum(r[11] for r in rows if r[10] == 15)
 check("document balances (40 total == 15 total)", amounts_40 == amounts_15)
 
+# formatting harmonised: frozen headers, Arial 10, no stray fills on data rows
+check("CM01 headers frozen at row 4", ws.freeze_panes == "A4")
+c4 = ws.cell(row=4, column=2)
+check("journal lines written in Arial 10",
+      c4.font.name == "Arial" and c4.font.size == 10)
+check("no leftover colour on data rows", ws.cell(row=5, column=12).fill.fill_type is None)
+
 bd = wb["BANK DETAILS "]
 check("BANK DETAILS lists the journal's BIT line",
       str(bd.cell(row=2, column=9).value) == "0534527700018")
+check("BANK DETAILS header frozen + Arial",
+      bd.freeze_panes == "A2" and bd.cell(row=2, column=1).font.name == "Arial")
 ck = wb["CHECK"]
 f = ck.cell(row=5, column=3).value
 check("CHECK formulas re-pointed at the renamed tab",
