@@ -11,7 +11,7 @@
     <section class="panel">
       <h1>Reading your bank statement(s)…</h1>
       <p class="lead">Started {{ r.created_at }} · {{ r.file_count }} file(s).
-        PDF statements are read by AI — this can take a minute or two for a
+        PDF statements are read automatically — this can take a minute or two for a
         multi-page statement. This page refreshes itself automatically.</p>
       <div class="progress"><i style="width:45%"></i></div>
       <p class="note-small">You can leave this page and reopen the report later
@@ -22,8 +22,8 @@
       <h1>Could not read the statement(s)</h1>
       <div class="alert alert-error">{{ r.error }}</div>
       <p class="note-small">If this is a large PDF, split it into fewer pages and
-        try again. For scanned PDFs, ensure the Anthropic API key is set under
-        <a href="/settings">Settings → AI document reading</a>.</p>
+        try again. For scanned PDFs, ensure the document-reading key is set under
+        <a href="/settings">Settings → Document reading</a>.</p>
       <div class="download-row">
         <a class="btn btn-primary" href="/tools/bank-statements">Try another statement</a>
       </div>
@@ -48,7 +48,7 @@
           <tr>
             <td><strong>{{ b.bank }}</strong></td>
             <td>{{ b.source }}</td>
-            <td>{% if b.method == 'AI reader' %}<span class="pill pill-ok">AI reader</span>{% else %}<span class="pill pill-manual">table reader</span>{% endif %}</td>
+            <td>{% if b.method == 'scan reader' %}<span class="pill pill-ok">scan reader</span>{% else %}<span class="pill pill-manual">table reader</span>{% endif %}</td>
             <td>{{ b.line_count if b.line_count is defined else '—' }}</td>
             <td>{{ b.credit_count }}</td>
             <td>{{ "{:,.0f}".format(b.total_credited) }}</td>
@@ -61,9 +61,9 @@
     {% endif %}
     {% if s.credit_count == 0 %}
     <div class="alert alert-warn">No credit (incoming) transactions were read
-      from the statement(s). If these are PDF statements, set the Anthropic API
-      key under <a href="/settings">Settings → AI document reading</a> so they
-      are read by AI; otherwise check the file has a credit/“Crédit” column.</div>
+      from the statement(s). If these are PDF statements, set the reading service
+      key under <a href="/settings">Settings → Document reading</a> so they
+      are read automatically; otherwise check the file has a credit/“Crédit” column.</div>
     {% endif %}
 
     <div class="kpi-strip">

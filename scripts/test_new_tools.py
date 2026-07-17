@@ -1,5 +1,5 @@
-"""Quick Account Statement (one-click customer statement PDF) and
-BIT & Cash AR (open-items counting + daily graph)."""
+"""Quick Account Statement (one-click customer statement, Excel only) and
+BIT & Cash AR (open-items counting + daily graph + file freshness)."""
 import sys
 import tempfile
 from datetime import date
@@ -30,7 +30,7 @@ def check(label, cond):
 
 client = TestClient(main.app, follow_redirects=False)
 
-# === 1. Quick Account Statement (PDF + Excel, same-name combining) ==========
+# === 1. Quick Account Statement (Excel only, same-name combining) ===========
 from urllib.parse import parse_qs, urlparse  # noqa: E402
 
 from app.tools import quickstmt  # noqa: E402
@@ -68,39 +68,37 @@ try:
           all(k in d["rows"][0] for k in ("reference", "issue_date", "due_date",
                                           "amount", "payment_terms", "ageing",
                                           "account")))
-    check("ageing bucketed from the invoice date",
-          quickstmt.ageing_bucket("2026-05-20", "2026-06-13") == "0-30"
-          and quickstmt.ageing_bucket("2026-01-01", "2026-06-13") == "121-180")
+    check("ageing = days since the invoice issue date",
+          quickstmt.ageing_days("2026-05-20", date(2026, 6, 13)) == 24
+          and quickstmt.ageing_days("2026-01-01", date(2026, 6, 13)) == 163
+          and quickstmt.ageing_days("") is None)
+    check("row ageing is numeric (days) and issue date filled",
+          isinstance(d["rows"][0]["ageing"], int) and d["rows"][0]["issue_date"])
+    check("payment terms carried on every row (TB value)",
+          all(r_["payment_terms"] for r_ in d["rows"]))
 
     r = client.get("/tools/quick-statement/generate?key=1004000001",
                    follow_redirects=False)
-    check("generate -> redirect with both files", r.status_code == 303
-          and "pdf=" in r.headers["location"]
-          and "xlsx=" in r.headers["location"])
+    check("generate -> redirect with the Excel only", r.status_code == 303
+          and "xlsx=" in r.headers["location"]
+          and "pdf=" not in r.headers["location"])
     qs = parse_qs(urlparse(r.headers["location"]).query)
-    pdf_name, xlsx_name = qs["pdf"][0], qs["xlsx"][0]
+    xlsx_name = qs["xlsx"][0]
 
-    rp = client.get(f"/download/{pdf_name}")
-    check("PDF downloads", rp.status_code == 200 and rp.content[:4] == b"%PDF")
-    import pdfplumber
     from io import BytesIO
-    with pdfplumber.open(BytesIO(rp.content)) as pdf:
-        text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-    check("PDF carries the French credit-control letter",
-          "Cher Client" in text and "camerouncredit@dhl.com" in text
-          and "mybill.dhl.com" in text)
-    check("PDF lists both combined accounts",
-          "1004000001" in text and "1004999999" in text and "TWIN-0001" in text)
-
     rx = client.get(f"/download/{xlsx_name}")
     check("Excel downloads", rx.status_code == 200 and rx.content[:2] == b"PK")
     import openpyxl as _px
-    wsx = _px.load_workbook(BytesIO(rx.content))["Statement"]
+    wbx = _px.load_workbook(BytesIO(rx.content))
+    wsx = wbx["Statement"]
     all_text = " ".join(str(c.value) for row in wsx.iter_rows()
                         for c in row if c.value is not None)
-    check("Excel carries the letter + details + both accounts",
-          "Cher Client" in all_text and "Référence facture" in all_text
-          and "1004999999" in all_text)
+    check("Excel carries the details + both accounts",
+          "Référence facture" in all_text and "Date d'émission" in all_text
+          and "Ageing (jours)" in all_text and "Termes de paiement" in all_text
+          and "1004999999" in all_text and "TWIN-0001" in all_text)
+    check("no letter, no logo — clean statement",
+          "Cher Client" not in all_text and not getattr(wsx, "_images", []))
     check("Excel header frozen", wsx.freeze_panes not in (None, "A1"))
 
     r = client.get("/tools/quick-statement/generate?key=nope",
@@ -113,7 +111,7 @@ try:
           any(c.get("payment_term") for c in res["customers"]))
 finally:
     (ctp.STORE_DIR / "aab0c5522.json").unlink(missing_ok=True)
-print("ok: quick account statement — PDF + Excel, DHL letter, same-name combining")
+print("ok: quick account statement — Excel only, days ageing, same-name combining")
 
 # === 2. BIT & Cash AR ========================================================
 bitcash.STORE_PATH = _tmp / "bitcash.json"
@@ -160,6 +158,9 @@ page = client.get("/tools/bit-cash-ar")
 check("page shows open counts", ">2<" in page.text and ">4<" in page.text)
 check("daily graph plotted", "<svg" in page.text
       and "Open BIT items" in page.text)
+check("file freshness banners shown (uploaded today)",
+      "BIT on record:" in page.text and "Cash AR on record:" in page.text
+      and "(today)" in page.text)
 
 r = client.post("/tools/bit-cash-ar/upload")
 check("no file -> friendly 400", r.status_code == 400)

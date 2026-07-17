@@ -87,8 +87,8 @@ try:
     pdf.write_bytes(b"%PDF-1.4 dummy")
     try:
         rep2 = bank.build_report([(pdf, "SGBC.pdf")], ai_cfg={"api_key": "x"})
-        check("PDF read via AI reader", rep2["summary"]["ai_used"]
-              and rep2["banks"][0]["method"] == "AI reader")
+        check("PDF read via scan reader", rep2["summary"]["ai_used"]
+              and rep2["banks"][0]["method"] == "scan reader")
         check("AI credit captured", rep2["summary"]["total_credited"] == 2400000)
         check("AI payer grouped", any("DELTA" in p["payer"].upper()
                                       for p in rep2["payments_by_payer"]))

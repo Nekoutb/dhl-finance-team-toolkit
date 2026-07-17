@@ -1,4 +1,4 @@
-"""AI reading of scanned vendor invoices via the Anthropic API.
+"""Document reading of scanned vendor invoices via the reading service.
 
 ENEO invoices arrive as image-only scans (no text layer), so pdfplumber/pypdf
 extract nothing — this module sends the PDF itself to Claude, which reads the
@@ -106,10 +106,10 @@ def extract_eneo_invoice(pdf_bytes, expected_refs, ai_cfg):
     api_key = (ai_cfg or {}).get("api_key", "").strip()
     if not api_key:
         raise AiNotConfigured(
-            "No Anthropic API key saved — paste it under Settings → "
-            "AI document reading.")
+            "No document-reading key saved — paste it under Settings → "
+            "Document reading.")
     if len(pdf_bytes) > MAX_PDF_BYTES:
-        raise AiReadError("That PDF is too large to send for AI reading "
+        raise AiReadError("That PDF is too large to send for Document reading "
                           "(over 30 MB).")
 
     import anthropic
@@ -141,19 +141,19 @@ def extract_eneo_invoice(pdf_bytes, expected_refs, ai_cfg):
             },
         )
     except anthropic.AuthenticationError:
-        raise AiReadError("The Anthropic API key was rejected — check it "
-                          "under Settings → AI document reading.")
+        raise AiReadError("The document-reading key was rejected — check it "
+                          "under Settings → Document reading.")
     except anthropic.PermissionDeniedError:
-        raise AiReadError("The Anthropic API key lacks permission for this "
+        raise AiReadError("The document-reading key lacks permission for this "
                           "model — check your console.anthropic.com plan.")
     except anthropic.RateLimitError:
-        raise AiReadError("The Anthropic API is rate-limiting us — wait a "
+        raise AiReadError("The reading service is rate-limiting us — wait a "
                           "minute and try again.")
     except anthropic.APIStatusError as exc:
-        raise AiReadError(f"Anthropic API error ({exc.status_code}) — try "
+        raise AiReadError(f"reading service error ({exc.status_code}) — try "
                           "again shortly.")
     except anthropic.APIConnectionError:
-        raise AiReadError("Could not reach the Anthropic API — check the "
+        raise AiReadError("Could not reach the reading service — check the "
                           "server's internet connection.")
 
     if response.stop_reason == "max_tokens":
@@ -278,8 +278,8 @@ def extract_cheque(file_bytes, media_type, ai_cfg):
     api_key = (ai_cfg or {}).get("api_key", "").strip()
     if not api_key:
         raise AiNotConfigured(
-            "No Anthropic API key saved — paste it under Settings → "
-            "AI document reading.")
+            "No document-reading key saved — paste it under Settings → "
+            "Document reading.")
     if len(file_bytes) > MAX_PDF_BYTES:
         raise AiReadError("That cheque scan is too large to send for AI "
                           "reading (over 30 MB).")
@@ -312,15 +312,15 @@ def extract_cheque(file_bytes, media_type, ai_cfg):
             },
         )
     except anthropic.AuthenticationError:
-        raise AiReadError("The Anthropic API key was rejected — check it "
-                          "under Settings → AI document reading.")
+        raise AiReadError("The document-reading key was rejected — check it "
+                          "under Settings → Document reading.")
     except anthropic.RateLimitError:
-        raise AiReadError("Rate-limited by the Anthropic API — re-run this "
+        raise AiReadError("Rate-limited by the reading service — re-run this "
                           "cheque in a minute.")
     except anthropic.APIStatusError as exc:
-        raise AiReadError(f"Anthropic API error ({exc.status_code}).")
+        raise AiReadError(f"reading service error ({exc.status_code}).")
     except anthropic.APIConnectionError:
-        raise AiReadError("Could not reach the Anthropic API.")
+        raise AiReadError("Could not reach the reading service.")
 
     if response.stop_reason == "max_tokens":
         raise AiReadError("The AI reply was cut off — re-run this cheque.")
@@ -429,10 +429,10 @@ def extract_bank_statement(file_bytes, media_type, ai_cfg):
     api_key = (ai_cfg or {}).get("api_key", "").strip()
     if not api_key:
         raise AiNotConfigured(
-            "No Anthropic API key saved — paste it under Settings → "
-            "AI document reading.")
+            "No document-reading key saved — paste it under Settings → "
+            "Document reading.")
     if len(file_bytes) > MAX_PDF_BYTES:
-        raise AiReadError("That statement is too large to send for AI reading "
+        raise AiReadError("That statement is too large to send for Document reading "
                           "(over 30 MB).")
 
     b64 = base64.standard_b64encode(file_bytes).decode("ascii")
@@ -463,15 +463,15 @@ def extract_bank_statement(file_bytes, media_type, ai_cfg):
             },
         )
     except anthropic.AuthenticationError:
-        raise AiReadError("The Anthropic API key was rejected — check it "
-                          "under Settings → AI document reading.")
+        raise AiReadError("The document-reading key was rejected — check it "
+                          "under Settings → Document reading.")
     except anthropic.RateLimitError:
-        raise AiReadError("Rate-limited by the Anthropic API — try again in a "
+        raise AiReadError("Rate-limited by the reading service — try again in a "
                           "minute.")
     except anthropic.APIStatusError as exc:
-        raise AiReadError(f"Anthropic API error ({exc.status_code}).")
+        raise AiReadError(f"reading service error ({exc.status_code}).")
     except anthropic.APIConnectionError:
-        raise AiReadError("Could not reach the Anthropic API.")
+        raise AiReadError("Could not reach the reading service.")
 
     if response.stop_reason == "max_tokens":
         raise AiReadError("The statement was too long to read in one pass — "
@@ -557,10 +557,10 @@ def extract_payment_statement(file_bytes, media_type, ai_cfg):
     api_key = (ai_cfg or {}).get("api_key", "").strip()
     if not api_key:
         raise AiNotConfigured(
-            "No Anthropic API key saved — paste it under Settings → "
-            "AI document reading.")
+            "No document-reading key saved — paste it under Settings → "
+            "Document reading.")
     if len(file_bytes) > MAX_PDF_BYTES:
-        raise AiReadError("That statement is too large to send for AI reading "
+        raise AiReadError("That statement is too large to send for Document reading "
                           "(over 30 MB).")
 
     b64 = base64.standard_b64encode(file_bytes).decode("ascii")
@@ -592,15 +592,15 @@ def extract_payment_statement(file_bytes, media_type, ai_cfg):
             },
         )
     except anthropic.AuthenticationError:
-        raise AiReadError("The Anthropic API key was rejected — check it "
-                          "under Settings → AI document reading.")
+        raise AiReadError("The document-reading key was rejected — check it "
+                          "under Settings → Document reading.")
     except anthropic.RateLimitError:
-        raise AiReadError("Rate-limited by the Anthropic API — try again in a "
+        raise AiReadError("Rate-limited by the reading service — try again in a "
                           "minute.")
     except anthropic.APIStatusError as exc:
-        raise AiReadError(f"Anthropic API error ({exc.status_code}).")
+        raise AiReadError(f"reading service error ({exc.status_code}).")
     except anthropic.APIConnectionError:
-        raise AiReadError("Could not reach the Anthropic API.")
+        raise AiReadError("Could not reach the reading service.")
 
     if response.stop_reason == "max_tokens":
         raise AiReadError("The statement was too long to read in one pass — "

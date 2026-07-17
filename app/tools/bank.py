@@ -61,8 +61,8 @@ def _latest_ar_customers():
 
 def _read_statement(path, source, ai_cfg):
     """Read ONE statement into normalised lines. PDF/image statements are read
-    by the AI document reader (when an API key is set); spreadsheets — and any
-    file the AI can't read — use the column-based table reader.
+    by the document reader (when a key is set); spreadsheets — and any
+    file it can't read — use the column-based table reader.
 
     Returns (lines, bank_name, method, note). Each line has description, payer,
     credit, debit, date, amount, text.
@@ -83,18 +83,18 @@ def _read_statement(path, source, ai_cfg):
                 "text": (ln.get("payer", "") + " " + ln["description"]).strip(),
             } for ln in data["lines"]]
             return lines, (data.get("bank_name") or detect_bank([], source)), \
-                "AI reader", ""
+                "scan reader", ""
         except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
-            note = f"AI read failed ({exc}); used the table reader."
+            note = f"Scan read failed ({exc}); used the table reader."
         except Exception as exc:  # noqa: BLE001
-            note = f"AI read error ({type(exc).__name__}); used the table reader."
+            note = f"Scan read error ({type(exc).__name__}); used the table reader."
         parsed = bank_statement.read_bank(path)
         return parsed["lines"], detect_bank(parsed["metadata"], source), \
             "table reader", note
     parsed = bank_statement.read_bank(path)
     note = ("" if ext not in _AI_EXT
-            else "Configure the Anthropic API key (Settings → AI document "
-                 "reading) so PDF statements are read by AI.")
+            else "Add the document-reading key in Settings so scanned PDF "
+                 "statements can be read in full.")
     return parsed["lines"], detect_bank(parsed["metadata"], source), \
         "table reader", note
 
@@ -136,7 +136,7 @@ def slot_reports(bank_name):
 
 def build_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     """``files`` = list of (path, source_name) — up to MAX_FILES statements,
-    combined into one collection report. PDF/scanned statements are read by AI
+    combined into one collection report. PDF/scanned statements are read automatically
     when ``ai_cfg`` has an API key.
 
     ``token`` pins the report id (a bank slot reuses its stable token so an
@@ -264,7 +264,7 @@ def _assemble_report(credits, statement_lines, banks, debits_total, *,
             "first_date": daily_rows[0]["date"] if daily_rows else "",
             "last_date": daily_rows[-1]["date"] if daily_rows else "",
             "payer_count": len(payments_by_payer),
-            "ai_used": any(b.get("method") == "AI reader" for b in banks),
+            "ai_used": any(b.get("method") == "scan reader" for b in banks),
         },
         "matched": matched,
         "unmatched": sorted(unmatched, key=lambda l: -l["credit"]),
@@ -298,7 +298,7 @@ def refresh_report(token):
 def start_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     """Kick off the report on a BACKGROUND thread and return its token at once.
 
-    Reading PDF statements with the AI can take a minute or more; doing it in
+    Reading PDF statements can take a minute or more; doing it in
     the request would hit the reverse-proxy timeout (502). The results page
     polls the saved report until ``status`` flips from 'running' to 'done'.
 

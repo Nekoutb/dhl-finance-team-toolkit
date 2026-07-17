@@ -5,7 +5,7 @@
 
   <section class="panel">
     <h1>⚙️ Settings</h1>
-    <p class="lead">Staff users, your password, AI document reading, and the
+    <p class="lead">Staff users, your password, document reading, and the
       email (SMTP) server.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
@@ -171,31 +171,27 @@
     </form>
   </section>
 
-  <!-- ===== AI document reading ===== -->
+  <!-- ===== Document reading ===== -->
   <section class="panel">
-    <h2 class="section-title">🤖 AI document reading (Anthropic)</h2>
-    <p class="lead">Scanned invoices (like the ENEO bill) have no text layer, so
-      they can't be read by normal extraction. Paste your Anthropic API key from
-      <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>
-      and the platform reads them with AI — e.g. prefill the per-customer
-      amounts on the Invoice Allocation tool. The key is stored only in the
-      server's config file, never in code.</p>
+    <h2 class="section-title">🔎 Document reading</h2>
+    <p class="lead">Scanned documents (PDFs and photos with no text layer) need
+      the document-reading engine. Paste the access key below to enable it —
+      the key is stored only in the server's config file, never in code.</p>
 
     <div class="alert alert-{{ 'ok' if ai_ready else 'info' }}">
       Current status:
-      {% if ai_ready %}<strong>CONFIGURED</strong> — AI invoice reading is on
-        (model {{ ai.model }}).
-      {% else %}<strong>not configured</strong> — paste your API key below to
-        enable AI invoice reading.{% endif %}
+      {% if ai_ready %}<strong>CONFIGURED</strong> — document reading is on.
+      {% else %}<strong>not configured</strong> — paste the access key below to
+        enable document reading.{% endif %}
     </div>
 
     <form action="/settings/ai" method="post">
       <div class="inline-fields" style="margin-bottom:12px;">
         <label class="field" style="min-width:380px;">
-          <span>Anthropic API key
+          <span>Access key
             {% if ai_ready %}(saved — leave blank to keep){% endif %}</span>
           <input type="password" name="api_key" value="" autocomplete="off"
-                 placeholder="{{ '••••••••  (saved)' if ai_ready else 'sk-ant-…' }}">
+                 placeholder="{{ '••••••••  (saved)' if ai_ready else 'access key…' }}">
         </label>
         {% if ai_ready %}
         <label class="field" style="min-width:140px;">
@@ -205,13 +201,13 @@
         </label>
         {% endif %}
       </div>
-      <button class="btn btn-primary" type="submit">Save AI settings</button>
+      <button class="btn btn-primary" type="submit">Save document reading</button>
     </form>
 
     {% if ai_ready %}
     <form action="/settings/ai/test" method="post" style="margin-top:12px;">
       <button class="btn" type="submit">Test the key now</button>
-      <span class="note-inline">runs a tiny API call to prove the key works</span>
+      <span class="note-inline">runs a quick check that the key works</span>
     </form>
     {% endif %}
   </section>

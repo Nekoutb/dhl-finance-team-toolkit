@@ -1411,7 +1411,7 @@ async def alloc_eno_extract(request: Request):
         extraction = ai_ocr.extract_eneo_invoice(pdf_bytes, refs, cfg.get("ai"))
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
         return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
-            request, error=f"AI reading failed: {exc}"))
+            request, error=f"Document reading failed: {exc}"))
 
     # Stage the PDF so Generate can attach it without a re-upload.
     pdf_token = uuid.uuid4().hex[:12]
@@ -1423,7 +1423,7 @@ async def alloc_eno_extract(request: Request):
                for cid in refs if cid in extraction["lines"]}
     extra_refs = [r for r in extraction["lines"] if r not in refs]
     matched = len(prefill)
-    note = (f"AI read the invoice — {matched}/{len(refs)} customer "
+    note = (f"Invoice read — {matched}/{len(refs)} customer "
             f"reference(s) matched and prefilled. Review the amounts, "
             f"adjust if needed, then build the répartition.")
     if extra_refs:
@@ -1704,8 +1704,8 @@ async def cheque_upload(request: Request):
     cfg = load_config()
     if not ai_ocr.is_configured(cfg):
         return templates.TemplateResponse("cheques/index.html", _cheque_ctx(
-            request, error="AI reading is not configured — paste your "
-            "Anthropic API key under Settings → AI document reading first."))
+            request, error="Document reading is not configured — paste your "
+            "document-reading key under Settings → Document reading first."))
     form = await request.form()
     cheque_uploads = [u for u in form.getlist("cheques")
                       if u is not None and getattr(u, "filename", "")]
@@ -1756,7 +1756,7 @@ async def cheque_upload(request: Request):
 
 @app.post("/tools/cheque-processing/register/resume")
 async def cheque_register_resume(request: Request):
-    # Restart the background AI reader for any upload stuck with pending
+    # Restart the background scan reader for any upload stuck with pending
     # cheques (stalled read / service restart mid-batch).
     n = cheques.resume_pending()
     if not n:
@@ -2022,7 +2022,7 @@ def _latest_ctp_result():
 
 @app.get("/tools/quick-statement", response_class=HTMLResponse)
 def quick_statement_home(request: Request, message: str = "", error: str = "",
-                         pdf: str = "", xlsx: str = ""):
+                         xlsx: str = ""):
     result, _tok = _latest_ctp_result()
     return templates.TemplateResponse("quickstmt/index.html", {
         "request": request, "cfg": load_config(), "tool": _QSTMT_TOOL,
@@ -2030,7 +2030,6 @@ def quick_statement_home(request: Request, message: str = "", error: str = "",
         "customers": quickstmt.picker_entries(result),
         "as_of": (result or {}).get("as_of", ""),
         "source": (result or {}).get("source", ""),
-        "pdf": Path(pdf).name if pdf else "",
         "xlsx": Path(xlsx).name if xlsx else "",
     })
 
@@ -2049,9 +2048,7 @@ def quick_statement_generate(request: Request, key: str = ""):
     safe = re.sub(r"[^A-Za-z0-9_-]", "_", data["customer"])[:28]
     stem = f"Statement_{safe}_{datetime.now().strftime('%Y%m%d')}_" \
            f"{uuid.uuid4().hex[:8]}"
-    pdf_path = OUTPUT_DIR / f"{stem}.pdf"
     xlsx_path = OUTPUT_DIR / f"{stem}.xlsx"
-    quickstmt.build_statement_pdf(pdf_path, data)
     quickstmt.build_statement_xlsx(xlsx_path, data)
     note = (f" ({len(data['accounts'])} accounts combined — same customer "
             "name)") if data["combined"] else ""
@@ -2060,7 +2057,7 @@ def quick_statement_generate(request: Request, key: str = ""):
             "message": f"Statement ready for {data['customer']}{note} — "
                        f"{len(data['rows'])} open item(s), total "
                        f"{data['total']:,.0f} {data['currency']}.",
-            "pdf": pdf_path.name, "xlsx": xlsx_path.name}),
+            "xlsx": xlsx_path.name}),
         status_code=303)
 
 
@@ -2070,8 +2067,22 @@ def quick_statement_generate(request: Request, key: str = ""):
 _BITCASH_TOOL = registry.by_slug("bit-cash-ar")
 
 
+def _file_age_days(uploaded):
+    """Days since an upload timestamp ('%Y-%m-%d %H:%M'), or None."""
+    try:
+        return (datetime.now()
+                - datetime.strptime(uploaded, "%Y-%m-%d %H:%M")).days
+    except (TypeError, ValueError):
+        return None
+
+
 def _bitcash_home(request, error="", message="", status_code=200):
     st = bitcash.status()
+    # Age of the files on record, so stale BIT / Cash AR files stand out.
+    for kind in ("bit", "cash"):
+        cur = st["current"].get(kind)
+        if cur:
+            cur["age_days"] = _file_age_days(cur.get("uploaded", ""))
     history = st["history"]
     chart = charts.line_svg(
         [d[5:] for d, _v in history],
@@ -2143,9 +2154,9 @@ async def bitcash_recon_upload(request: Request,
     else:
         media = ai_ocr.media_type_for(statement.filename) or "application/pdf"
         if not ai_ocr.is_configured(load_config()):
-            return _bitcash_home(request, error="AI reading is not configured "
-                                 "— paste the Anthropic API key under Settings "
-                                 "→ AI document reading to read scanned "
+            return _bitcash_home(request, error="Document reading is not configured "
+                                 "— paste the document-reading key under Settings "
+                                 "→ Document reading to read scanned "
                                  "statements.", status_code=400)
     dest = UPLOAD_DIR / f"stmt_{uuid.uuid4().hex[:8]}{ext}"
     dest.write_bytes(await statement.read())
@@ -2422,9 +2433,9 @@ async def settings_ai_save(request: Request):
         # Blank field keeps the stored key (so saving twice is harmless).
         api_key_value = api_key if api_key else cfg.get("ai", {}).get("api_key", "")
     new_cfg = save_user_config({"ai": {"api_key": api_key_value}})
-    state = ("saved — AI invoice reading is ON"
-             if new_cfg["ai"]["api_key"] else "cleared — AI reading is OFF")
-    return RedirectResponse(f"/settings?message=Anthropic API key {state}.",
+    state = ("saved — document reading is ON"
+             if new_cfg["ai"]["api_key"] else "cleared — Document reading is OFF")
+    return RedirectResponse(f"/settings?message=document-reading key {state}.",
                             status_code=303)
 
 
@@ -2437,10 +2448,10 @@ async def settings_ai_test(request: Request):
     try:
         ai_ocr.test_key(cfg.get("ai"))
         return RedirectResponse(
-            "/settings?message=✓ Anthropic API key works — AI invoice "
+            "/settings?message=✓ document-reading key works — document "
             "reading is ready.", status_code=303)
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
-        return redirect_msg("/settings", error=f"AI key test failed: {exc}")
+        return redirect_msg("/settings", error=f"Key test failed: {exc}")
 
 
 @app.post("/settings/security")

@@ -54,17 +54,17 @@
     </details>
 
     {% if eno_key %}
-    <!-- Step 1 — AI reads the scanned invoice (optional) -->
+    <!-- Step 1 — The scanned invoice is read (optional) -->
     <div class="step-box" style="margin-top:14px;">
       <h3 class="mini-title">Step 1 — Read the scanned invoice with AI
         <span class="note-inline">(optional — the ENEO bill is an image-only
-          scan, so AI vision reads the amounts for you)</span></h3>
+          scan, so the platform reads the amounts for you)</span></h3>
       {% if ai_ready %}
       <form action="/tools/vendor-invoice-allocation/eno/extract" method="post"
             enctype="multipart/form-data" class="upload-form">
         <label class="filedrop" style="flex:1;">
           <input type="file" name="invoice_pdf" accept=".pdf" required>
-          <span class="filedrop-text">Upload the ENEO invoice PDF — AI extracts
+          <span class="filedrop-text">Upload the ENEO invoice PDF — the platform extracts
             the HT amount per refclient CMS and prefills Step 2 for your
             review.</span>
         </label>
@@ -72,13 +72,13 @@
           🤖 Read invoice with AI</button>
       </form>
       {% else %}
-      <div class="alert alert-info">AI reading is not configured yet — paste
-        your Anthropic API key under <a href="/settings">Settings → AI document
-        reading</a>, then upload the invoice here. You can still type the
+      <div class="alert alert-info">Document reading is not configured yet — paste
+        your document-reading key under <a href="/settings">Settings →
+        Document reading</a>, then upload the invoice here. You can still type the
         amounts manually in Step 2 below.</div>
       {% endif %}
       {% if extraction %}
-      <div class="alert alert-ok" style="margin-top:8px;">AI read:
+      <div class="alert alert-ok" style="margin-top:8px;">Read:
         invoice <strong>{{ extraction.invoice_no or '—' }}</strong>
         {% if extraction.period %}· period <strong>{{ extraction.period }}</strong>{% endif %}
         {% if extraction.total_ht %}· printed TOTAL HT
@@ -106,7 +106,7 @@
                  value="{{ default_tva }}"></label>
         <label class="field"><span>Invoice PDF (kept as evidence)</span>
           <input type="file" name="invoice_pdf" accept=".pdf">
-          {% if pdf_token %}<small class="note-small">the AI-read PDF is already
+          {% if pdf_token %}<small class="note-small">the previously read PDF is already
             attached — re-upload only to replace it</small>{% endif %}</label>
       </div>
       <input type="hidden" name="pdf_token" value="{{ pdf_token or '' }}">

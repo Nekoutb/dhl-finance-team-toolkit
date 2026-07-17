@@ -9,6 +9,29 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+    <!-- Files on record: how fresh are they? -->
+    {% macro file_age(label, cur) %}
+      {% if cur %}
+        {% set age = cur.age_days %}
+        <div class="alert alert-{{ 'ok' if age is not none and age <= 1 else ('warn' if age is not none and age <= 7 else 'error') }}"
+             style="margin-bottom:8px;">
+          <strong>{{ label }} on record:</strong> {{ cur.source }} — uploaded
+          {{ cur.uploaded }}
+          {% if age is not none %}
+            ({% if age == 0 %}today{% elif age == 1 %}1 day old{% else %}<strong>{{ age }} days old</strong>{% endif %})
+            {% if age > 7 %} — <strong>upload a fresh {{ label }} file to keep
+              reconciliations current.</strong>
+            {% elif age > 1 %} — consider replacing it with a newer extract.{% endif %}
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="alert alert-info" style="margin-bottom:8px;">
+          <strong>No {{ label }} file on record yet</strong> — upload it below.</div>
+      {% endif %}
+    {% endmacro %}
+    {{ file_age("BIT", current.bit) }}
+    {{ file_age("Cash AR", current.cash) }}
+
     <!-- Today's open items + the daily graph -->
     <div class="kpi-strip">
       <div class="kpi">
@@ -74,14 +97,14 @@
         <input type="file" name="statement"
                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls" required>
         <span class="filedrop-text">Choose the payment statement — scans are
-          read by AI (invoice references, amounts and the total).</span>
+          read automatically (invoice references, amounts and the total).</span>
       </label>
       <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
     </form>
     {% else %}
-    <div class="alert alert-info">Scanned statements need the AI reader — paste
-      the Anthropic API key under <a href="/settings">Settings → AI document
-      reading</a>. Excel statements work without it.</div>
+    <div class="alert alert-info">Scanned statements need the scan reader — paste
+      the document-reading key under <a href="/settings">Settings →
+      Document reading</a>. Excel statements work without it.</div>
     <form action="/tools/bit-cash-ar/recon/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="filedrop">

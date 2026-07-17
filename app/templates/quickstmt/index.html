@@ -9,10 +9,9 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
-    {% if pdf or xlsx %}
+    {% if xlsx %}
     <div class="download-row" style="margin:10px 0 14px;">
-      {% if pdf %}<a class="btn btn-primary" href="/download/{{ pdf }}">⬇ Download the statement (PDF)</a>{% endif %}
-      {% if xlsx %}<a class="btn" href="/download/{{ xlsx }}">⬇ Download the statement (Excel)</a>{% endif %}
+      <a class="btn btn-primary" href="/download/{{ xlsx }}">⬇ Download the statement (Excel)</a>
     </div>
     {% endif %}
 
@@ -38,15 +37,16 @@
             {% endfor %}
           </datalist>
         </label>
-        <button class="btn btn-primary" type="submit">🧾 Generate statement (PDF + Excel)</button>
+        <button class="btn btn-primary" type="submit">🧾 Generate statement (Excel)</button>
       </form>
-      <p class="note-small">One click produces <strong>both versions</strong> —
-        a DHL-letterheaded PDF (with the credit-control letter in French) and
-        an Excel workbook — listing every open item with its invoice reference,
-        issue date, due date, amount, payment terms, ageing (from the invoice
-        date) and account number. When the <strong>same customer name</strong>
-        exists under <strong>two or more account numbers</strong>, the
-        statement combines those accounts automatically — and only then.</p>
+      <p class="note-small">One click produces an <strong>Excel statement</strong>
+        listing every open item pulled from the latest AR transaction file on
+        record: invoice reference, <strong>issue date</strong>, due date,
+        <strong>payment terms from the customer TB</strong> (e.g. 014 = 14 days),
+        <strong>ageing in days</strong> (today's date less the invoice issue
+        date), account number and amount. When the <strong>same customer
+        name</strong> exists under <strong>two or more account numbers</strong>,
+        the statement combines those accounts automatically — and only then.</p>
     {% endif %}
   </section>
 {% endblock %}

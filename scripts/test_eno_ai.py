@@ -25,7 +25,7 @@ print("ok: allocation page renders with Step 1/Step 2 UI")
 r = client.post("/tools/vendor-invoice-allocation/eno/extract",
                 files={"invoice_pdf": ("inv.pdf", FAKE_PDF, "application/pdf")})
 assert r.status_code == 200
-assert "AI reading failed" in r.text
+assert "Document reading failed" in r.text
 print("ok: missing key produces a clear error, not a 500")
 
 # --- 3. Mocked AI read -> amounts prefilled ---------------------------------
@@ -41,7 +41,7 @@ try:
     r = client.post("/tools/vendor-invoice-allocation/eno/extract",
                     files={"invoice_pdf": ("inv.pdf", FAKE_PDF, "application/pdf")})
     assert r.status_code == 200, r.status_code
-    assert "AI read the invoice" in r.text, "prefill banner missing"
+    assert "Invoice read" in r.text, "prefill banner missing"
     assert "1538672" in r.text and "124831" in r.text, "prefilled values missing"
     assert "TEST-04-2026" in r.text
     # the staged-pdf token must be embedded for generate to pick up
@@ -75,10 +75,10 @@ finally:
     if staged.exists():
         staged.unlink()
 
-# --- 5. Settings page shows the AI section ----------------------------------
+# --- 5. Settings page shows the document-reading section --------------------
 r = client.get("/settings")
 assert r.status_code == 200
-assert "AI document reading" in r.text
-print("ok: Settings shows the AI document reading section")
+assert "Document reading" in r.text and "AI document reading" not in r.text
+print("ok: Settings shows the document-reading section (no AI mention)")
 
 print("\nALL ENEO-AI TESTS PASSED")

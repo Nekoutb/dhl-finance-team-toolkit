@@ -85,7 +85,7 @@
                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
           <span class="filedrop-text" id="chqdroptext">Drag &amp; drop the
             cheque scans here — or click to pick several (hold Ctrl). Each
-            cheque is read by AI, added to the register and matched against the
+            cheque is read automatically, added to the register and matched against the
             bank statements on file.</span>
         </label>
       </label>
@@ -124,9 +124,9 @@
       })();
     </script>
     {% else %}
-    <div class="alert alert-info">AI reading is not configured yet — paste your
-      Anthropic API key under <a href="/settings">Settings → AI document
-      reading</a> to enable cheque reading.</div>
+    <div class="alert alert-info">Document reading is not configured yet — paste your
+      document-reading key under <a href="/settings">Settings →
+      Document reading</a> to enable cheque reading.</div>
     {% endif %}
   </section>
 
