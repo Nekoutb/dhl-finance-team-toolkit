@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v9.5 — 17 Jul 2026 · BIT reconciliation: evidence totals computed arithmetically from the AWB lines (text/broken total cells ignored), BIT matches searched within ±250 of the total (closest first, exact auto-selected), and a manual plug line (own G/L + posting key 40/50) to balance the journal entry — plus everything in v9.4 (Account Stop, cheque AR columns, daily graphs, Orange history)"
+APP_VERSION = "v9.6 — 17 Jul 2026 · BIT & Cash AR fixes: evidence sheets with decorative/table header rows (e.g. 'Column1…' above 'Waybill / Amount') now read via a row-scan fallback — no more zero totals; BIT/Cash AR uploads parse in the background (instant response, self-refreshing progress banner) so big files no longer hit proxy timeouts"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

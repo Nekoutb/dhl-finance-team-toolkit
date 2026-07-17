@@ -114,7 +114,20 @@ finally:
 print("ok: quick account statement — Excel only, days ageing, same-name combining")
 
 # === 2. BIT & Cash AR ========================================================
+import time  # noqa: E402
+
 bitcash.STORE_PATH = _tmp / "bitcash.json"
+bitcash.ROWS_PATH = _tmp / "bitcash_rows.json"
+
+
+def _wait_processed(timeout=15.0):
+    """Uploads parse on a background thread now — wait for them to land."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not bitcash.status().get("processing"):
+            return
+        time.sleep(0.1)
+    raise SystemExit("background BIT/Cash AR processing never finished")
 
 
 def _wb(rows, header):
@@ -147,7 +160,9 @@ with open(bit, "rb") as f1, open(cash, "rb") as f2:
                                         "application/vnd.ms-excel"),
                            "cash_file": ("cash_ar.xlsx", f2,
                                          "application/vnd.ms-excel")})
-check("upload both files -> redirect", r.status_code == 303)
+check("upload both files -> instant redirect (async parse)",
+      r.status_code == 303 and "received" in r.headers["location"])
+_wait_processed()
 st = bitcash.status()
 check("current BIT position stored", st["current"]["bit"]["open_items"] == 2)
 check("current Cash AR position stored", st["current"]["cash"]["open_items"] == 4)

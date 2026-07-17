@@ -36,6 +36,8 @@ bank.STORE_DIR = _tmp / "bank"
 orange.HISTORY_DIR = _tmp / "orange"
 customers._PATH = _tmp / "customers.json"
 bitcash.RECON_DIR = _tmp / "recons"
+bitcash.STORE_PATH = _tmp / "bitcash.json"
+bitcash.ROWS_PATH = _tmp / "bitcash_rows.json"
 
 
 def check(label, cond):
@@ -369,4 +371,98 @@ check("plug line in the journal (G/L 471000, key 40, 71)",
       plug_rows and plug_rows[0][10] == 40 and plug_rows[0][11] == 71.0
       and plug_rows[0][13] == "BANKED SHORT")
 
-print("\nALL v9.4/v9.5 TESTS PASSED")
+# === 11. v9.6 — evidence reader fallback + async BIT/Cash AR uploads ========
+import time  # noqa: E402
+
+
+def _buea_like(path):
+    """Replica of the DHL BUEA layout that broke the reader: decorative rows,
+    an Excel table's phantom 'Column1…' header ABOVE the real header, a #REF!
+    remnant and a TEXT total cell."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["", "", "", "", "", "", "", "#REF!"])
+    ws.append(["", "", "DHL BUEA CASH RECORD SHEET.", "", "", "", "", ""])
+    ws.append(["", "", "Column1", "Column2", "   ", "Column4", "Column5", ""])
+    ws.append(["", "", "Date", "Waybill", "Weight (kg, gram)", "Country",
+               "Amount (Xaf)", ""])
+    ws.append(["", "", "07.07.2026", 4095823454, "0.5 KG", "CANADA", 53639, ""])
+    ws.append(["", "", "07.07.2026", 1107827641, "0.5 KG", "FRANCE", 56100, ""])
+    ws.append(["", "", "07.07.2026", 7177996162, "0.5 KG", "SURINAME",
+               119515, ""])
+    ws.append(["", "", "", "", "", "", "TOTAL: 229.254", ""])
+    wb.save(path)
+    return path
+
+
+st6 = bitcash._read_excel_statement(_buea_like(_tmp / "buea_like.xlsx"))
+check("BUEA-style layout read via the row-scan fallback (3 AWBs, 229,254)",
+      st6["total"] == 229254.0 and len(st6["lines"]) == 3
+      and st6["lines"][0]["reference"] == "4095823454")
+
+bad = _tmp / "no_columns.xlsx"
+wbx = openpyxl.Workbook()
+wbx.active.append(["Foo", "Bar"])
+wbx.active.append(["x", "y"])
+wbx.save(bad)
+try:
+    bitcash._read_excel_statement(bad)
+    check("unreadable evidence raises a clear error", False)
+except ValueError as exc:
+    check("unreadable evidence raises a clear error",
+          "Waybill / AWB / Reference" in str(exc))
+
+
+def _wait_bitcash(timeout=15.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not bitcash.status().get("processing"):
+            return
+        time.sleep(0.1)
+    raise SystemExit("background BIT/Cash AR processing never finished")
+
+
+# Processing banner branches (deterministic — flag written directly).
+bitcash._save({"current": {}, "history": {},
+               "processing": {"started": "2026-07-17 12:00",
+                              "files": [{"kind": "bit", "label": "BIT",
+                                         "source": "big.xlsx"}]}})
+r = client.get("/tools/bit-cash-ar")
+check("processing banner + self-refresh shown while parsing",
+      "Processing" in r.text and "location.replace" in r.text)
+bitcash._save({"current": {}, "history": {},
+               "processing_error": {"at": "2026-07-17 12:01",
+                                    "message": "Could not read big.xlsx"}})
+r = client.get("/tools/bit-cash-ar")
+check("failed upload surfaced on the page",
+      "The last upload failed" in r.text and "Could not read big.xlsx" in r.text)
+bitcash._save({"current": {}, "history": {}})
+
+# Real async round-trip: instant 303, counts land in the background.
+wb_bit = openpyxl.Workbook()
+wb_bit.active.append(["Ref", "Amount", "Status"])
+wb_bit.active.append(["T1", 100, "Open"])
+wb_bit.active.append(["T2", 200, "Closed"])
+bit_path = _tmp / "bit_async.xlsx"
+wb_bit.save(bit_path)
+with open(bit_path, "rb") as fh:
+    r = client.post("/tools/bit-cash-ar/upload",
+                    files={"bit_file": ("bit_async.xlsx", fh, XLSX)})
+check("upload responds instantly with a redirect", r.status_code == 303
+      and "received" in r.headers["location"])
+_wait_bitcash()
+st7 = bitcash.status()
+check("counts recorded by the background parser",
+      st7["current"]["bit"]["open_items"] == 1
+      and not st7.get("processing") and not st7.get("processing_error"))
+
+# Corrupt file -> background error recorded, nothing crashes.
+junk = _tmp / "junk.xlsx"
+junk.write_bytes(b"this is not a workbook")
+bitcash.process_uploads_async([("bit", junk, "junk.xlsx")])
+_wait_bitcash()
+check("corrupt upload lands as a processing error",
+      (bitcash.status().get("processing_error") or {}).get("message", "")
+      .startswith("Could not read junk.xlsx"))
+
+print("\nALL v9.4/v9.5/v9.6 TESTS PASSED")

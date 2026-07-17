@@ -2255,6 +2255,8 @@ def _bitcash_home(request, error="", message="", status_code=200):
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "error": error, "message": message,
         "current": st["current"], "chart": chart,
+        "processing": st.get("processing"),
+        "processing_error": st.get("processing_error"),
         "recons": bitcash.list_recons(),
         "ai_ready": ai_ocr.is_configured(load_config()),
     }, status_code=status_code)
@@ -2274,7 +2276,7 @@ async def bitcash_upload(request: Request,
     if not real:
         return _bitcash_home(request, error="Choose the BIT file, the Cash AR "
                              "file, or both.", status_code=400)
-    done = []
+    jobs = []
     for kind, f in real:
         ext = Path(f.filename or "").suffix.lower()
         if ext not in ALLOWED_EXT:
@@ -2282,15 +2284,15 @@ async def bitcash_upload(request: Request,
                                  "files (.xlsx/.xls).", status_code=400)
         dest = UPLOAD_DIR / f"bitcash_{kind}_{uuid.uuid4().hex[:8]}{ext}"
         dest.write_bytes(await f.read())
-        try:
-            counts = bitcash.record_upload(kind, dest, f.filename or "")
-        except Exception as exc:  # noqa: BLE001
-            return _bitcash_home(request, error=f"Could not read "
-                                 f"{f.filename}: {exc}", status_code=400)
-        done.append(f"{bitcash.KINDS[kind]}: {counts['open_items']} open "
-                    f"item(s) of {counts['items']}")
+        jobs.append((kind, dest, f.filename or ""))
+    # Big extracts take longer than a web request may — parse in the
+    # background and let the page refresh itself until the counts land.
+    bitcash.process_uploads_async(jobs)
+    names = " + ".join(bitcash.KINDS[k] for k, _p, _s in jobs)
     return redirect_msg("/tools/bit-cash-ar",
-                        message="Uploaded — " + " · ".join(done))
+                        message=f"{names} received — counting the open items "
+                                "now; this page refreshes itself until the "
+                                "new position is on record.")
 
 
 _STMT_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif",

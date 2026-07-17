@@ -9,6 +9,22 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+    {% if processing %}
+    <script>setTimeout(function () {
+      window.location.replace('/tools/bit-cash-ar'); }, 5000);</script>
+    <div class="alert alert-info">
+      ⏳ <strong>Processing
+      {% for f in processing.files %}{{ f.label }} ({{ f.source }}){% if not loop.last %} + {% endif %}{% endfor %}</strong>
+      — started {{ processing.started }}. Counting the open items and storing
+      the rows; this page refreshes itself every few seconds.
+      <div class="progress" style="margin-top:6px;"><i style="width:55%"></i></div>
+    </div>
+    {% elif processing_error %}
+    <div class="alert alert-error">✗ The last upload failed
+      ({{ processing_error.at }}): {{ processing_error.message }} — fix the
+      file and upload it again.</div>
+    {% endif %}
+
     <!-- Files on record: how fresh are they? -->
     {% macro file_age(label, cur) %}
       {% if cur %}

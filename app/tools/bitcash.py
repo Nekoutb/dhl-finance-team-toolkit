@@ -111,10 +111,49 @@ def record_upload(kind, path, source):
 
 
 def status():
-    """{current: {bit, cash}, history: [(date, {bit_open, cash_open}), …]}."""
+    """{current: {bit, cash}, history: [(date, {bit_open, cash_open}), …],
+    processing: {...}|None, processing_error: {...}|None}."""
     data = _load()
     return {"current": data.get("current", {}),
-            "history": sorted(data.get("history", {}).items())}
+            "history": sorted(data.get("history", {}).items()),
+            "processing": data.get("processing"),
+            "processing_error": data.get("processing_error")}
+
+
+def process_uploads_async(jobs):
+    """Parse the uploaded BIT / Cash AR file(s) on a background thread — big
+    extracts take longer than a web request may (proxy timeouts), so the
+    upload responds instantly and the page shows progress until done.
+
+    ``jobs`` = [(kind, stored_path, source_name)].
+    """
+    with _lock:
+        data = _load()
+        data["processing"] = {
+            "started": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "files": [{"kind": k, "label": KINDS[k], "source": s}
+                      for k, _p, s in jobs]}
+        data.pop("processing_error", None)
+        _save(data)
+
+    def _runner():
+        errors = []
+        for kind, path, source in jobs:
+            try:
+                record_upload(kind, path, source)
+            except Exception as exc:  # noqa: BLE001 — surfaced on the page
+                errors.append(f"Could not read {source or kind}: "
+                              f"{type(exc).__name__}: {exc}")
+        with _lock:
+            data = _load()
+            data.pop("processing", None)
+            if errors:
+                data["processing_error"] = {
+                    "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "message": " · ".join(errors)}
+            _save(data)
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 
 # --------------------------------------------------------------------------- #
@@ -391,8 +430,52 @@ def create_recon_async(stored_path, media_type, source, uploaded_by):
     return token
 
 
+_REF_CANDS = ("awb", "waybill", "reference", "invoice", "ref")
+_AMT_CANDS = ("amount", "montant", "value")
+
+
+def _scan_statement_rows(path):
+    """Raw fallback for evidence sheets the table reader mis-headers (e.g. an
+    Excel table's phantom 'Column1/Column2' row above the real
+    'Date / Waybill / Amount (Xaf)' header, decorative title rows, or a text
+    'TOTAL: …' cell). Scans every sheet for the first row carrying BOTH a
+    reference-like and an amount-like heading, then reads the lines below it
+    (rows without a reference — like the TOTAL row — are skipped)."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        for ws in wb.worksheets:
+            rows = [list(r) for r in ws.iter_rows(values_only=True)]
+            header_at = ref_col = amt_col = None
+            for i, row in enumerate(rows):
+                normed = [_norm(v) for v in row]
+                rc = next((j for j, v in enumerate(normed)
+                           if v and any(c in v for c in _REF_CANDS)), None)
+                ac = next((j for j, v in enumerate(normed)
+                           if v and any(c in v for c in _AMT_CANDS)), None)
+                if rc is not None and ac is not None and rc != ac:
+                    header_at, ref_col, amt_col = i, rc, ac
+                    break
+            if header_at is None:
+                continue
+            lines = []
+            for row in rows[header_at + 1:]:
+                ref = _digits(row[ref_col]) if ref_col < len(row) else ""
+                amt = _to_float(row[amt_col]) if amt_col < len(row) else 0.0
+                if ref and amt:
+                    lines.append({"reference": ref, "amount": amt,
+                                  "description": ""})
+            if lines:
+                return lines
+        return []
+    finally:
+        wb.close()
+
+
 def _read_excel_statement(path):
-    """A typed (Excel) payment statement: reference + amount columns."""
+    """A typed (Excel) payment statement: reference + amount columns. Falls
+    back to a raw row scan when the table reader finds no usable lines."""
     parsed = excel_reader.read_transactions(path)
     header = parsed["header"]
     low = {h: _norm(h) for h in header}
@@ -404,8 +487,8 @@ def _read_excel_statement(path):
                     return h
         return None
 
-    c_ref = col("awb", "reference", "invoice", "ref")
-    c_amt = col("amount", "montant", "value")
+    c_ref = col(*_REF_CANDS)
+    c_amt = col(*_AMT_CANDS)
     c_desc = col("consignor", "customer", "client", "name", "description")
     lines = []
     for r in parsed["rows"]:
@@ -416,6 +499,12 @@ def _read_excel_statement(path):
             lines.append({"reference": ref, "amount": amt,
                           "description": _cellstr(d.get(c_desc))[:40]
                           if c_desc else ""})
+    if not lines:
+        lines = _scan_statement_rows(path)
+    if not lines:
+        raise ValueError(
+            "no AWB/amount lines could be read — the file needs a "
+            "'Waybill / AWB / Reference' column and an 'Amount' column")
     return {"label": Path(path).stem, "date": "",
             "total": round(sum(l["amount"] for l in lines), 2), "lines": lines}
 
