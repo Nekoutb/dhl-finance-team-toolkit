@@ -287,7 +287,7 @@ check("banner carries no '(today)' bracket",
       r.status_code == 200 and "(today)" not in r.text
       and "day old" not in r.text)
 
-# === 10. BIT recon: arithmetic total, ±250 window, manual plug ==============
+# === 10. BIT recon: arithmetic total, ±1000 window, manual plug =============
 AWBS = [("4095823454", 53639.0), ("3751239391", 53639.0),
         ("6057894780", 53639.0), ("1616021735", 53639.0),
         ("1107827641", 56100.0), ("8457401400", 59600.0),
@@ -316,16 +316,22 @@ st = {"label": "DHL BUEA CASHCMBUE", "date": "07.07.2026",
 lines, ar_sel, cands, bit_sel = bitcash.automatch(st)
 check("evidence total recomputed arithmetically (523,571)",
       st["total"] == 523571.0 and st["stated_total"] == 523500.0)
-check("BIT candidate found within ±250 (523,500) and auto-selected",
+check("BIT candidate found within the window (523,500) and auto-selected",
       cands == [0] and bit_sel == 0)
 check("all 8 AWBs matched to the Cash AR",
       len(ar_sel) == 8 and all(ln["matched_ids"] for ln in lines))
-check("margin is a constant of 250", bitcash.BIT_MATCH_MARGIN == 250.0)
+check("margin is a constant of 1000", bitcash.BIT_MATCH_MARGIN == 1000.0)
 
-far = {"total": 0, "lines": [{"reference": "999", "amount": 524000.0,
+near = {"total": 0, "lines": [{"reference": "999", "amount": 524000.0,
+                               "description": ""}]}
+_l, _a, near_cands, near_sel = bitcash.automatch(near)
+check("a 500-off amount is now a candidate (524,000 finds 523,500)",
+      near_cands == [0] and near_sel == 0)
+
+far = {"total": 0, "lines": [{"reference": "999", "amount": 525000.0,
                               "description": ""}]}
 _l, _a, far_cands, _s = bitcash.automatch(far)
-check("amounts beyond the margin are not candidates (524,000 vs 523,500)",
+check("amounts beyond ±1000 are not candidates (525,000 vs 523,500)",
       far_cands == [])
 
 st["lines"] = lines

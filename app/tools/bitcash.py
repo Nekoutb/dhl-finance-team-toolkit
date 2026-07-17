@@ -330,8 +330,9 @@ def list_recons():
 
 
 # A BIT payment rarely lands to the franc (rounded deposits, small bank
-# charges) — candidates are searched within this margin of the evidence total.
-BIT_MATCH_MARGIN = 250.0
+# charges) — when no exact match exists, candidates are searched within this
+# margin of the evidence total (closest first).
+BIT_MATCH_MARGIN = 1000.0
 
 
 def automatch(statement):
