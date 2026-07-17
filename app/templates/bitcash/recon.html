@@ -49,6 +49,17 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+    <div class="alert alert-info">
+      🧮 <strong>Total of evidences is XAF
+      {{ "{:,.0f}".format(s.total) }}</strong> — calculated arithmetically
+      from the {{ s.lines|length }} AWB line(s) on the statement (the file's
+      own total cell is never trusted{% if s.stated_total %}; it reads
+      <strong>{{ "{:,.0f}".format(s.stated_total) }}</strong> here and was
+      ignored{% endif %}).
+      {% if view.bit_candidates %}The closest BIT matches within
+      ±{{ "{:,.0f}".format(view.margin) }} are shown below.{% endif %}
+    </div>
+
     <!-- Reconciliation difference -->
     <div class="kpi-strip">
       <div class="kpi"><span class="kpi-num">{{ "{:,.0f}".format(view.ar_total) }}</span>
@@ -58,6 +69,11 @@
       <div class="kpi {% if view.difference %}kpi-warn{% endif %}">
         <span class="kpi-num {{ 'diff-ok' if not view.difference else 'diff-bad' }}">{{ "{:,.0f}".format(view.difference) }}</span>
         <span class="kpi-lbl">Reconciliation difference</span></div>
+      {% if view.plug %}
+      <div class="kpi {% if view.residual %}kpi-warn{% endif %}">
+        <span class="kpi-num {{ 'diff-ok' if not view.residual else 'diff-bad' }}">{{ "{:,.0f}".format(view.residual) }}</span>
+        <span class="kpi-lbl">After manual plug of {{ "{:,.0f}".format(view.plug.amount) }}</span></div>
+      {% endif %}
     </div>
 
     <div class="download-row" style="margin-top:8px;">
@@ -65,7 +81,7 @@
       <form action="/tools/bit-cash-ar/recon/{{ token }}/approve" method="post"
             style="display:inline;">
         <button class="btn btn-primary" type="submit"
-          {% if view.difference %}onclick="return confirm('There is a reconciliation difference of {{ "{:,.0f}".format(view.difference) }} — approve anyway?');"{% endif %}>
+          {% if view.residual %}onclick="return confirm('A difference of {{ "{:,.0f}".format(view.residual) }} remains after the plug — approve anyway?');"{% endif %}>
           ✓ Mark reconciliation okay</button>
       </form>
       <form action="/tools/bit-cash-ar/recon/{{ token }}/delete" method="post"
@@ -178,17 +194,17 @@
   <section class="panel">
     <h2 class="section-title">Payment lines — statement total vs BIT</h2>
     {% if rec.bit_duplicate %}
-    <div class="alert alert-error">⚠ The payment amount of
+    <div class="alert alert-error">⚠ The exact payment amount of
       <strong>{{ "{:,.0f}".format(s.total) }}</strong> appears
-      <strong>{{ rec.bit_candidates|length }} times</strong> in the BIT —
+      <strong>more than once</strong> in the BIT —
       investigate and select the appropriate line below.</div>
     {% endif %}
     {% if view.bit_candidates %}
     <div class="table-wrap" style="max-height:none;">
       <table class="tx-table">
         <thead><tr>{% if open %}<th>Select</th>{% endif %}<th>G/L account</th>
-          <th>Assignment</th><th>Amount</th><th>Posting date</th>
-          <th>Reference</th><th>Text</th><th>Doc N°</th></tr></thead>
+          <th>Assignment</th><th>Amount</th><th>vs evidences</th>
+          <th>Posting date</th><th>Reference</th><th>Text</th><th>Doc N°</th></tr></thead>
         <tbody>
           {% for r in view.bit_candidates %}
           <tr{% if rec.bit_selected == r.id %} class="auto-match"{% endif %}>
@@ -200,6 +216,8 @@
             <td>{{ r.gl_account }}</td>
             <td>{{ r.assignment }}</td>
             <td><strong>{{ "{:,.0f}".format(r.amount) }}</strong></td>
+            <td>{% if r.delta == 0 %}<span class="pill pill-ok">exact</span>
+              {% else %}<span class="{{ 'diff-bad' if r.delta else '' }}">{{ "{:+,.0f}".format(r.delta) }}</span>{% endif %}</td>
             <td>{{ r.posting_date }}</td>
             <td>{{ r.reference }}</td>
             <td class="msg-cell">{{ r.text }}</td>
@@ -210,7 +228,8 @@
       </table>
     </div>
     {% else %}
-    <div class="alert alert-error">✗ No BIT line equals the statement total of
+    <div class="alert alert-error">✗ No BIT line within
+      ±{{ "{:,.0f}".format(view.margin) }} of the evidences total of
       <strong>{{ "{:,.0f}".format(s.total) }}</strong> — the payment may not
       have reached the BIT yet. Re-upload a fresh BIT file and reopen this
       sandbox, or investigate the amount.</div>
@@ -222,6 +241,58 @@
     {% endif %}
   </section>
   </form>
+
+  <!-- 3. MANUAL PLUG: absorb a remaining difference so the JE balances -->
+  <section class="panel">
+    <h2 class="section-title">Manual plug — balance a remaining difference</h2>
+    {% if view.plug %}
+    <div class="alert {{ 'alert-warn' if view.residual else 'alert-ok' }}">
+      Plug on record: <strong>{{ "{:,.0f}".format(view.plug.amount) }} XAF</strong>
+      on G/L <strong>{{ view.plug.account }}</strong>
+      {%- if view.plug.note %} ({{ view.plug.note }}){% endif %} →
+      remaining difference after plug:
+      <strong>{{ "{:,.0f}".format(view.residual) }}</strong>.
+      The plug is written into the journal entry as its own line
+      (posting key {{ 40 if view.plug.amount > 0 else 50 }}).
+    </div>
+    {% elif view.difference %}
+    <div class="alert alert-warn">The reconciliation difference of
+      <strong>{{ "{:,.0f}".format(view.difference) }} XAF</strong> is not
+      plugged — enter it below so the journal entry balances.</div>
+    {% else %}
+    <p class="note-small">Nothing to plug — the selected invoices and the BIT
+      payment agree to the franc.</p>
+    {% endif %}
+
+    {% if open %}
+    <form action="/tools/bit-cash-ar/recon/{{ token }}/plug" method="post"
+          class="inline-fields">
+      <label class="field" style="min-width:180px;">
+        <span>Plug amount (XAF)</span>
+        <input type="text" name="amount"
+               value="{{ '{:g}'.format(view.plug.amount) if view.plug else ('{:g}'.format(view.difference) if view.difference else '') }}">
+      </label>
+      <label class="field" style="min-width:200px;">
+        <span>G/L account for the plug line</span>
+        <input type="text" name="account"
+               value="{{ view.plug.account if view.plug else '' }}"
+               placeholder="e.g. cash over/short account">
+      </label>
+      <label class="field" style="min-width:220px;">
+        <span>Note (journal assignment)</span>
+        <input type="text" name="note"
+               value="{{ view.plug.note if view.plug else '' }}"
+               placeholder="e.g. deposit rounded at bank">
+      </label>
+      <button class="btn" type="submit" style="align-self:flex-end;">💾 Save
+        plug</button>
+    </form>
+    <p class="note-small">A positive plug covers a BIT that is
+      <em>short</em> of the evidences (extra debit, key 40); a negative plug
+      covers a BIT that is <em>over</em> (credit, key 50). Save a blank or
+      0 amount to remove the plug.</p>
+    {% endif %}
+  </section>
   <form id="qform" action="/tools/bit-cash-ar/recon/{{ token }}" method="get"></form>
   {% endif %}
 {% endblock %}

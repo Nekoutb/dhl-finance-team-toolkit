@@ -290,15 +290,25 @@ def list_recons():
     return out
 
 
+# A BIT payment rarely lands to the franc (rounded deposits, small bank
+# charges) — candidates are searched within this margin of the evidence total.
+BIT_MATCH_MARGIN = 250.0
+
+
 def automatch(statement):
     """Match a parsed statement against the stored Cash AR + BIT rows.
+
+    The statement TOTAL is always recomputed arithmetically from its lines
+    (evidence files often carry a broken formula or a text like
+    "TOTAL: 523.571" in the total cell — never trusted); any differing total
+    stated in the document is kept as ``stated_total`` for disclosure.
 
     Returns (lines, ar_selected, bit_candidates, bit_selected):
       - each statement line gains matched Cash AR row ids (by AWB digits,
         falling back to the reference column),
-      - BIT candidates = rows whose |amount| equals the statement total;
-        exactly one -> auto-selected, several -> user must choose (duplicate
-        warning), none -> nothing selected.
+      - BIT candidates = rows whose |amount| is within BIT_MATCH_MARGIN of
+        the evidence total, closest first; exactly one exact match ->
+        auto-selected, otherwise the user chooses; none -> nothing selected.
     """
     data = rows_store()
     by_awb = {}
@@ -314,10 +324,26 @@ def automatch(statement):
                    if ref and ref in _digits(r["reference"])]
         lines.append({**ln, "matched_ids": ids})
         ar_selected.extend(ids)
+
+    # Arithmetic total of the evidences (authoritative).
+    if lines:
+        arith = round(sum(_to_float(ln.get("amount")) or 0 for ln in lines), 2)
+        stated = _to_float(statement.get("total"))
+        if arith:
+            if stated and abs(stated - arith) > 0.005:
+                statement["stated_total"] = stated
+            statement["total"] = arith
+
     total = _to_float(statement.get("total"))
-    cands = [r["id"] for r in data["bit"]
-             if total and abs(r["amount"]) == abs(total)]
-    bit_selected = cands[0] if len(cands) == 1 else None
+    cands, exact = [], []
+    if total:
+        near = sorted((r for r in data["bit"]
+                       if abs(abs(r["amount"]) - abs(total)) <= BIT_MATCH_MARGIN),
+                      key=lambda r: (abs(abs(r["amount"]) - abs(total)), r["id"]))
+        cands = [r["id"] for r in near]
+        exact = [r["id"] for r in near if abs(r["amount"]) == abs(total)]
+    bit_selected = exact[0] if len(exact) == 1 \
+        else (cands[0] if len(cands) == 1 else None)
     return lines, sorted(set(ar_selected)), cands, bit_selected
 
 
@@ -342,12 +368,18 @@ def create_recon_async(stored_path, media_type, source, uploaded_by):
                     Path(stored_path).read_bytes(), media_type, ai_cfg)
             lines, ar_sel, cands, bit_sel = automatch(statement)
             statement["lines"] = lines
+            # "Duplicate" = the EXACT amount appears more than once in the
+            # BIT; near matches within the margin are choices, not duplicates.
+            bit_amounts = {r["id"]: abs(r["amount"])
+                           for r in rows_store()["bit"]}
+            tot = abs(_to_float(statement.get("total")) or 0)
+            exact_n = sum(1 for i in cands if bit_amounts.get(i) == tot)
             rec = load_recon(token) or {}
             rec.update({
                 "status": "open", "statement": statement,
                 "ar_selected": ar_sel, "bit_candidates": cands,
                 "bit_selected": bit_sel,
-                "bit_duplicate": len(cands) > 1, "error": ""})
+                "bit_duplicate": exact_n > 1, "error": ""})
             save_recon(rec)
         except Exception as exc:  # noqa: BLE001 — surface, never crash silently
             rec = load_recon(token) or {"token": token}
@@ -390,24 +422,52 @@ def _read_excel_statement(path):
 
 def recon_view(recon):
     """Resolve a sandbox's row ids into full rows for the template, plus the
-    live reconciliation difference."""
+    live reconciliation difference, the manual plug and the residual left
+    after it."""
     data = rows_store()
+    statement = recon.get("statement") or {}
+    total = abs(_to_float(statement.get("total")) or 0)
     bit_by_id = {r["id"]: r for r in data["bit"]}
     cash_by_id = {r["id"]: r for r in data["cash"]}
     ar_rows = [cash_by_id[i] for i in recon.get("ar_selected", [])
                if i in cash_by_id]
-    matched_ids = {i for ln in (recon.get("statement") or {}).get("lines", [])
+    matched_ids = {i for ln in statement.get("lines", [])
                    for i in ln.get("matched_ids", [])}
-    cands = [bit_by_id[i] for i in recon.get("bit_candidates", [])
-             if i in bit_by_id]
+    cands = [{**bit_by_id[i],
+              "delta": round(abs(bit_by_id[i]["amount"]) - total, 2)}
+             for i in recon.get("bit_candidates", []) if i in bit_by_id]
     sel = recon.get("bit_selected")
     bit_row = bit_by_id.get(sel) if sel is not None else None
     ar_total = round(sum(r["amount"] for r in ar_rows), 2)
     bit_amount = abs(bit_row["amount"]) if bit_row else 0.0
+    plug = recon.get("plug") or None
+    plug_amount = round(_to_float((plug or {}).get("amount")) or 0, 2)
+    difference = round(ar_total - bit_amount, 2)
     return {"ar_rows": ar_rows, "auto_matched_ids": matched_ids,
             "bit_candidates": cands, "bit_row": bit_row,
             "ar_total": ar_total, "bit_amount": bit_amount,
-            "difference": round(ar_total - bit_amount, 2)}
+            "difference": difference, "plug": plug,
+            "plug_amount": plug_amount,
+            "residual": round(difference - plug_amount, 2),
+            "margin": BIT_MATCH_MARGIN}
+
+
+def set_plug(token, amount, account="", note=""):
+    """Record (or clear, when the amount is 0/blank) the manual plug that
+    absorbs a remaining reconciliation difference so the journal entry
+    balances. Only while the sandbox is open."""
+    rec = load_recon(token)
+    if not rec or rec.get("status") not in ("open",):
+        return None
+    amt = _to_float(amount)
+    if not amt:
+        rec.pop("plug", None)
+    else:
+        rec["plug"] = {"amount": round(amt, 2),
+                       "account": str(account or "").strip(),
+                       "note": str(note or "").strip()}
+    save_recon(rec)
+    return rec
 
 
 def set_selection(token, ar_ids, bit_id):
@@ -506,6 +566,14 @@ def build_journal(out_path, now=None):
                     bit["assignment"])]
         entries += [(a["sap_acct"], 15, a["amount"], a["awb"] or a["assignment"])
                     for a in ars]
+        # Manual plug: the user-entered difference line that balances the
+        # document (posting key 40 when the BIT is short, 50 when over).
+        plug = rec.get("plug") or {}
+        plug_amt = _to_float(plug.get("amount"))
+        if plug_amt and plug.get("account"):
+            entries.append((plug["account"], 40 if plug_amt > 0 else 50,
+                            abs(plug_amt),
+                            plug.get("note") or "DIFFERENCE PLUG"))
         for account, key, amount, assignment in entries:
             ws.cell(row=r, column=1, value=li)                       # LI.
             ws.cell(row=r, column=2, value="CM01")                   # Comp code

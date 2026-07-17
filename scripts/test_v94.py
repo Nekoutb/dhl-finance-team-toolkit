@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import main  # noqa: E402
 from app.services import auth, cheques, customers  # noqa: E402
-from app.tools import account_stop, bank  # noqa: E402
+from app.tools import account_stop, bank, bitcash  # noqa: E402
 from app.tools import ongoing_ctp as ctp  # noqa: E402
 from app.tools import orange_cameroun as orange  # noqa: E402
 
@@ -35,6 +35,7 @@ cheques.STATS_PATH = _tmp / "cheque_daily_stats.json"
 bank.STORE_DIR = _tmp / "bank"
 orange.HISTORY_DIR = _tmp / "orange"
 customers._PATH = _tmp / "customers.json"
+bitcash.RECON_DIR = _tmp / "recons"
 
 
 def check(label, cond):
@@ -281,4 +282,91 @@ check("banner carries no '(today)' bracket",
       r.status_code == 200 and "(today)" not in r.text
       and "day old" not in r.text)
 
-print("\nALL v9.4 TESTS PASSED")
+# === 10. BIT recon: arithmetic total, ±250 window, manual plug ==============
+AWBS = [("4095823454", 53639.0), ("3751239391", 53639.0),
+        ("6057894780", 53639.0), ("1616021735", 53639.0),
+        ("1107827641", 56100.0), ("8457401400", 59600.0),
+        ("8457378215", 73800.0), ("7177996162", 119515.0)]
+FAKE_ROWS = {
+    "bit_header": [],
+    "bit": [{"id": 0, "amount": -523500.0, "gl_account": "1263001293",
+             "assignment": "0548407000018", "posting_date": "07.07.2026",
+             "reference": "CMBUE", "text": "CASH DEPOSIT BUEA",
+             "doc_no": "410001", "raw": []},
+            {"id": 1, "amount": -1000000.0, "gl_account": "1263001293",
+             "assignment": "0548407000019", "posting_date": "07.07.2026",
+             "reference": "X", "text": "OTHER", "doc_no": "410002",
+             "raw": []}],
+    "cash": [{"id": i, "awb": awb, "reference": awb, "amount": amt,
+              "sap_acct": "4003025929", "assignment": awb,
+              "customer": "DHL SERVICE POINT BUEA", "doc_no": f"90000{i}"}
+             for i, (awb, amt) in enumerate(AWBS)],
+}
+bitcash.rows_store = lambda: FAKE_ROWS
+
+st = {"label": "DHL BUEA CASHCMBUE", "date": "07.07.2026",
+      "total": 523500.0,        # the (wrong) figure a document might state
+      "lines": [{"reference": awb, "amount": amt, "description": ""}
+                for awb, amt in AWBS]}
+lines, ar_sel, cands, bit_sel = bitcash.automatch(st)
+check("evidence total recomputed arithmetically (523,571)",
+      st["total"] == 523571.0 and st["stated_total"] == 523500.0)
+check("BIT candidate found within ±250 (523,500) and auto-selected",
+      cands == [0] and bit_sel == 0)
+check("all 8 AWBs matched to the Cash AR",
+      len(ar_sel) == 8 and all(ln["matched_ids"] for ln in lines))
+check("margin is a constant of 250", bitcash.BIT_MATCH_MARGIN == 250.0)
+
+far = {"total": 0, "lines": [{"reference": "999", "amount": 524000.0,
+                              "description": ""}]}
+_l, _a, far_cands, _s = bitcash.automatch(far)
+check("amounts beyond the margin are not candidates (524,000 vs 523,500)",
+      far_cands == [])
+
+st["lines"] = lines
+rec = {"token": "feedbead0001", "status": "open",
+       "uploaded": "2026-07-17 10:00", "uploaded_by": "tester",
+       "source": "DHL BUEA CASHCMBUE 07.07.26.xlsx", "statement": st,
+       "ar_selected": ar_sel, "bit_candidates": cands, "bit_selected": bit_sel,
+       "bit_duplicate": False, "error": ""}
+bitcash.save_recon(rec)
+view = bitcash.recon_view(rec)
+check("difference disclosed (71 = 523,571 - 523,500)",
+      view["ar_total"] == 523571.0 and view["bit_amount"] == 523500.0
+      and view["difference"] == 71.0 and view["residual"] == 71.0)
+check("candidate carries its delta vs the evidences (-71)",
+      view["bit_candidates"][0]["delta"] == -71.0)
+
+r = client.get("/tools/bit-cash-ar/recon/feedbead0001")
+check("sandbox narrative discloses the arithmetic total",
+      r.status_code == 200 and "Total of evidences is XAF" in r.text
+      and "523,571" in r.text)
+check("sandbox shows the manual-plug section", "Manual plug" in r.text)
+
+r = client.post("/tools/bit-cash-ar/recon/feedbead0001/plug",
+                data={"amount": "71", "account": "", "note": ""})
+check("plug without a G/L account is refused",
+      r.status_code == 303 and "error=" in r.headers["location"])
+r = client.post("/tools/bit-cash-ar/recon/feedbead0001/plug",
+                data={"amount": "71", "account": "471000",
+                      "note": "BANKED SHORT"})
+check("plug saved via the route", r.status_code == 303
+      and "Manual+plug+saved" in r.headers["location"].replace("%20", "+"))
+view = bitcash.recon_view(bitcash.load_recon("feedbead0001"))
+check("residual is 0 after the plug",
+      view["plug"]["amount"] == 71.0 and view["residual"] == 0.0)
+
+bitcash.set_status("feedbead0001", True, "tester")
+je = bitcash.build_journal(_tmp / "je_v95.xlsx")
+check("journal built from the approved sandbox",
+      je and je["count"] == 1 and je["lines"] == 10)   # 1 BIT + 8 AWB + plug
+wj = openpyxl.load_workbook(_tmp / "je_v95.xlsx")
+wsj = next(ws for ws in wj.worksheets if ws.title.startswith("CM01_"))
+plug_rows = [row for row in wsj.iter_rows(min_row=4, max_row=20,
+                                          values_only=True)
+             if row[9] == 471000]
+check("plug line in the journal (G/L 471000, key 40, 71)",
+      plug_rows and plug_rows[0][10] == 40 and plug_rows[0][11] == 71.0
+      and plug_rows[0][13] == "BANKED SHORT")
+
+print("\nALL v9.4/v9.5 TESTS PASSED")

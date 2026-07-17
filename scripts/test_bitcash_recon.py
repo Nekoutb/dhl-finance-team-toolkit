@@ -150,7 +150,7 @@ check("sandbox page renders invoice + payment sections",
       page.status_code == 200 and "Invoice lines" in page.text
       and "Payment lines" in page.text)
 check("duplicate warning shown", "appears" in page.text
-      and "times" in page.text)
+      and "more than once" in page.text)
 check("matched lines highlighted", "auto-match" in page.text)
 
 # --- 4. approval requires a selected BIT line --------------------------------

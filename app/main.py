@@ -2357,6 +2357,30 @@ async def bitcash_recon_select(request: Request, token: str):
                         message="Selection saved.")
 
 
+@app.post("/tools/bit-cash-ar/recon/{token}/plug")
+async def bitcash_recon_plug(request: Request, token: str):
+    form = await request.form()
+    amount = (form.get("amount") or "").strip()
+    account = (form.get("account") or "").strip()
+    if (bitcash._to_float(amount) or 0) and not account:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="Give the plug a G/L account so its journal "
+                                  "line can be created.")
+    rec = bitcash.set_plug(token, amount, account, form.get("note", ""))
+    if rec is None:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="The plug can only change while the "
+                                  "reconciliation is open.")
+    if rec.get("plug"):
+        p = rec["plug"]
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            message=f"Manual plug saved — {p['amount']:,.0f} "
+                                    f"XAF on {p['account']} goes into the "
+                                    "journal entry.")
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message="Manual plug removed.")
+
+
 @app.post("/tools/bit-cash-ar/recon/{token}/approve")
 async def bitcash_recon_approve(request: Request, token: str):
     rec = bitcash.load_recon(token)
@@ -2368,8 +2392,8 @@ async def bitcash_recon_approve(request: Request, token: str):
                             error="Select the BIT payment and at least one "
                                   "Cash AR invoice before approving.")
     bitcash.set_status(token, True, getattr(request.state, "user", None))
-    note = "" if view["difference"] == 0 else \
-        f" (note: reconciliation difference {view['difference']:,.0f})"
+    note = "" if view["residual"] == 0 else \
+        f" (note: {view['residual']:,.0f} remains unplugged)"
     return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                         message="Reconciliation approved — it will be included "
                                 "in the journal entry." + note)

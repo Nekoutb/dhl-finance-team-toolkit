@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v9.4 — 17 Jul 2026 · Account Stop page (stopped accounts × payments traced on bank statements, cheques and Orange Money); cheque register AR columns (+ Excel); CtP held-accounts daily graph; dashboard trend graphs + unpresented-cheques KPI; Orange Money AR-ledger columns + upload history & AR comparison; BIT & Cash AR banner age bracket removed"
+APP_VERSION = "v9.5 — 17 Jul 2026 · BIT reconciliation: evidence totals computed arithmetically from the AWB lines (text/broken total cells ignored), BIT matches searched within ±250 of the total (closest first, exact auto-selected), and a manual plug line (own G/L + posting key 40/50) to balance the journal entry — plus everything in v9.4 (Account Stop, cheque AR columns, daily graphs, Orange history)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
