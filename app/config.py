@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v9.6 — 17 Jul 2026 · BIT & Cash AR fixes: evidence sheets with decorative/table header rows (e.g. 'Column1…' above 'Waybill / Amount') now read via a row-scan fallback — no more zero totals; BIT/Cash AR uploads parse in the background (instant response, self-refreshing progress banner) so big files no longer hit proxy timeouts"
+APP_VERSION = "v9.7 — 17 Jul 2026 · Account Stop added to the sidebar menu (Order to Cash, between Cheque register and Quick statement — it was live but only reachable from the dashboard cards); plus the v9.6 BIT & Cash AR fixes (evidence row-scan fallback, background upload parsing)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

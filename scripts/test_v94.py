@@ -264,6 +264,9 @@ r = client.get("/tools/account-stop")
 check("account-stop page renders the three groups", r.status_code == 200
       and "Bank payments" in r.text and "Cheque payments" in r.text
       and "Mobile money" in r.text)
+check("Account Stop present in the sidebar menu",
+      'href="/tools/account-stop"' in r.text
+      and 'nav-label">Account Stop' in r.text)
 check("stopped account row rendered with payments",
       "1004000001" in r.text and "ACME LOGISTICS" in r.text
       and "Orange Money" in r.text and "250,000" in r.text)
