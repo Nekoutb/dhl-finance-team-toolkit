@@ -400,6 +400,40 @@ def all_statement_lines():
     return rows, summary
 
 
+def all_credit_lines():
+    """Every CREDIT line across all stored reports, payer preserved —
+    [{bank, payer, description, credit, date, text}]. (all_statement_lines()
+    merges credits and debits sign-less and drops the payer, so payment
+    tracing reads the raw credit lines kept on each report instead.)"""
+    out = []
+    if not STORE_DIR.exists():
+        return out
+    reports = []
+    for path in STORE_DIR.glob("*.json"):
+        try:
+            reports.append(json.loads(path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            continue
+    reports.sort(key=lambda d: d.get("created_at", ""), reverse=True)
+    for rep in reports:
+        lines = list(rep.get("unmatched", []))
+        for c in rep.get("matched", []):
+            lines += list(c.get("lines", []))
+        for ln in lines:
+            credit = ln.get("credit", 0)
+            if isinstance(credit, str):
+                credit = bank_statement.parse_amount(credit)
+            credit = round(float(credit or 0), 2)
+            if credit <= 0:
+                continue
+            out.append({"bank": ln.get("bank", ""),
+                        "payer": ln.get("payer", ""),
+                        "description": ln.get("description", ""),
+                        "credit": credit, "date": ln.get("date", ""),
+                        "text": ln.get("text", "")})
+    return out
+
+
 def list_reports(limit=10):
     if not STORE_DIR.exists():
         return []

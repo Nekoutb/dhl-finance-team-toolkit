@@ -56,6 +56,12 @@
       {% if s.batch_total %}<span class="delta {{ 'up' if s.alloc_done else 'flat' }}">{{ s.alloc_done }}/{{ s.batch_total }} confirmed</span>{% endif %}
       {{ spark(3) }}
     </div>
+    <div class="kpi {% if s.unpresented_cheques %}kpi-warn{% endif %}">
+      <span class="kpi-num">{% if s.unpresented_cheques is not none %}{{ s.unpresented_cheques }}{% else %}—{% endif %}</span>
+      <span class="kpi-lbl">Unpresented cheques</span>
+      <span class="delta flat"><a href="/tools/cheque-processing">register →</a></span>
+      {{ spark(4) }}
+    </div>
   </div>
 
   <div class="dash-grid">
@@ -126,6 +132,33 @@
       {% else %}
         <p class="note-small">Nothing yet — activity appears as files are
           processed.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Daily trends -->
+  <div class="dash-grid" style="margin-top:16px;">
+    <div class="qcard">
+      <h2>Receivables ageing — % of AR over 60 / 90 days</h2>
+      {% if trend_ar %}
+        <div style="overflow-x:auto;">{{ trend_ar|safe }}</div>
+        <p class="note-small">Recorded daily, each time an AR analysis is
+          uploaded in the <a href="/tools/ongoing-ctp-monitoring">CtP
+          Portal</a>.</p>
+      {% else %}
+        <p class="note-small">No history yet — points are recorded each time
+          an AR analysis is uploaded in the CtP Portal.</p>
+      {% endif %}
+    </div>
+    <div class="qcard">
+      <h2>BIT &amp; Cash AR — open items per day</h2>
+      {% if trend_bitcash %}
+        <div style="overflow-x:auto;">{{ trend_bitcash|safe }}</div>
+        <p class="note-small">From the daily
+          <a href="/tools/bit-cash-ar">BIT &amp; Cash AR</a> uploads.</p>
+      {% else %}
+        <p class="note-small">No history yet — upload the BIT and Cash AR
+          files in <a href="/tools/bit-cash-ar">BIT &amp; Cash AR</a>.</p>
       {% endif %}
     </div>
   </div>

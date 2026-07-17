@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Account Stop · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <style>
+    .pay-line { line-height: 1.55; white-space: nowrap; overflow: hidden;
+                text-overflow: ellipsis; max-width: 240px; }
+    .grp-bank    { border-left: 3px solid #3b82f6; }
+    .grp-cheque  { border-left: 3px solid #16a34a; }
+    .grp-momo    { border-left: 3px solid #f59e0b; }
+    .subhead th  { font-size: 11px; }
+  </style>
+  <nav class="crumbs"><a href="/">Dashboard</a> / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">{{ tool.description }}</p>
+
+    {% if not ar %}
+      <div class="alert alert-info">No AR analysis on file yet — run one in
+        the CtP Portal and the stopped accounts appear here.</div>
+    {% elif not accounts %}
+      <div class="alert alert-ok"><strong>No accounts are currently on credit
+        stop</strong> — per the latest AR analysis ({{ ar.source }}, as of
+        {{ ar.as_of }}).</div>
+    {% else %}
+      <div class="alert alert-info">
+        <strong>{{ counts.stopped }}</strong> account(s) on credit stop per the
+        latest AR analysis ({{ ar.source }}, as of {{ ar.as_of }}) — checked
+        against <strong>{{ counts.bank_lines }}</strong> bank credit line(s),
+        the cheque register and
+        <strong>{{ counts.orange_uploads }}</strong> Orange Money upload(s).
+      </div>
+
+      <div class="table-wrap" style="max-height:none;">
+        <table class="tx-table">
+          <thead>
+            <tr>
+              <th rowspan="2">Account N°</th>
+              <th rowspan="2">Account name</th>
+              <th rowspan="2">Total AR (XAF)</th>
+              <th rowspan="2">Total overdue (XAF)</th>
+              <th colspan="3" class="grp-bank">🏦 Bank payments</th>
+              <th colspan="3" class="grp-cheque">💵 Cheque payments</th>
+              <th colspan="4" class="grp-momo">📱 Mobile money</th>
+            </tr>
+            <tr class="subhead">
+              <th class="grp-bank">Name on statement</th>
+              <th>Amount credited</th>
+              <th>Bank / reference</th>
+              <th class="grp-cheque">Name per cheque</th>
+              <th>Cheque amount</th>
+              <th>Bank cleared in</th>
+              <th class="grp-momo">Operator</th>
+              <th>Name per report</th>
+              <th>Amount</th>
+              <th>Transaction date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in accounts %}
+            <tr>
+              <td><strong>{{ a.key }}</strong>
+                {% if a.hold_source %}<div class="note-inline">held per {{ a.hold_source }}</div>{% endif %}</td>
+              <td>{{ a.customer }}</td>
+              <td>{{ "{:,.0f}".format(a.total_ar or 0) }}</td>
+              <td>{% if a.overdue %}<strong>{{ "{:,.0f}".format(a.overdue) }}</strong>{% else %}0{% endif %}</td>
+
+              <td class="grp-bank">{% for p in a.bank %}<div class="pay-line" title="{{ p.reference }}">{{ p.name }}</div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.bank %}<div class="pay-line"><strong>{{ "{:,.0f}".format(p.amount or 0) }}</strong></div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.bank %}<div class="pay-line" title="{{ p.reference }}">{{ p.bank }}{% if p.date %} · {{ p.date }}{% endif %} · {{ p.reference }}</div>{% else %}—{% endfor %}</td>
+
+              <td class="grp-cheque">{% for p in a.cheques %}<div class="pay-line">{{ p.name }}</div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.cheques %}<div class="pay-line">{% if p.amount is not none %}<strong>{{ "{:,.0f}".format(p.amount) }}</strong>{% else %}?{% endif %}{% if p.cheque_number %} · N° {{ p.cheque_number }}{% endif %}</div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.cheques %}<div class="pay-line">{{ p.bank }}{% if p.date %} · {{ p.date }}{% endif %}</div>{% else %}—{% endfor %}</td>
+
+              <td class="grp-momo">{% for p in a.momo %}<div class="pay-line">{{ p.operator }}</div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.momo %}<div class="pay-line">{{ p.name }}</div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.momo %}<div class="pay-line"><strong>{{ "{:,.0f}".format(p.amount or 0) }}</strong></div>{% else %}—{% endfor %}</td>
+              <td>{% for p in a.momo %}<div class="pay-line">{{ p.date }}</div>{% else %}—{% endfor %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="note-small">Payments are matched on the customer name (bank
+        narrations and cheques) or the AR account number (mobile money) —
+        several payments for one account stack within the row, aligned across
+        each group's columns. “—” = no payment trace found in that source.
+        A payment appearing here is a prompt to verify and release the
+        account, not an automatic release.</p>
+    {% endif %}
+  </section>
+{% endblock %}

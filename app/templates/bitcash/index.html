@@ -18,7 +18,6 @@
           <strong>{{ label }} on record:</strong> {{ cur.source }} — uploaded
           {{ cur.uploaded }}
           {% if age is not none %}
-            ({% if age == 0 %}today{% elif age == 1 %}1 day old{% else %}<strong>{{ age }} days old</strong>{% endif %})
             {% if age > 7 %} — <strong>upload a fresh {{ label }} file to keep
               reconciliations current.</strong>
             {% elif age > 1 %} — consider replacing it with a newer extract.{% endif %}

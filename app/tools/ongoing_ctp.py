@@ -13,6 +13,7 @@ are empty — detected, excluded from the analysis, and used to validate that
 the line items sum to the file's own total.
 """
 import json
+import os
 import re
 from collections import Counter
 from datetime import date, datetime, timedelta
@@ -621,6 +622,69 @@ def load_master():
         return json.loads(MASTER_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+# --- Daily statistics (credit holds + receivables ageing %) -------------------
+# Lives OUTSIDE data/ctp/ on purpose: list_results() globs that directory and
+# would otherwise surface this file as a phantom analysis.
+STATS_PATH = DATA_DIR / "ctp_daily_stats.json"
+
+
+def compute_daily_stats(result):
+    """The day's headline numbers from one analysis: accounts on credit hold
+    (actual state — master file where covered, else the manual register) and
+    the %% of open receivables over 60 / over 90 days.
+
+    Ageing definition: open invoice amounts (kind == "invoice", credits
+    excluded) with days_overdue > 60 (resp. > 90) as a percentage of all open
+    invoice amounts, 1 decimal."""
+    customers = result.get("customers", [])
+    hold_compare(customers)
+    invoices = [i for i in result.get("invoices", [])
+                if i.get("kind") == "invoice"]
+    base = sum(float(i.get("amount") or 0) for i in invoices)
+
+    def _pct(days):
+        if base <= 0:
+            return 0.0
+        over = sum(float(i.get("amount") or 0) for i in invoices
+                   if (i.get("days_overdue") or 0) > days)
+        return round(over / base * 100, 1)
+
+    return {"held": sum(1 for c in customers if c.get("currently_held")),
+            "pct_over_60": _pct(60), "pct_over_90": _pct(90),
+            "total_ar": round(float(
+                result.get("summary", {}).get("total_ar", 0) or 0), 2)}
+
+
+def record_daily_stats(result, day=None):
+    """Persist a day's snapshot {date: {held, pct_over_60, pct_over_90,
+    total_ar}} — called when a NEW analysis is uploaded (a same-day re-upload
+    overwrites the day's point). Keeps ~180 days for the daily graphs."""
+    hist = {}
+    if STATS_PATH.exists():
+        try:
+            hist = json.loads(STATS_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            hist = {}
+    hist[day or datetime.now().strftime("%Y-%m-%d")] = compute_daily_stats(result)
+    for key in sorted(hist)[:-180]:
+        del hist[key]
+    tmp = STATS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(hist, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, STATS_PATH)
+    return hist
+
+
+def stats_history():
+    """[(date, {held, pct_over_60, pct_over_90, total_ar}), …] oldest first."""
+    if not STATS_PATH.exists():
+        return []
+    try:
+        hist = json.loads(STATS_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return sorted(hist.items())
 
 
 # --- Priority customers (~40 key accounts) -----------------------------------

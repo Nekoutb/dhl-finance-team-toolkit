@@ -485,11 +485,14 @@ def build_register_excel(out_path, rows, aliases=None):
     num = wb.add_format({"border": 1, "num_format": "#,##0.00"})
 
     ws = wb.add_worksheet("Cheque register")
-    widths = [17, 13, 14, 22, 28, 14, 12, 22, 18, 22, 13, 16, 46, 22, 26]
+    widths = [17, 13, 14, 22, 28, 28, 14, 15, 15, 14, 12, 22, 18, 22, 13, 16,
+              46, 22, 26]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     headers = ["Uploaded", "Uploaded by", "Cheque N°", "Issuing bank",
-               "Client name", "Cheque amount", "Cheque date", "Scan file",
+               "Client name", "AR customer (latest analysis)", "AR account",
+               "AR balance", "Overdue balance",
+               "Cheque amount", "Cheque date", "Scan file",
                "On bank statement?", "Bank credited", "Date credited",
                "Amount credited/debited", "Reference seen on statement",
                "Treated in accounting", "Duplicate"]
@@ -503,30 +506,40 @@ def build_register_excel(out_path, rows, aliases=None):
         if row["status"] != "done":
             ws.write(r, 2, row["status"].upper(), no_f)
             ws.write(r, 3, row.get("error", ""), wrap)
-            ws.write(r, 7, row.get("filename", ""), cell)
+            ws.write(r, 11, row.get("filename", ""), cell)
             r += 1
             continue
         ws.write(r, 2, row["cheque_number"], cell)
         ws.write(r, 3, row["issuing_bank"], cell)
         ws.write(r, 4, row["customer"], cell)
+        ar = row.get("ar") or {}
+        ws.write(r, 5, ar.get("customer", ""), cell)
+        ws.write(r, 6, ar.get("key", ""), cell)
+        bal, ovd = ar.get("total_ar"), ar.get("overdue")
+        ws.write_number(r, 7, bal, num) if isinstance(bal, (int, float)) \
+            else ws.write(r, 7, "", cell)
+        ws.write_number(r, 8, ovd, num) if isinstance(ovd, (int, float)) \
+            else ws.write(r, 8, "", cell)
         amt = row["amount"]
-        ws.write_number(r, 5, amt, num) if isinstance(amt, (int, float))             else ws.write(r, 5, "", cell)
-        ws.write(r, 6, row["cheque_date"], cell)
-        ws.write(r, 7, row.get("filename", ""), cell)
-        ws.write(r, 8, "YES" if row["found"] else "NOT FOUND",
+        ws.write_number(r, 9, amt, num) if isinstance(amt, (int, float)) \
+            else ws.write(r, 9, "", cell)
+        ws.write(r, 10, row["cheque_date"], cell)
+        ws.write(r, 11, row.get("filename", ""), cell)
+        ws.write(r, 12, "YES" if row["found"] else "NOT FOUND",
                  ok_f if row["found"] else no_f)
         cl = row.get("cleared") or {}
-        ws.write(r, 9, cl.get("bank", ""), cell)
-        ws.write(r, 10, cl.get("date", ""), cell)
+        ws.write(r, 13, cl.get("bank", ""), cell)
+        ws.write(r, 14, cl.get("date", ""), cell)
         ca = cl.get("amount")
-        ws.write_number(r, 11, ca, num) if isinstance(ca, (int, float))             else ws.write(r, 11, "", cell)
-        ws.write(r, 12, row.get("ref_snippet") or cl.get("text", ""), wrap)
+        ws.write_number(r, 15, ca, num) if isinstance(ca, (int, float)) \
+            else ws.write(r, 15, "", cell)
+        ws.write(r, 16, row.get("ref_snippet") or cl.get("text", ""), wrap)
         t = row.get("treated")
-        ws.write(r, 13, f"YES — {t['by']} ({t['at']})" if t else "pending",
+        ws.write(r, 17, f"YES — {t['by']} ({t['at']})" if t else "pending",
                  ok_f if t else cell)
         dup = row.get("duplicate_of")
         d_who = (dup or {}).get("uploaded_by", "")
-        ws.write(r, 14, (f"DUPLICATE of upload {dup['uploaded']} by "
+        ws.write(r, 18, (f"DUPLICATE of upload {dup['uploaded']} by "
                          f"{aliases.get(d_who, d_who) or 'unknown'}") if dup else "",
                  no_f if dup else cell)
         r += 1

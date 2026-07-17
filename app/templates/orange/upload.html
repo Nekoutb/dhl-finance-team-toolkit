@@ -42,5 +42,34 @@
          upload identifies more customers automatically.
          <a href="/tools/orange-cameroun/customers">View saved customers →</a></p>
     </div>
+
+    {% if uploads %}
+    <h2 class="section-title" style="margin-top:22px;">Previous uploads</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Uploaded</th><th>Month</th><th>Statement file</th>
+          <th>Correspondants</th><th>Receipts</th><th>Total credited (XAF)</th>
+          <th>Receipts generated?</th><th></th></tr></thead>
+        <tbody>
+          {% for u in uploads %}
+          <tr>
+            <td>{{ u.uploaded_at or '—' }}</td>
+            <td>{{ u.month_label or '—' }}</td>
+            <td>{{ u.source or '—' }}</td>
+            <td>{{ u.correspondant_count }}</td>
+            <td>{{ u.count }}</td>
+            <td>{{ "{:,.0f}".format(u.credited or 0).replace(",", " ") }}</td>
+            <td>{% if u.generated_at %}<span class="pill pill-ok">✓ {{ u.generated_at }}</span>
+                {% else %}<span class="pill pill-watch">not yet</span>{% endif %}</td>
+            <td><a href="/tools/orange-cameroun/history/{{ u.token }}">Compare vs AR →</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">Re-uploading the same statement month replaces its
+      entry. “Compare vs AR” sets each customer's payments against their
+      balance per the latest AR trial balance.</p>
+    {% endif %}
   </section>
 {% endblock %}

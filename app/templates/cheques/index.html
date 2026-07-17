@@ -157,7 +157,10 @@
       <table class="tx-table">
         <thead><tr>
           <th>Uploaded</th><th>Uploaded by</th><th>Cheque N°</th><th>Issuing bank</th>
-          <th>Client name</th><th>Cheque amount</th><th>Cheque date</th>
+          <th>Client name</th>
+          <th>AR customer (latest analysis)</th><th>AR account</th>
+          <th>AR balance</th><th>Overdue balance</th>
+          <th>Cheque amount</th><th>Cheque date</th>
           <th>On bank statement?</th><th>Bank credited</th><th>Date credited</th>
           <th>Amount credited/debited</th><th>Reference seen on statement</th>
           <th>Treated in accounting</th>
@@ -177,6 +180,14 @@
               {% elif r.new %}<br><span class="pill pill-watch">NEW MATCH</span>{% endif %}</td>
             <td>{{ r.issuing_bank or '—' }}</td>
             <td>{{ r.customer or '—' }}</td>
+            {% if r.ar %}
+            <td title="match score {{ r.ar.score }}">{{ r.ar.customer }}</td>
+            <td>{{ r.ar.key }}</td>
+            <td>{{ "{:,.0f}".format(r.ar.total_ar or 0) }}</td>
+            <td>{% if r.ar.overdue %}<strong>{{ "{:,.0f}".format(r.ar.overdue) }}</strong>{% else %}0{% endif %}</td>
+            {% else %}
+            <td>—</td><td>—</td><td>—</td><td>—</td>
+            {% endif %}
             <td>{% if r.amount is not none %}{{ "{:,.0f}".format(r.amount) }} {{ r.currency }}{% else %}—{% endif %}</td>
             <td>{{ r.cheque_date or '—' }}</td>
             <td style="text-align:center;">
@@ -210,10 +221,10 @@
               {% endif %}
             </td>
             {% elif r.status == 'error' %}
-            <td colspan="11"><span class="pill pill-stop">read failed</span>
+            <td colspan="15"><span class="pill pill-stop">read failed</span>
               <span class="note-inline">{{ r.filename }} — {{ r.error }}</span></td>
             {% else %}
-            <td colspan="11"><span class="pill pill-watch">reading…</span>
+            <td colspan="15"><span class="pill pill-watch">reading…</span>
               <span class="note-inline">{{ r.filename }}</span></td>
             {% endif %}
           </tr>
@@ -228,7 +239,12 @@
       accounting treatment — they stay at the top until the
       <strong>finance profile</strong> marks them treated (the cheque-register
       profile cannot). ✗ = the statements on file were read and the cheque
-      number was not found.</p>
+      number was not found. The <strong>AR columns</strong> come from the
+      latest AR analysis{% if ar_meta and ar_meta.as_of %} (as of
+      {{ ar_meta.as_of }}){% endif %} — the client name on the cheque is
+      matched to the AR trial balance so you can see which account the
+      cheque cleared and how much overdue balance it covers; “—” means no
+      close name match.</p>
     {% else %}
     <p class="note-small">No cheques on the register yet — upload the first
       scans above.</p>

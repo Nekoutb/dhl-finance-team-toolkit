@@ -26,7 +26,7 @@ from .services import (ai_ocr, ar_master, auth, bank_statement,
                        emailer, eno_allocation, holds, remittance_pdf,
                        remittance_store, turnstile, variance,
                        xlsx_report)
-from .tools import bank, bitcash, quickstmt
+from .tools import account_stop, bank, bitcash, quickstmt
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -338,8 +338,12 @@ def _home_stats():
     stats = {"ar": None, "overdue": None, "unapplied": None, "as_of": "",
              "actions_due": 0, "place_on_hold": 0, "calls_due": 0,
              "pending_alloc": 0, "alloc_done": 0, "batch_total": 0,
-             "batch_at": "", "total_ok": None,
+             "batch_at": "", "total_ok": None, "unpresented_cheques": None,
              "activity": []}
+    try:
+        stats["unpresented_cheques"] = cheques.register_stats()["unpresented"]
+    except Exception:  # noqa: BLE001
+        pass
     try:
         recent = ctp.list_results(limit=3)
         if recent:
@@ -412,13 +416,77 @@ def dashboard(request: Request, welcome: str = ""):
         "cfg": cfg,
         "groups": groups,
         "s": _home_stats(),
+        "trend_ar": _dash_trend_ar(),
+        "trend_bitcash": _dash_trend_bitcash(),
         "welcome": bool(welcome) and getattr(request.state, "user", None),
     })
+
+
+def _dash_trend_ar():
+    """Daily % of receivables over 60 / over 90 days, from the CtP snapshots."""
+    try:
+        hist = ctp.stats_history()
+    except Exception:  # noqa: BLE001
+        return ""
+    if not hist:
+        return ""
+    return charts.line_svg(
+        [d[5:] for d, _v in hist],
+        [{"name": "> 60 days %", "color": "#f59e0b",
+          "values": [v.get("pct_over_60") for _d, v in hist]},
+         {"name": "> 90 days %", "color": "#dc2626",
+          "values": [v.get("pct_over_90") for _d, v in hist]}])
+
+
+def _dash_trend_bitcash():
+    """Daily open BIT & Cash AR items, from the BIT & Cash AR uploads."""
+    try:
+        hist = bitcash.status()["history"]
+    except Exception:  # noqa: BLE001
+        return ""
+    if not hist:
+        return ""
+    return charts.line_svg(
+        [d[5:] for d, _v in hist],
+        [{"name": "Open BIT items", "color": "#3b82f6",
+          "values": [v.get("bit_open") for _d, v in hist]},
+         {"name": "Open Cash AR items", "color": "#16a34a",
+          "values": [v.get("cash_open") for _d, v in hist]}])
 
 
 # --------------------------------------------------------------------------- #
 # Orange Cameroun tool
 # --------------------------------------------------------------------------- #
+def _orange_ar_enrich(rows):
+    """Attach the AR-ledger view to Orange correspondants: the account and
+    balance per the latest AR analysis — joined on the AR account number
+    first, else matched on the remembered customer name."""
+    result, _tok = _latest_ctp_result()
+    if not result:
+        for row in rows:
+            row["ar"] = None
+        return rows, None
+    custs = result.get("customers", [])
+
+    def _norm(v):
+        s = str(v or "").strip()
+        return s[:-2] if s.endswith(".0") else s
+
+    by_acct = {_norm(c.get("key")): c for c in custs}
+    for row in rows:
+        hit, via = by_acct.get(_norm(row.get("account"))), "account"
+        if hit is None and (row.get("name") or "").strip():
+            m = bank_statement.best_customer_for(row["name"], custs)
+            hit, via = (m[0] if m else None), "name"
+        row["ar"] = None if hit is None else {
+            "customer": hit.get("customer", ""),
+            "key": str(hit.get("key", "")),
+            "total_ar": hit.get("total_ar", 0) or 0,
+            "overdue": hit.get("overdue", 0) or 0, "via": via}
+    return rows, {"as_of": str(result.get("as_of", "")),
+                  "source": result.get("source", "")}
+
+
 @app.get("/tools/orange-cameroun", response_class=HTMLResponse)
 def orange_home(request: Request, error: str = ""):
     cfg = load_config()
@@ -428,6 +496,7 @@ def orange_home(request: Request, error: str = ""):
         "tool": registry.by_slug("orange-cameroun"),
         "error": error,
         "saved_count": len(customers.all_names(orange.TOOL_SLUG)),
+        "uploads": orange.list_uploads(),
     })
 
 
@@ -441,6 +510,7 @@ async def orange_upload(request: Request, file: UploadFile = File(...)):
             "request": request, "cfg": cfg,
             "tool": registry.by_slug("orange-cameroun"), "error": message,
             "saved_count": len(customers.all_names(orange.TOOL_SLUG)),
+            "uploads": orange.list_uploads(),
         }, status_code=code)
 
     if ext not in ALLOWED_EXT:
@@ -461,11 +531,20 @@ async def orange_upload(request: Request, file: UploadFile = File(...)):
                     "this is the Orange Money monthly ‘Relevé de vos opérations’ "
                     "export for the merchant account.")
 
+    # AR-ledger columns + persist this upload so it stays consultable.
+    _rows, ar_meta = _orange_ar_enrich(model["correspondants"])
+    try:
+        htoken = orange.save_upload_summary(
+            model, source=file.filename or "orange_statement.xls")
+    except Exception:  # noqa: BLE001 — history must never block a review
+        htoken = ""
+
     return templates.TemplateResponse("orange/review.html", {
         "request": request, "cfg": cfg,
         "tool": registry.by_slug("orange-cameroun"),
         "model": model, "token": token,
         "original": file.filename or "orange_statement.xls",
+        "htoken": htoken, "ar_meta": ar_meta,
     })
 
 
@@ -496,11 +575,30 @@ async def orange_generate(request: Request):
         return HTMLResponse(
             f"<script>alert({('Could not generate receipts: ' + str(exc))!r});"
             "history.back();</script>", status_code=500)
+    try:
+        orange.mark_generated(form.get("htoken", ""), identities)
+    except Exception:  # noqa: BLE001 — history must never block the ZIP
+        pass
 
     return templates.TemplateResponse("orange/done.html", {
         "request": request, "cfg": cfg,
         "tool": registry.by_slug("orange-cameroun"),
         "result": result, "zip_file": out_zip.name,
+    })
+
+
+@app.get("/tools/orange-cameroun/history/{htoken}", response_class=HTMLResponse)
+def orange_history(request: Request, htoken: str):
+    u = orange.load_upload(htoken)
+    if u is None:
+        return RedirectResponse(
+            "/tools/orange-cameroun?error=That upload was not found.",
+            status_code=303)
+    rows, ar_meta = _orange_ar_enrich(u.get("correspondants", []))
+    return templates.TemplateResponse("orange/history.html", {
+        "request": request, "cfg": load_config(),
+        "tool": registry.by_slug("orange-cameroun"),
+        "u": u, "rows": rows, "ar_meta": ar_meta,
     })
 
 
@@ -546,12 +644,24 @@ def _master_summary():
             "stats": m.get("stats", {})}
 
 
+def _held_chart():
+    """Daily 'accounts on credit hold' line — from the CtP daily snapshots."""
+    hist = ctp.stats_history()
+    if not hist:
+        return ""
+    return charts.line_svg(
+        [d[5:] for d, _v in hist],
+        [{"name": "Accounts on credit hold", "color": "#dc2626",
+          "values": [v.get("held") for _d, v in hist]}])
+
+
 @app.get("/tools/ongoing-ctp-monitoring", response_class=HTMLResponse)
 def ongoing_ctp(request: Request, error: str = "", message: str = ""):
     return templates.TemplateResponse(
         "ongoing/upload.html",
         _ongoing_ctx(request, error=error, message=message,
-                     recent=ctp.list_results(), master=_master_summary()))
+                     recent=ctp.list_results(), master=_master_summary(),
+                     held_chart=_held_chart()))
 
 
 async def _store_master_upload(files):
@@ -729,6 +839,10 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
     result["source"] = file.filename or "ar_breakdown.xlsx"
     result["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     ctp.save_result(token[:12], result)
+    try:
+        ctp.record_daily_stats(result)
+    except Exception:  # noqa: BLE001 — stats must never fail an upload
+        pass
     return RedirectResponse(
         f"/tools/ongoing-ctp-monitoring/results/{token[:12]}/dashboard",
         status_code=303)
@@ -1654,10 +1768,40 @@ _CHEQUE_TOOL = registry.by_slug("cheque-processing")
 _MAX_CHEQUE_FILE_BYTES = 15 * 1024 * 1024
 
 
+def _register_with_ar(register):
+    """Attach the AR trial-balance view to each read cheque: the customer,
+    account number, account balance and overdue balance from the latest CtP
+    analysis, matched on the client name read off the cheque (same matcher
+    and 0.86 bar as the payments identification). row["ar"] = None when no
+    confident match."""
+    result, _tok = _latest_ctp_result()
+    custs = (result or {}).get("customers", [])
+    memo = {}
+    for row in register:
+        row["ar"] = None
+        name = (row.get("customer") or "").strip()
+        if not custs or row.get("status") != "done" or not name \
+                or row.get("duplicate_of"):
+            continue
+        mkey = name.lower()
+        if mkey not in memo:
+            hit = bank_statement.best_customer_for(name, custs)
+            memo[mkey] = None if not hit else {
+                "customer": hit[0].get("customer", ""),
+                "key": str(hit[0].get("key", "")),
+                "total_ar": hit[0].get("total_ar", 0) or 0,
+                "overdue": hit[0].get("overdue", 0) or 0,
+                "score": round(hit[1], 2)}
+        row["ar"] = memo[mkey]
+    ar_meta = ({"as_of": str(result.get("as_of", "")),
+                "source": result.get("source", "")} if result else None)
+    return register, ar_meta
+
+
 def _cheque_ctx(request, **extra):
     cfg = load_config()
     _rows, bank_banks = bank.all_statement_lines()
-    register = cheques.register_rows()
+    register, ar_meta = _register_with_ar(cheques.register_rows())
     # Today's headline numbers + the daily series for the graph. Recording on
     # every render keeps the day's snapshot tracking the current truth.
     stats = cheques.register_stats(register)
@@ -1674,6 +1818,7 @@ def _cheque_ctx(request, **extra):
            "ai_ready": ai_ocr.is_configured(cfg),
            "max_cheques": cheques.MAX_CHEQUES,
            "register": register, "stats": stats, "stats_chart": stats_chart,
+           "ar_meta": ar_meta,
            "can_treat": _can_treat(request),
            # username -> display alias (set by an admin) for "Uploaded by".
            "aliases": auth.alias_map(cfg.get("auth", {})),
@@ -1771,10 +1916,26 @@ async def cheque_register_resume(request: Request):
 @app.get("/tools/cheque-processing/register/export")
 def cheque_register_export():
     out = OUTPUT_DIR / "Electronic_cheque_register.xlsx"
-    cheques.build_register_excel(out, cheques.register_rows())
+    rows, _ar_meta = _register_with_ar(cheques.register_rows())
+    cheques.build_register_excel(out, rows)
     return FileResponse(out, filename="Electronic_cheque_register.xlsx",
                         media_type="application/vnd.openxmlformats-officedocument"
                                    ".spreadsheetml.sheet")
+
+
+# --------------------------------------------------------------------------- #
+# Account Stop — payments traced for accounts on credit stop
+# --------------------------------------------------------------------------- #
+_ACCT_STOP_TOOL = registry.by_slug("account-stop")
+
+
+@app.get("/tools/account-stop", response_class=HTMLResponse)
+def account_stop_home(request: Request):
+    view = account_stop.build_view()
+    return templates.TemplateResponse("account_stop/index.html", {
+        "request": request, "cfg": load_config(), "tool": _ACCT_STOP_TOOL,
+        **view,
+    })
 
 
 def _can_treat(request):

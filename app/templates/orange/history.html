@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Orange Money — upload vs AR · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/orange-cameroun">{{ tool.name }}</a> /
+    {{ u.meta.month_label or "Upload" }}
+  </nav>
+
+  <section class="panel">
+    <h1>Payments vs AR — {{ u.meta.month_label or "Orange Money upload" }}</h1>
+    <p class="lead">
+      Account <strong>{{ u.meta.account }}</strong>
+      {%- if u.meta.company %} · {{ u.meta.company }}{% endif %} ·
+      statement <strong>{{ u.source }}</strong> uploaded {{ u.uploaded_at }} ·
+      <strong>{{ u.totals.count }}</strong> successful collection(s),
+      total <strong>{{ "{:,.0f}".format(u.totals.credited or 0).replace(",", " ") }} XAF</strong>
+      {%- if u.generated_at %} · receipts generated {{ u.generated_at }}
+      {%- else %} · <em>receipts not generated yet</em>{% endif %}
+    </p>
+
+    {% if not ar_meta %}
+    <div class="alert alert-info">No AR analysis on file yet — run one in the
+      CtP Portal and the comparison columns fill in.</div>
+    {% endif %}
+
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr>
+          <th>Correspondant</th><th>Customer name</th>
+          <th>AR account (saved)</th><th>Receipts</th>
+          <th>Paid this statement (XAF)</th>
+          <th>Account per AR ledger</th>
+          <th>Balance per latest AR TB (XAF)</th>
+        </tr></thead>
+        <tbody>
+          {% for c in rows %}
+          <tr>
+            <td>{{ c.correspondant }}</td>
+            <td>{{ c.name or '—' }}</td>
+            <td>{{ c.account or '—' }}</td>
+            <td>{{ c.count }}</td>
+            <td><strong>{{ "{:,.0f}".format(c.total or 0).replace(",", " ") }}</strong></td>
+            {% if c.ar %}
+            <td title="matched by {{ c.ar.via }}">{{ c.ar.key }}
+              <div class="note-inline" style="max-width:200px;white-space:normal;">{{ c.ar.customer }}</div></td>
+            <td>{{ "{:,.0f}".format(c.ar.total_ar or 0).replace(",", " ") }}
+              {% if c.ar.overdue %}<div class="note-inline">of which overdue
+                {{ "{:,.0f}".format(c.ar.overdue).replace(",", " ") }}</div>{% endif %}</td>
+            {% else %}
+            <td>—</td><td>—</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">Each customer's payment amount on this statement,
+      set against their account balance per the latest AR trial balance
+      {%- if ar_meta and ar_meta.as_of %} (as of {{ ar_meta.as_of }})
+      {%- endif %} — joined on the saved AR account number, or on the customer
+      name when no account is saved; “—” = not found in the AR ledger.</p>
+
+    <details class="meta-box" style="margin-top:14px;">
+      <summary>All {{ u.collections|length }} collection(s) in this upload</summary>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="tx-table">
+          <thead><tr><th>Date</th><th>Référence</th><th>Correspondant</th>
+            <th>Montant (XAF)</th></tr></thead>
+          <tbody>
+            {% for tx in u.collections %}
+            <tr>
+              <td>{{ tx.date }}</td>
+              <td>{{ tx.reference }}</td>
+              <td>{{ tx.correspondant }}</td>
+              <td>{{ "{:,.0f}".format(tx.credit or 0).replace(",", " ") }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+{% endblock %}

@@ -13,16 +13,23 @@ Pipeline:
 Identities are remembered per correspondant number so the next upload auto-
 fills them before generation — the customer directory grows month on month.
 """
+import hashlib
+import json
+import os
+import re
 import shutil
 import tempfile
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
+from ..config import DATA_DIR
 from ..services import customers, pdf_writer
 from ..services.orange_statement import fmt_xaf, parse_statement
 
 TOOL_SLUG = "orange-cameroun"          # remembered customer NAMES  (key = correspondant)
 ACCT_SLUG = "orange-cameroun_acct"     # remembered AR ACCOUNT numbers (key = correspondant)
+HISTORY_DIR = DATA_DIR / "orange"      # one JSON summary per uploaded statement
 
 
 def _safe(text):
@@ -126,3 +133,105 @@ def build_zip(path, identities, out_zip):
         "bundle": bundle,
         "zip_name": f"{bundle}.zip",
     }
+
+
+# --- Upload history (one summary per statement-month) -------------------------
+def history_token(meta):
+    """Stable 12-hex id per merchant account + statement period, so a
+    re-uploaded month REPLACES its history entry instead of duplicating it."""
+    raw = (f"orange:{meta.get('account', '')}|{meta.get('period_start', '')}"
+           f"|{meta.get('period_end', '')}|{meta.get('month_label', '')}")
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _write_upload(payload):
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = HISTORY_DIR / f"{payload['token']}.tmp"
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, HISTORY_DIR / f"{payload['token']}.json")
+
+
+def save_upload_summary(model, source=""):
+    """Persist what an upload contained — per-correspondant totals plus the
+    individual collections — so previous uploads stay consultable and other
+    tools can read the mobile-money payments. Returns the history token."""
+    meta = model["meta"]
+    token = history_token(meta)
+    old = load_upload(token)
+    payload = {
+        "token": token,
+        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "source": source,
+        "meta": {k: meta.get(k, "") for k in
+                 ("account", "company", "month_label",
+                  "period_start", "period_end")},
+        "totals": model["totals"],
+        "correspondants": [
+            {k: c.get(k, "") for k in
+             ("correspondant", "name", "account", "count", "total")}
+            for c in model["correspondants"]],
+        "collections": [
+            {"correspondant": t.get("correspondant", ""),
+             "date": t.get("date", ""), "reference": t.get("reference", ""),
+             "credit": t.get("credit", 0), "service": t.get("service", "")}
+            for t in model["collections"]],
+        # keep the generated stamp when the same month is re-uploaded
+        "generated_at": (old or {}).get("generated_at", ""),
+    }
+    _write_upload(payload)
+    return token
+
+
+def mark_generated(token, identities=None):
+    """Stamp a history entry as generated and refresh its names/accounts from
+    what the user confirmed on the review page. No-op on an unknown token."""
+    u = load_upload(token)
+    if not u:
+        return None
+    for c in u.get("correspondants", []):
+        ident = (identities or {}).get(c.get("correspondant"))
+        if ident is not None:
+            c["name"] = (ident.get("name") or "").strip()
+            c["account"] = (ident.get("account") or "").strip()
+    u["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _write_upload(u)
+    return u
+
+
+def list_uploads(limit=12):
+    """Previous uploads, newest first — headline fields only."""
+    if not HISTORY_DIR.exists():
+        return []
+    items = []
+    for path in HISTORY_DIR.glob("*.json"):
+        try:
+            u = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        items.append({
+            "token": u.get("token", path.stem),
+            "uploaded_at": u.get("uploaded_at", ""),
+            "source": u.get("source", ""),
+            "month_label": u.get("meta", {}).get("month_label", ""),
+            "account": u.get("meta", {}).get("account", ""),
+            "count": u.get("totals", {}).get("count", 0),
+            "credited": u.get("totals", {}).get("credited", 0),
+            "correspondant_count": u.get("totals", {}).get(
+                "correspondant_count", 0),
+            "generated_at": u.get("generated_at", ""),
+        })
+    items.sort(key=lambda u: u.get("uploaded_at", ""), reverse=True)
+    return items[:limit]
+
+
+def load_upload(token):
+    """One stored upload summary, or None (token is hex-validated)."""
+    if not token or not re.fullmatch(r"[0-9a-f]+", str(token)):
+        return None
+    path = HISTORY_DIR / f"{token}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None

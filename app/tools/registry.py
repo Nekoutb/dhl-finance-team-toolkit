@@ -68,6 +68,19 @@ TOOLS = [
         ),
     },
     {
+        "slug": "account-stop",
+        "name": "Account Stop — Payments on Stopped Accounts",
+        "category": O2C,
+        "icon": "⛔",
+        "status": "draft",
+        "description": (
+            "Every account currently on credit stop — account number, name, "
+            "total AR and overdue balance — with the payment traces found for "
+            "it across the bank statements, the cheque register and Orange "
+            "Money, so a stopped account that has paid is spotted at once."
+        ),
+    },
+    {
         "slug": "quick-statement",
         "name": "Quick Account Statement",
         "category": O2C,

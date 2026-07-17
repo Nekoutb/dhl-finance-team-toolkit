@@ -22,6 +22,7 @@
     <form action="/tools/orange-cameroun/generate" method="post" id="genform">
       <input type="hidden" name="token" value="{{ token }}">
       <input type="hidden" name="original" value="{{ original }}">
+      <input type="hidden" name="htoken" value="{{ htoken }}">
 
       <div class="table-wrap">
         <table class="tx-table">
@@ -32,6 +33,8 @@
               <th>Total (XAF)</th>
               <th class="col-name">Customer name</th>
               <th class="col-name">AR account number</th>
+              <th>Account per AR ledger</th>
+              <th>Balance per AR ledger</th>
             </tr>
           </thead>
           <tbody>
@@ -52,11 +55,24 @@
                        class="name-input {% if c.account %}known{% endif %}"
                        form="genform">
               </td>
+              {% if c.ar %}
+              <td title="matched by {{ c.ar.via }}">{{ c.ar.key }}
+                <div class="note-inline" style="max-width:180px;white-space:normal;">{{ c.ar.customer }}</div></td>
+              <td>{{ "{:,.0f}".format(c.ar.total_ar or 0).replace(",", " ") }}</td>
+              {% else %}
+              <td>—</td><td>—</td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% if ar_meta %}
+      <p class="note-small">The two <strong>AR ledger</strong> columns come from
+        the latest AR analysis{% if ar_meta.as_of %} (as of
+        {{ ar_meta.as_of }}){% endif %} — joined on the AR account number, or on
+        the customer name when no account is saved yet; “—” = not found there.</p>
+      {% endif %}
 
       <div class="send-row">
         <p class="muted">{{ model.totals.count }} Orange-branded receipt(s) will

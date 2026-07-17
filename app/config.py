@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v9.3 — 17 Jul 2026 · BIT & Cash AR file-freshness banners (age of the files on record + replace prompts); Quick Statement simplified to a clean Excel (no logo, no letter) with issue date, TB payment terms and ageing in days from the invoice date; generic wording across the app"
+APP_VERSION = "v9.4 — 17 Jul 2026 · Account Stop page (stopped accounts × payments traced on bank statements, cheques and Orange Money); cheque register AR columns (+ Excel); CtP held-accounts daily graph; dashboard trend graphs + unpresented-cheques KPI; Orange Money AR-ledger columns + upload history & AR comparison; BIT & Cash AR banner age bracket removed"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

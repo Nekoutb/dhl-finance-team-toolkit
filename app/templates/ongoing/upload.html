@@ -92,6 +92,14 @@
       register →</a> (who is currently on hold; analyses compare policy vs this
       register)</p>
 
+    {% if held_chart %}
+    <h2 class="section-title" style="margin-top:22px;">Accounts on credit hold
+      — daily</h2>
+    <div style="overflow-x:auto;">{{ held_chart|safe }}</div>
+    <p class="note-small">Snapshotted each time an analysis is uploaded — the
+      graph updates daily as new analyses are loaded.</p>
+    {% endif %}
+
     {% if recent %}
     <h2 class="section-title" style="margin-top:22px;">Recent analyses</h2>
     <div class="table-wrap">

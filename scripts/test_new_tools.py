@@ -158,9 +158,9 @@ page = client.get("/tools/bit-cash-ar")
 check("page shows open counts", ">2<" in page.text and ">4<" in page.text)
 check("daily graph plotted", "<svg" in page.text
       and "Open BIT items" in page.text)
-check("file freshness banners shown (uploaded today)",
+check("file freshness banners shown, no age bracket",
       "BIT on record:" in page.text and "Cash AR on record:" in page.text
-      and "(today)" in page.text)
+      and "(today)" not in page.text and "day old" not in page.text)
 
 r = client.post("/tools/bit-cash-ar/upload")
 check("no file -> friendly 400", r.status_code == 400)
