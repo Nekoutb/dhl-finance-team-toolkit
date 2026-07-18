@@ -186,8 +186,9 @@ client.post(f"/tools/bit-cash-ar/recon/{token}/approve")
 out = _tmp / "journal.xlsx"
 now = datetime(2026, 7, 16, 10, 0)
 result = bitcash.build_journal(out, now=now)
-check("journal built for the approved sandbox",
-      result and result["count"] == 1 and result["lines"] == 6)
+check("journal built for the approved sandbox (AWB-split: 5 pairs)",
+      result and result["count"] == 1 and result["lines"] == 10
+      and result["tokens"] == [token])
 check("download name per the team's convention",
       result["name"] == "CM01_PC TEMPLATE_16.07.26_PC.xlsx")
 
@@ -198,25 +199,29 @@ check("Guide + IC tabs removed",
       "Guide" not in wb.sheetnames and "List of IC Accounts" not in wb.sheetnames)
 ws = wb[tab]
 rows = [[ws.cell(row=r, column=c).value for c in range(1, 15)]
-        for r in range(4, 10)]
-check("LI. repeats 1 on all 6 lines", all(r[0] == 1 for r in rows))
-check("constants CM01/DZ/XAF + MANUAL RECIEPT",
+        for r in range(4, 14)]
+check("LI. repeats 1 on all 10 lines", all(r[0] == 1 for r in rows))
+check("constants CM01/DZ/XAF + MANUAL RECIEPT header text",
       rows[0][1] == "CM01" and rows[0][2] == "DZ" and rows[0][5] == "XAF"
-      and rows[0][6] == "MANUAL RECIEPT ")
+      and all(r[7] == "MANUAL RECIEPT " for r in rows))
 check("compact date 16.07.2026 -> 16726",
       rows[0][3] == 16726 and rows[0][4] == 16726)
-check("line 1 = BIT: GL account, key 40, abs amount, BIT assignment",
+check("bank side split per AWB: 40 line per invoice with its own amount",
       rows[0][9] == 1263001293 and rows[0][10] == 40
-      and rows[0][11] == 294500 and rows[0][13] == "0534527700018")
-check("lines 2-6 = AR: SAP accounts, key 15, per-AWB amounts",
-      all(r[10] == 15 for r in rows[1:])
-      and rows[1][9] == 4003025929 and rows[1][11] == 59600
-      and rows[5][11] == 56100)
+      and rows[0][11] == 59600 and rows[0][13] == "0534527700018"
+      and rows[8][10] == 40 and rows[8][11] == 56100)
+check("each 40 line is paired with the AWB's 15 line (same amount)",
+      rows[1][9] == 4003025929 and rows[1][10] == 15 and rows[1][11] == 59600
+      and rows[9][10] == 15 and rows[9][11] == 56100)
+check("Doc.Nr column carries the AWB on BOTH lines of each pair",
+      rows[0][6] == "4596301334" and rows[1][6] == "4596301334"
+      and rows[8][6] == "3032431695" and rows[9][6] == "3032431695")
 check("assignments are strings preserving digits",
       all(isinstance(r[13], str) for r in rows))
 amounts_40 = sum(r[11] for r in rows if r[10] == 40)
 amounts_15 = sum(r[11] for r in rows if r[10] == 15)
-check("document balances (40 total == 15 total)", amounts_40 == amounts_15)
+check("document balances (40 total == 15 total == 294,500)",
+      amounts_40 == amounts_15 == 294500)
 
 # formatting harmonised: frozen headers, Arial 10, no stray fills on data rows
 check("CM01 headers frozen at row 4", ws.freeze_panes == "A4")

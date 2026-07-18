@@ -23,14 +23,18 @@ typically extracts of open items only).
 import json
 import os
 import re
+import shutil
+import tempfile
 import threading
+import time
 import unicodedata
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
-from ..config import BASE_DIR, DATA_DIR
+from ..config import BASE_DIR, DATA_DIR, UPLOAD_DIR
 from ..services import ai_ocr, excel_reader
 
 STORE_PATH = DATA_DIR / "bitcash.json"
@@ -53,9 +57,8 @@ def _norm(s):
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
-def count_items(path):
-    """Parse one BIT / Cash AR file → {items, open_items, status_col}."""
-    parsed = excel_reader.read_transactions(path)
+def _counts_from(parsed):
+    """Open-item counts from an already-parsed workbook."""
     header = parsed["header"]
     status_col = next(
         (h for h in header
@@ -69,6 +72,11 @@ def count_items(path):
         or _norm(r["data"].get(status_col)).startswith(("open", "ouvert")))
     return {"items": len(rows), "open_items": open_items,
             "status_col": status_col}
+
+
+def count_items(path):
+    """Parse one BIT / Cash AR file → {items, open_items, status_col}."""
+    return _counts_from(excel_reader.read_transactions(path))
 
 
 def _load():
@@ -87,18 +95,30 @@ def _save(data):
     tmp.replace(STORE_PATH)
 
 
-def record_upload(kind, path, source):
+def record_upload(kind, path, source, progress=None):
     """Store the newly uploaded file's counts as the CURRENT position for its
-    kind, snapshot today's open counts into the daily history, and persist the
-    parsed rows for reconciliation + journal-entry generation."""
+    kind (the new file REPLACES the old one as the reference for every
+    check), snapshot today's open counts into the daily history — prior-day
+    points are never touched, so the graph keeps its evolution — and persist
+    the parsed rows for reconciliation + journal-entry generation.
+
+    The workbook is parsed ONCE; ``progress`` (a kwargs callback) receives
+    stage / rows_done / rows_total / pct updates for the loading tracker."""
     if kind not in KINDS:
         raise ValueError(f"unknown kind: {kind}")
-    counts = count_items(path)
-    _persist_rows(kind, path)
+    tick = progress or (lambda **kw: None)
+    tick(stage="reading the workbook", pct=3)
+    parsed = excel_reader.read_transactions(path)
+    counts = _counts_from(parsed)
+    tick(stage="storing the rows", pct=40,
+         rows_done=0, rows_total=len(parsed["rows"]))
+    _persist_rows(kind, path, parsed=parsed, progress=tick)
     with _lock:
         data = _load()
+        prev = (data["current"].get(kind) or {}).get("stored", "")
         data["current"][kind] = {
             **counts, "source": source,
+            "stored": Path(path).name,
             "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M")}
         today = datetime.now().strftime("%Y-%m-%d")
         entry = data["history"].get(today, {})
@@ -107,13 +127,40 @@ def record_upload(kind, path, source):
         for key in sorted(data["history"])[:-180]:     # keep ~6 months
             del data["history"][key]
         _save(data)
+    if prev and prev != Path(path).name:               # replaced — clean up
+        (UPLOAD_DIR / Path(prev).name).unlink(missing_ok=True)
+    tick(stage="done", pct=100, rows_done=len(parsed["rows"]),
+         rows_total=len(parsed["rows"]))
     return counts
 
 
 def status():
     """{current: {bit, cash}, history: [(date, {bit_open, cash_open}), …],
-    processing: {...}|None, processing_error: {...}|None}."""
+    processing: {...}|None, processing_error: {...}|None}.
+
+    A processing flag whose heartbeat stopped (server restarted mid-parse)
+    is cleared after 15 minutes and surfaced as an error instead of leaving
+    the page refreshing forever."""
     data = _load()
+    proc = data.get("processing")
+    if proc:
+        beat = proc.get("beat") or 0
+        if not beat:
+            try:
+                beat = datetime.strptime(proc.get("started", ""),
+                                         "%Y-%m-%d %H:%M").timestamp()
+            except ValueError:
+                beat = 0
+        if time.time() - beat > 900:
+            with _lock:
+                data = _load()
+                if data.get("processing"):
+                    data.pop("processing", None)
+                    data["processing_error"] = {
+                        "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "message": "Processing was interrupted (the server "
+                                   "restarted?) before it finished"}
+                    _save(data)
     return {"current": data.get("current", {}),
             "history": sorted(data.get("history", {}).items()),
             "processing": data.get("processing"),
@@ -123,7 +170,8 @@ def status():
 def process_uploads_async(jobs):
     """Parse the uploaded BIT / Cash AR file(s) on a background thread — big
     extracts take longer than a web request may (proxy timeouts), so the
-    upload responds instantly and the page shows progress until done.
+    upload responds instantly and the page shows a LIVE loading tracker
+    (stage, rows ingested, % done and estimated time left).
 
     ``jobs`` = [(kind, stored_path, source_name)].
     """
@@ -131,16 +179,58 @@ def process_uploads_async(jobs):
         data = _load()
         data["processing"] = {
             "started": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "beat": time.time(),
             "files": [{"kind": k, "label": KINDS[k], "source": s}
-                      for k, _p, s in jobs]}
+                      for k, _p, s in jobs],
+            "stage": "queued", "current": "", "pct": 0,
+            "rows_done": 0, "rows_total": 0, "eta_seconds": None}
         data.pop("processing_error", None)
         _save(data)
 
+    started = time.time()
+    n_files = len(jobs)
+    last_write = [0.0]
+
+    def _tracker(file_idx, label):
+        def tick(stage=None, pct=None, rows_done=None, rows_total=None):
+            # Overall % = this file's share of the whole upload.
+            overall = None
+            if pct is not None:
+                overall = round((file_idx * 100 + min(pct, 100)) / n_files)
+            now = time.time()
+            # Throttle store writes; never skip stage changes or completion.
+            if stage is None and (pct or 0) < 100 \
+                    and now - last_write[0] < 0.4:
+                return
+            last_write[0] = now
+            with _lock:
+                data = _load()
+                proc = data.get("processing")
+                if not proc:
+                    return
+                proc["current"] = label
+                proc["beat"] = now
+                if stage is not None:
+                    proc["stage"] = stage
+                if overall is not None:
+                    proc["pct"] = overall
+                    elapsed = now - started
+                    if overall and elapsed > 1:
+                        proc["eta_seconds"] = max(
+                            0, round(elapsed * (100 - overall) / overall))
+                if rows_done is not None:
+                    proc["rows_done"] = rows_done
+                if rows_total is not None:
+                    proc["rows_total"] = rows_total
+                _save(data)
+        return tick
+
     def _runner():
         errors = []
-        for kind, path, source in jobs:
+        for i, (kind, path, source) in enumerate(jobs):
             try:
-                record_upload(kind, path, source)
+                record_upload(kind, path, source,
+                              progress=_tracker(i, KINDS[kind]))
             except Exception as exc:  # noqa: BLE001 — surfaced on the page
                 errors.append(f"Could not read {source or kind}: "
                               f"{type(exc).__name__}: {exc}")
@@ -185,10 +275,19 @@ def _to_float(v):
         return 0.0
 
 
-def _persist_rows(kind, path):
+def _persist_rows(kind, path, parsed=None, progress=None):
     """Parse an uploaded BIT / Cash AR file into the row store used by the
-    reconciliation sandboxes and the journal entry."""
-    parsed = excel_reader.read_transactions(path)
+    reconciliation sandboxes and the journal entry. ``parsed`` lets the
+    caller reuse an already-read workbook (single parse); ``progress``
+    receives rows_done/rows_total/pct ticks every few hundred rows."""
+    parsed = parsed or excel_reader.read_transactions(path)
+    tick = progress or (lambda **kw: None)
+    total_rows = max(len(parsed["rows"]), 1)
+
+    def _row_tick(done):
+        if done % 250 == 0 or done == total_rows:
+            tick(rows_done=done, rows_total=total_rows,
+                 pct=40 + round(58 * done / total_rows))
     header = parsed["header"]
     low = {h: _norm(h) for h in header}
 
@@ -234,6 +333,7 @@ def _persist_rows(kind, path):
                     "posting_key": _cellstr(d.get(c_key)),
                     "raw": [_cellstr(d.get(h)) for h in header],
                 })
+                _row_tick(i + 1)
             store["bit_header"] = list(header)
             store["bit"] = rows
         else:
@@ -256,6 +356,7 @@ def _persist_rows(kind, path):
                     "customer": _cellstr(d.get(c_name))[:40],
                     "doc_no": _cellstr(d.get(c_doc)),
                 })
+                _row_tick(i + 1)
             store["cash"] = rows
         _atomic(ROWS_PATH, json.dumps(store, ensure_ascii=False))
 
@@ -334,6 +435,10 @@ def list_recons():
 # margin of the evidence total (closest first).
 BIT_MATCH_MARGIN = 1000.0
 
+# Short/excess payments beyond this trigger the clarification email to the
+# account holder (debit position → payment expected; credit → refund given).
+VARIANCE_EMAIL_THRESHOLD = 5000.0
+
 
 def automatch(statement):
     """Match a parsed statement against the stored Cash AR + BIT rows.
@@ -389,12 +494,21 @@ def automatch(statement):
 
 def create_recon_async(stored_path, media_type, source, uploaded_by):
     """Create a sandbox stub and AI-read/match the statement on a background
-    thread (a scanned PDF can take a minute — never block the request)."""
+    thread (a scanned PDF can take a minute — never block the request).
+    A copy of the payment advice is kept with the sandbox for the journal
+    pack and the variance email."""
     token = uuid.uuid4().hex[:12]
+    advice_name = ""
+    try:
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        advice_name = f"advice_{token}{Path(stored_path).suffix.lower()}"
+        shutil.copyfile(stored_path, FILES_DIR / advice_name)
+    except OSError:
+        advice_name = ""
     save_recon({"token": token, "status": "reading",
                 "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "uploaded_by": uploaded_by or "", "source": source,
-                "statement": None, "error": ""})
+                "file": advice_name, "statement": None, "error": ""})
     from ..config import load_config
 
     ai_cfg = load_config().get("ai")
@@ -539,7 +653,38 @@ def recon_view(recon):
             "difference": difference, "plug": plug,
             "plug_amount": plug_amount,
             "residual": round(difference - plug_amount, 2),
-            "margin": BIT_MATCH_MARGIN}
+            "margin": BIT_MATCH_MARGIN,
+            # Variance escalation: only meaningful once a BIT line is chosen.
+            "needs_email": bool(bit_row)
+            and abs(difference) > VARIANCE_EMAIL_THRESHOLD,
+            "email_threshold": VARIANCE_EMAIL_THRESHOLD,
+            "variance_email": recon.get("variance_email"),
+            "slip": recon.get("slip"), "advice": recon.get("file", "")}
+
+
+def set_slip(token, stored_name, source):
+    """Attach the bank deposit slip to a sandbox (any non-error state) —
+    extra evidence that pins the exact payment on the bank statement."""
+    rec = load_recon(token)
+    if not rec or rec.get("status") not in ("open", "approved"):
+        return None
+    rec["slip"] = {"name": stored_name, "source": source or stored_name,
+                   "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    save_recon(rec)
+    return rec
+
+
+def set_variance_email(token, to_addr, mode, eml_name=""):
+    """Remember that the clarification email for this sandbox's variance was
+    sent (smtp) or prepared (eml)."""
+    rec = load_recon(token)
+    if not rec:
+        return None
+    rec["variance_email"] = {
+        "to": to_addr, "mode": mode, "eml": eml_name,
+        "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    save_recon(rec)
+    return rec
 
 
 def set_plug(token, amount, account="", note=""):
@@ -613,9 +758,12 @@ def _compact_date(d):
 
 def build_journal(out_path, now=None):
     """Write every APPROVED sandbox into the CM01 template as one document
-    each (LI. 1..N): a posting-key-40 line from the selected BIT payment, then
-    a posting-key-15 line per selected Cash AR invoice. Returns
-    {count, lines, name} or None when nothing is approved/complete."""
+    each (LI. 1..N), mirroring the AWB detail on BOTH sides: per selected
+    Cash AR invoice a posting-key-40 bank line AND a posting-key-15 customer
+    line with the SAME individual amount, the AWB in the Ref/Doc.Nr column
+    of both. A manual plug adds a balanced pair (BIT G/L ↔ plug G/L) that
+    returns the BIT G/L to the actually banked amount. Returns
+    {count, lines, name, tokens} or None when nothing is approved/complete."""
     import openpyxl
 
     from openpyxl.styles import Font
@@ -652,26 +800,36 @@ def build_journal(out_path, now=None):
         if not bit or not ars:
             continue
         bank_rows.append(bit)
-        entries = [(bit["gl_account"], 40, abs(bit["amount"]),
-                    bit["assignment"])]
-        entries += [(a["sap_acct"], 15, a["amount"], a["awb"] or a["assignment"])
-                    for a in ars]
-        # Manual plug: the user-entered difference line that balances the
-        # document (posting key 40 when the BIT is short, 50 when over).
+        # AWB split: the bank side mirrors the Cash AR one-for-one — a 40
+        # line and a 15 line per AWB, each pair carrying the SAME individual
+        # amount and the AWB in the Ref/Doc.Nr column.
+        entries = []
+        for a in ars:
+            awb = a["awb"] or a["assignment"]
+            entries.append((bit["gl_account"], 40, a["amount"],
+                            bit["assignment"], awb))
+            entries.append((a["sap_acct"], 15, a["amount"], awb, awb))
+        # Manual plug: a balanced PAIR — short payment (plug > 0) credits
+        # the BIT G/L back down to the amount actually banked and debits the
+        # plug G/L; an excess payment does the reverse.
         plug = rec.get("plug") or {}
         plug_amt = _to_float(plug.get("amount"))
         if plug_amt and plug.get("account"):
+            note = plug.get("note") or "DIFFERENCE PLUG"
+            entries.append((bit["gl_account"], 50 if plug_amt > 0 else 40,
+                            abs(plug_amt), bit["assignment"], _MANUAL))
             entries.append((plug["account"], 40 if plug_amt > 0 else 50,
-                            abs(plug_amt),
-                            plug.get("note") or "DIFFERENCE PLUG"))
-        for account, key, amount, assignment in entries:
+                            abs(plug_amt), note, _MANUAL))
+        for account, key, amount, assignment, doc_nr in entries:
             ws.cell(row=r, column=1, value=li)                       # LI.
             ws.cell(row=r, column=2, value="CM01")                   # Comp code
             ws.cell(row=r, column=3, value="DZ")                     # Doc type
             ws.cell(row=r, column=4, value=compact)                  # Post date
             ws.cell(row=r, column=5, value=compact)                  # Doc date
             ws.cell(row=r, column=6, value="XAF")                    # Currency
-            ws.cell(row=r, column=7, value=_MANUAL)                  # Ref doc
+            ref = ws.cell(row=r, column=7)                           # Doc. Nr
+            ref.value = str(doc_nr)
+            ref.number_format = "@"
             ws.cell(row=r, column=8, value=_MANUAL)                  # Header txt
             # column 9 (Tax calculation) stays empty
             acct = ws.cell(row=r, column=10)                         # Account
@@ -707,4 +865,117 @@ def build_journal(out_path, now=None):
     for rec in approved:
         rec["generated_at"] = now.strftime("%Y-%m-%d %H:%M")
         save_recon(rec)
-    return {"count": len(bank_rows), "lines": lines, "name": name}
+    return {"count": len(bank_rows), "lines": lines, "name": name,
+            "tokens": [rec["token"] for rec in approved]}
+
+
+# --------------------------------------------------------------------------- #
+# Journal pack: advice copies + evidences Excel + the journal, zipped
+# --------------------------------------------------------------------------- #
+def _safe_name(s):
+    return re.sub(r"[^A-Za-z0-9._ -]+", "_", str(s or "")).strip() or "item"
+
+
+def _evidence_xlsx(out_path, rec):
+    """The parsed evidence lines of one sandbox as a clean Excel sheet —
+    the 'Excel file copy' of the journal pack."""
+    import xlsxwriter
+
+    view = recon_view(rec)
+    s = rec.get("statement") or {}
+    wb = xlsxwriter.Workbook(str(out_path))
+    ws = wb.add_worksheet("Evidences")
+    f_t = wb.add_format({"bold": True, "font_size": 12, "font_name": "Arial"})
+    f_b = wb.add_format({"font_name": "Arial", "font_size": 10})
+    f_h = wb.add_format({"font_name": "Arial", "font_size": 10, "bold": True,
+                         "bg_color": "#0b2545", "font_color": "white",
+                         "border": 1})
+    f_c = wb.add_format({"font_name": "Arial", "font_size": 10, "border": 1})
+    f_n = wb.add_format({"font_name": "Arial", "font_size": 10, "border": 1,
+                         "num_format": "#,##0"})
+    f_tot = wb.add_format({"font_name": "Arial", "font_size": 10,
+                           "bold": True, "border": 1, "num_format": "#,##0",
+                           "bg_color": "#eef3fb"})
+    for i, w in enumerate((22, 34, 16, 18)):
+        ws.set_column(i, i, w)
+    ws.write("A1", f"Payment evidences — {s.get('label') or rec.get('source')}",
+             f_t)
+    ws.write("A2", f"Uploaded {rec.get('uploaded')} by "
+                   f"{rec.get('uploaded_by') or '—'} · source: "
+                   f"{rec.get('source')}", f_b)
+    row = 3
+    for c, h in enumerate(("Reference (AWB)", "Description",
+                           "Amount (XAF)", "Found in Cash AR?")):
+        ws.write(row, c, h, f_h)
+    for ln in s.get("lines", []):
+        row += 1
+        ws.write(row, 0, ln.get("reference", ""), f_c)
+        ws.write(row, 1, ln.get("description", "") or "—", f_c)
+        ws.write_number(row, 2, float(ln.get("amount") or 0), f_n)
+        ws.write(row, 3, "yes" if ln.get("matched_ids") else "NO", f_c)
+    row += 1
+    ws.write(row, 0, "TOTAL OF EVIDENCES", f_tot)
+    ws.write(row, 1, "", f_tot)
+    ws.write_number(row, 2, float(s.get("total") or 0), f_tot)
+    ws.write(row, 3, "", f_tot)
+    row += 2
+    bit = view.get("bit_row") or {}
+    facts = [
+        ("BIT payment selected",
+         f"G/L {bit.get('gl_account')} · {bit.get('assignment')} · "
+         f"{abs(bit.get('amount') or 0):,.0f} XAF · "
+         f"{bit.get('posting_date') or ''}" if bit else "— none selected —"),
+        ("Reconciliation difference", f"{view['difference']:,.0f} XAF"),
+    ]
+    if s.get("stated_total"):
+        facts.insert(0, ("Total stated in the file (ignored)",
+                         f"{s['stated_total']:,.0f} XAF"))
+    plug = view.get("plug")
+    if plug:
+        facts.append(("Manual plug", f"{plug['amount']:,.0f} XAF on G/L "
+                      f"{plug['account']} ({plug.get('note') or 'no note'})"))
+    ve = rec.get("variance_email")
+    if ve:
+        facts.append(("Variance clarification email",
+                      f"{ve.get('mode')} to {ve.get('to')} on {ve.get('at')}"))
+    for label, value in facts:
+        ws.write(row, 0, label, f_b)
+        ws.write(row, 1, value, f_b)
+        row += 1
+    wb.close()
+    return Path(out_path)
+
+
+def build_pack(out_zip, journal_path, journal_name, tokens):
+    """Zip the audit pack: the CM01 journal at the root plus, per approved
+    sandbox, a folder with the payment-advice copy, the deposit slip (when
+    attached) and the parsed-evidences Excel."""
+    out_zip = Path(out_zip)
+    out_zip.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="cm01pack_"))
+    try:
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(journal_path, arcname=journal_name)
+            for token in tokens:
+                rec = load_recon(token)
+                if not rec:
+                    continue
+                s = rec.get("statement") or {}
+                folder = _safe_name(f"{s.get('label') or rec.get('source')}"
+                                    )[:40] + f"_{token[:6]}"
+                advice = rec.get("file", "")
+                if advice and (FILES_DIR / Path(advice).name).exists():
+                    zf.write(FILES_DIR / Path(advice).name,
+                             arcname=f"{folder}/Payment advice - "
+                                     f"{_safe_name(rec.get('source') or advice)}")
+                slip = (rec.get("slip") or {}).get("name", "")
+                if slip and (FILES_DIR / Path(slip).name).exists():
+                    zf.write(FILES_DIR / Path(slip).name,
+                             arcname=f"{folder}/Deposit slip - "
+                                     f"{_safe_name((rec.get('slip') or {}).get('source') or slip)}")
+                ev = tmp / f"Evidences_{token}.xlsx"
+                _evidence_xlsx(ev, rec)
+                zf.write(ev, arcname=f"{folder}/Evidences_{token}.xlsx")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out_zip

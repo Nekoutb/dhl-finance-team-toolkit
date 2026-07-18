@@ -288,9 +288,112 @@
         plug</button>
     </form>
     <p class="note-small">A positive plug covers a BIT that is
-      <em>short</em> of the evidences (extra debit, key 40); a negative plug
-      covers a BIT that is <em>over</em> (credit, key 50). Save a blank or
-      0 amount to remove the plug.</p>
+      <em>short</em> of the evidences; a negative plug covers a BIT that is
+      <em>over</em>. The journal books it as a <strong>balanced pair</strong>
+      — the BIT G/L is returned to the amount actually banked and the
+      variance sits on the plug account. Save a blank or 0 amount to remove
+      the plug.</p>
+    {% endif %}
+  </section>
+
+  <!-- 4. EVIDENCES on file: payment advice + bank deposit slip -->
+  <section class="panel">
+    <h2 class="section-title">Evidences on file</h2>
+    <div class="download-row">
+      {% if view.advice %}
+      <a class="btn" href="/tools/bit-cash-ar/recon/{{ token }}/evidence/advice">📄
+        View the payment advice ({{ rec.source }})</a>
+      {% else %}
+      <span class="note-inline">No stored copy of the payment advice (older
+        upload).</span>
+      {% endif %}
+      {% if view.slip %}
+      <a class="btn" href="/tools/bit-cash-ar/recon/{{ token }}/evidence/slip">🏦
+        View the deposit slip ({{ view.slip.source }})</a>
+      <span class="note-inline">attached {{ view.slip.uploaded }}</span>
+      {% endif %}
+    </div>
+    {% if rec.status in ('open', 'approved') %}
+    <form action="/tools/bit-cash-ar/recon/{{ token }}/slip" method="post"
+          enctype="multipart/form-data" class="inline-fields"
+          style="margin-top:10px;">
+      <label class="field" style="min-width:320px;">
+        <span>{% if view.slip %}Replace the{% else %}Attach the{% endif %}
+          bank deposit slip (PDF, photo or Excel)</span>
+        <input type="file" name="slip"
+               accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls"
+               required>
+      </label>
+      <button class="btn" type="submit" style="align-self:flex-end;">📎
+        Attach slip</button>
+    </form>
+    <p class="note-small">The deposit slip pins the exact payment on the bank
+      statement and is included in the journal pack together with the advice
+      and the evidences Excel.</p>
+    {% endif %}
+  </section>
+
+  <!-- 5. VARIANCE > threshold: clarify with the account holder -->
+  <section class="panel">
+    <h2 class="section-title">Variance clarification</h2>
+    {% if view.variance_email %}
+    <div class="alert alert-ok">✉ Clarification
+      {{ 'sent' if view.variance_email.mode == 'smtp' else 'prepared' }}
+      {% if view.variance_email.to %}for
+        <strong>{{ view.variance_email.to }}</strong>{% endif %}
+      on {{ view.variance_email.at }}.
+      {% if view.variance_email.mode == 'eml' and view.variance_email.eml %}
+      <a href="/download/{{ view.variance_email.eml }}">⬇ Download the
+        ready-to-send email</a> and send it from your mailbox.
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if view.needs_email %}
+    <div class="alert alert-error">⚠ The
+      {% if view.difference > 0 %}<strong>short payment</strong>
+      {% else %}<strong>excess payment</strong>{% endif %} of
+      <strong>{{ "{:,.0f}".format(view.difference|abs) }} XAF</strong> is
+      above the {{ "{:,.0f}".format(view.email_threshold) }} XAF threshold —
+      clarify the position with the account holder before posting.</div>
+    <form action="/tools/bit-cash-ar/recon/{{ token }}/email" method="post"
+          class="upload-form-stack">
+      <div class="inline-fields">
+        <label class="field" style="min-width:280px;">
+          <span>Account holder's email address</span>
+          <input type="email" name="recipient"
+                 placeholder="customer@company.com">
+        </label>
+        <label class="field" style="min-width:340px;">
+          <span>Subject</span>
+          <input type="text" name="subject"
+                 value="Payment reconciliation — {{ s.label or rec.source }}: clarification needed">
+        </label>
+      </div>
+      <label class="field">
+        <span>Message (edit before sending)</span>
+        <textarea name="body" rows="9">Dear Customer,
+
+We have reconciled your payment advice "{{ s.label or rec.source }}" ({{ s.lines|length }} AWB(s), total {{ "{:,.0f}".format(s.total) }} XAF) against the amount received at the bank ({{ "{:,.0f}".format(view.bit_amount) }} XAF).
+{% if view.difference > 0 %}
+A short payment of {{ "{:,.0f}".format(view.difference|abs) }} XAF remains: your account stands in a DEBIT position and a payment of this amount is expected to clear it.
+{% else %}
+An excess payment of {{ "{:,.0f}".format(view.difference|abs) }} XAF was received: your account stands in a CREDIT position and this amount will be given back or applied to your next invoices.
+{% endif %}
+Please review and confirm at your earliest convenience.
+
+Regards,
+DHL Express Cameroon — Finance</textarea>
+      </label>
+      <button class="btn btn-primary" type="submit">✉ Send the
+        clarification email</button>
+    </form>
+    <p class="note-small">The payment advice on file is attached
+      automatically. Without SMTP settings a ready-to-send .eml file is
+      produced instead.</p>
+    {% elif not view.variance_email %}
+    <p class="note-small">No clarification needed — the difference
+      ({{ "{:,.0f}".format(view.difference) }} XAF) is within the
+      {{ "{:,.0f}".format(view.email_threshold) }} XAF threshold.</p>
     {% endif %}
   </section>
   <form id="qform" action="/tools/bit-cash-ar/recon/{{ token }}" method="get"></form>

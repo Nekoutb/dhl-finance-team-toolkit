@@ -2237,7 +2237,8 @@ def _file_age_days(uploaded):
         return None
 
 
-def _bitcash_home(request, error="", message="", status_code=200):
+def _bitcash_home(request, error="", message="", status_code=200,
+                  journal="", jname="", pack=""):
     st = bitcash.status()
     # Age of the files on record, so stale BIT / Cash AR files stand out.
     for kind in ("bit", "cash"):
@@ -2258,13 +2259,18 @@ def _bitcash_home(request, error="", message="", status_code=200):
         "processing": st.get("processing"),
         "processing_error": st.get("processing_error"),
         "recons": bitcash.list_recons(),
+        "journal": Path(journal).name if journal else "",
+        "jname": Path(jname).name if jname else "",
+        "pack": Path(pack).name if pack else "",
         "ai_ready": ai_ocr.is_configured(load_config()),
     }, status_code=status_code)
 
 
 @app.get("/tools/bit-cash-ar", response_class=HTMLResponse)
-def bitcash_home(request: Request, message: str = "", error: str = ""):
-    return _bitcash_home(request, error=error, message=message)
+def bitcash_home(request: Request, message: str = "", error: str = "",
+                 journal: str = "", jname: str = "", pack: str = ""):
+    return _bitcash_home(request, error=error, message=message,
+                         journal=journal, jname=jname, pack=pack)
 
 
 @app.post("/tools/bit-cash-ar/upload")
@@ -2383,6 +2389,96 @@ async def bitcash_recon_plug(request: Request, token: str):
                         message="Manual plug removed.")
 
 
+@app.post("/tools/bit-cash-ar/recon/{token}/slip")
+async def bitcash_recon_slip(request: Request, token: str,
+                             slip: UploadFile = File(...)):
+    if bitcash.load_recon(token) is None:
+        return redirect_msg("/tools/bit-cash-ar", error="Not found.")
+    ext = Path(slip.filename or "").suffix.lower()
+    if ext not in _STMT_EXT:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="Deposit slip: upload a PDF, a photo or an "
+                                  "Excel file.")
+    bitcash.FILES_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"slip_{token}{ext}"
+    (bitcash.FILES_DIR / name).write_bytes(await slip.read())
+    rec = bitcash.set_slip(token, name, slip.filename or name)
+    if rec is None:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="The deposit slip can only be attached to "
+                                  "an open or approved reconciliation.")
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message="Deposit slip attached — it is kept with "
+                                "this reconciliation's evidences and goes "
+                                "into the journal pack.")
+
+
+@app.get("/tools/bit-cash-ar/recon/{token}/evidence/{which}")
+def bitcash_recon_evidence(token: str, which: str):
+    rec = bitcash.load_recon(token)
+    if rec is None:
+        return redirect_msg("/tools/bit-cash-ar", error="Not found.")
+    name = rec.get("file", "") if which == "advice" \
+        else (rec.get("slip") or {}).get("name", "")
+    path = bitcash.FILES_DIR / Path(name).name if name else None
+    if not name or not path.exists():
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="That evidence file is not on record for "
+                                  "this reconciliation.")
+    label = rec.get("source") if which == "advice" \
+        else (rec.get("slip") or {}).get("source")
+    media = {
+        ".pdf": "application/pdf",
+        ".xlsx": "application/vnd.openxmlformats-officedocument"
+                 ".spreadsheetml.sheet",
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media,
+                        filename=Path(label or path.name).name)
+
+
+@app.post("/tools/bit-cash-ar/recon/{token}/email")
+async def bitcash_recon_email(request: Request, token: str):
+    rec = bitcash.load_recon(token)
+    if rec is None:
+        return redirect_msg("/tools/bit-cash-ar", error="Not found.")
+    form = await request.form()
+    recipient = (form.get("recipient") or "").strip()
+    subject = (form.get("subject") or "").strip() \
+        or "Payment reconciliation — clarification needed"
+    body = (form.get("body") or "").strip()
+    if not body:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="The email body is empty.")
+    advice = rec.get("file", "")
+    attach = bitcash.FILES_DIR / Path(advice).name \
+        if advice and (bitcash.FILES_DIR / Path(advice).name).exists() \
+        else None
+    cfg = load_config()
+    smtp = cfg["smtp"]
+    if smtp.get("enabled") and recipient:
+        try:
+            emailer.send_via_smtp(smtp, recipient, subject, body, attach)
+        except Exception as exc:  # noqa: BLE001
+            return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                                error=f"SMTP send failed: {exc}")
+        bitcash.set_variance_email(token, recipient, "smtp")
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            message=f"Clarification email sent to "
+                                    f"{recipient}.")
+    eml = OUTPUT_DIR / f"variance_{token}_{uuid.uuid4().hex[:8]}.eml"
+    emailer.build_eml(eml, smtp.get("from_address", ""), recipient or "",
+                      subject, body, attach)
+    bitcash.set_variance_email(token, recipient, "eml", eml.name)
+    reason = "SMTP is not configured" if not smtp.get("enabled") \
+        else "no recipient address was given"
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message=f"{reason} — a ready-to-send email was "
+                                "created; download it below and send it "
+                                "from your mailbox.")
+
+
 @app.post("/tools/bit-cash-ar/recon/{token}/approve")
 async def bitcash_recon_approve(request: Request, token: str):
     rec = bitcash.load_recon(token)
@@ -2423,16 +2519,30 @@ def bitcash_journal():
     # POST so the per-area middleware requires MODIFY access to generate.
     from datetime import datetime as _dt
     now = _dt.now()
-    out = OUTPUT_DIR / f"cm01_journal_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    out = OUTPUT_DIR / f"cm01_journal_{stamp}.xlsx"
     result = bitcash.build_journal(out, now=now)
     if result is None:
         return redirect_msg("/tools/bit-cash-ar",
                             error="No approved reconciliation is ready — "
                                   "approve at least one sandbox (with a BIT "
                                   "payment and invoices selected) first.")
-    return FileResponse(out, filename=result["name"],
-                        media_type="application/vnd.openxmlformats-officedocument"
-                                   ".spreadsheetml.sheet")
+    # The audit pack: journal + per-sandbox advice copy / deposit slip /
+    # evidences Excel.
+    pack = OUTPUT_DIR / f"cm01_pack_{stamp}_{uuid.uuid4().hex[:8]}.zip"
+    try:
+        bitcash.build_pack(pack, out, result["name"], result["tokens"])
+        pack_name = pack.name
+    except Exception:  # noqa: BLE001 — journal alone still downloadable
+        pack_name = ""
+    return RedirectResponse(
+        "/tools/bit-cash-ar?" + urlencode({
+            "message": f"Journal entry ready — {result['count']} "
+                       f"reconciliation(s), {result['lines']} line(s). "
+                       "Download the journal or the full pack below.",
+            "journal": out.name, "jname": result["name"],
+            "pack": pack_name}),
+        status_code=303)
 
 
 # --------------------------------------------------------------------------- #

@@ -38,6 +38,9 @@ customers._PATH = _tmp / "customers.json"
 bitcash.RECON_DIR = _tmp / "recons"
 bitcash.STORE_PATH = _tmp / "bitcash.json"
 bitcash.ROWS_PATH = _tmp / "bitcash_rows.json"
+bitcash.FILES_DIR = _tmp / "bitfiles"
+bitcash.UPLOAD_DIR = _tmp / "bit_uploads"
+bitcash.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def check(label, cond):
@@ -369,16 +372,33 @@ check("residual is 0 after the plug",
 
 bitcash.set_status("feedbead0001", True, "tester")
 je = bitcash.build_journal(_tmp / "je_v95.xlsx")
-check("journal built from the approved sandbox",
-      je and je["count"] == 1 and je["lines"] == 10)   # 1 BIT + 8 AWB + plug
+check("journal built — 8 AWB pairs + balanced plug pair = 18 lines",
+      je and je["count"] == 1 and je["lines"] == 18
+      and je["tokens"] == ["feedbead0001"])
 wj = openpyxl.load_workbook(_tmp / "je_v95.xlsx")
 wsj = next(ws for ws in wj.worksheets if ws.title.startswith("CM01_"))
-plug_rows = [row for row in wsj.iter_rows(min_row=4, max_row=20,
-                                          values_only=True)
-             if row[9] == 471000]
-check("plug line in the journal (G/L 471000, key 40, 71)",
-      plug_rows and plug_rows[0][10] == 40 and plug_rows[0][11] == 71.0
-      and plug_rows[0][13] == "BANKED SHORT")
+jrows = [row for row in wsj.iter_rows(min_row=4, max_row=24,
+                                      values_only=True)
+         if row[0] is not None]
+check("bank side split per AWB (first pair: 40 + 15, 53,639, AWB in Doc.Nr)",
+      jrows[0][9] == 1263001293 and jrows[0][10] == 40
+      and jrows[0][11] == 53639.0 and jrows[0][6] == "4095823454"
+      and jrows[1][9] == 4003025929 and jrows[1][10] == 15
+      and jrows[1][11] == 53639.0 and jrows[1][6] == "4095823454")
+plug_pair = [r for r in jrows if r[11] == 71.0]
+check("plug booked as a balanced pair (BIT G/L key 50 + 471000 key 40)",
+      len(plug_pair) == 2
+      and plug_pair[0][9] == 1263001293 and plug_pair[0][10] == 50
+      and plug_pair[1][9] == 471000 and plug_pair[1][10] == 40
+      and plug_pair[1][13] == "BANKED SHORT")
+sum40 = sum(r[11] for r in jrows if r[10] == 40)
+sum50 = sum(r[11] for r in jrows if r[10] == 50)
+sum15 = sum(r[11] for r in jrows if r[10] == 15)
+check("workbook CHECK stays balanced (+40s -50s -15s = 0)",
+      round(sum40 - sum50 - sum15, 2) == 0.0)
+check("BIT G/L nets to the actually banked amount (523,500)",
+      round(sum(r[11] if r[10] == 40 else -r[11]
+                for r in jrows if r[9] == 1263001293), 2) == 523500.0)
 
 # === 11. v9.6 — evidence reader fallback + async BIT/Cash AR uploads ========
 import time  # noqa: E402
@@ -434,11 +454,27 @@ def _wait_bitcash(timeout=15.0):
 # Processing banner branches (deterministic — flag written directly).
 bitcash._save({"current": {}, "history": {},
                "processing": {"started": "2026-07-17 12:00",
+                              "beat": time.time(),
                               "files": [{"kind": "bit", "label": "BIT",
-                                         "source": "big.xlsx"}]}})
+                                         "source": "big.xlsx"}],
+                              "stage": "storing the rows", "current": "BIT",
+                              "pct": 62, "rows_done": 1500,
+                              "rows_total": 2400, "eta_seconds": 95}})
 r = client.get("/tools/bit-cash-ar")
-check("processing banner + self-refresh shown while parsing",
-      "Processing" in r.text and "location.replace" in r.text)
+flat = " ".join(r.text.split())
+check("live tracker shown: %, rows and time left",
+      "Ingesting" in flat and "location.replace" in r.text
+      and "62%" in flat and "1,500 of 2,400 row(s)" in flat
+      and "1 min 35 s left" in flat)
+# A stale flag (no heartbeat for >15 min — server restarted) self-clears.
+bitcash._save({"current": {}, "history": {},
+               "processing": {"started": "2026-07-17 12:00", "beat": 1.0,
+                              "files": [], "stage": "queued", "pct": 0}})
+st_stale = bitcash.status()
+check("stale processing flag cleared into an error",
+      not st_stale.get("processing")
+      and "interrupted" in (st_stale.get("processing_error") or {})
+      .get("message", ""))
 bitcash._save({"current": {}, "history": {},
                "processing_error": {"at": "2026-07-17 12:01",
                                     "message": "Could not read big.xlsx"}})
@@ -474,4 +510,133 @@ check("corrupt upload lands as a processing error",
       (bitcash.status().get("processing_error") or {}).get("message", "")
       .startswith("Could not read junk.xlsx"))
 
-print("\nALL v9.4/v9.5/v9.6 TESTS PASSED")
+# === 12. v9.9 — JE pack, variance email, deposit slip, progress, replace ====
+import zipfile  # noqa: E402
+from io import BytesIO  # noqa: E402
+from urllib.parse import parse_qs, urlencode, urlparse  # noqa: E402
+
+# --- pack: advice + slip + evidences Excel + journal, zipped
+bitcash.FILES_DIR.mkdir(parents=True, exist_ok=True)
+(bitcash.FILES_DIR / "advice_feedbead0001.pdf").write_bytes(b"%PDF-1.4 advice")
+rec1 = bitcash.load_recon("feedbead0001")
+rec1["file"] = "advice_feedbead0001.pdf"
+bitcash.save_recon(rec1)
+(bitcash.FILES_DIR / "slip_feedbead0001.pdf").write_bytes(b"%PDF-1.4 slip")
+check("deposit slip recorded on the sandbox",
+      bitcash.set_slip("feedbead0001", "slip_feedbead0001.pdf",
+                       "BUEA deposit slip.pdf") is not None)
+
+pack = _tmp / "pack.zip"
+bitcash.build_pack(pack, _tmp / "je_v95.xlsx",
+                   "CM01_PC TEMPLATE_17.07.26_PC.xlsx", ["feedbead0001"])
+with zipfile.ZipFile(pack) as zf:
+    names = zf.namelist()
+    check("pack carries the journal at the root",
+          "CM01_PC TEMPLATE_17.07.26_PC.xlsx" in names)
+    check("pack carries the advice copy, the slip and the evidences Excel",
+          any("Payment advice - " in n for n in names)
+          and any("Deposit slip - " in n for n in names)
+          and any(n.endswith("Evidences_feedbead0001.xlsx") for n in names))
+    ev_name = next(n for n in names if n.endswith(".xlsx") and "Evidences" in n)
+    wse = openpyxl.load_workbook(BytesIO(zf.read(ev_name)))["Evidences"]
+    ev_text = " ".join(str(c.value) for row in wse.iter_rows()
+                       for c in row if c.value is not None)
+    check("evidences Excel lists the AWBs, the total and the plug",
+          "4095823454" in ev_text and "TOTAL OF EVIDENCES" in ev_text
+          and "523571" in ev_text.replace(",", "").replace(".0", "")
+          and "471000" in ev_text)
+
+# --- journal route now redirects with journal + pack downloads
+r = client.post("/tools/bit-cash-ar/journal")
+check("journal route -> redirect with journal + pack params",
+      r.status_code == 303 and "journal=" in r.headers["location"]
+      and "pack=" in r.headers["location"])
+qs2 = parse_qs(urlparse(r.headers["location"]).query)
+page = client.get("/tools/bit-cash-ar?" + urlencode(
+    {"journal": qs2["journal"][0], "jname": qs2["jname"][0],
+     "pack": qs2["pack"][0]}, doseq=True))
+check("home page offers the pack + journal downloads",
+      "Full pack" in page.text and "Journal entry only" in page.text)
+(main.OUTPUT_DIR / qs2["journal"][0]).unlink(missing_ok=True)
+(main.OUTPUT_DIR / qs2["pack"][0]).unlink(missing_ok=True)
+
+# --- variance email: excess payment far above the 5,000 threshold
+st2 = dict(st, lines=[dict(ln) for ln in st["lines"]])
+rec2 = {"token": "feedbead0002", "status": "open",
+        "uploaded": "2026-07-17 11:00", "uploaded_by": "tester",
+        "source": "EXCESS CASE.xlsx", "statement": st2,
+        "ar_selected": list(range(8)), "bit_candidates": [0, 1],
+        "bit_selected": 1, "bit_duplicate": False, "error": "",
+        "file": ""}
+bitcash.save_recon(rec2)
+view2 = bitcash.recon_view(rec2)
+check("excess payment above threshold flags the email trigger",
+      view2["difference"] == -476429.0 and view2["needs_email"])
+page = client.get("/tools/bit-cash-ar/recon/feedbead0002")
+check("sandbox shows the variance clarification prompt",
+      "Variance clarification" in page.text
+      and "excess payment" in page.text
+      and "5,000" in page.text and "account holder" in page.text)
+r = client.post("/tools/bit-cash-ar/recon/feedbead0002/email",
+                data={"recipient": "client@example.com",
+                      "subject": "Clarification",
+                      "body": "An excess payment of 476,429 XAF was received."})
+check("email route falls back to a ready-to-send .eml (SMTP off in tests)",
+      r.status_code == 303 and "ready-to-send" in
+      r.headers["location"].replace("+", " ").replace("%20", " "))
+ve = (bitcash.load_recon("feedbead0002") or {}).get("variance_email") or {}
+check("variance email recorded on the sandbox (eml mode)",
+      ve.get("mode") == "eml" and ve.get("to") == "client@example.com"
+      and (main.OUTPUT_DIR / ve.get("eml", "x")).exists())
+page = client.get("/tools/bit-cash-ar/recon/feedbead0002")
+check("sandbox discloses the prepared clarification",
+      "Clarification" in page.text and "prepared" in page.text)
+(main.OUTPUT_DIR / ve["eml"]).unlink(missing_ok=True)
+
+# --- slip route + evidence download
+r = client.post("/tools/bit-cash-ar/recon/feedbead0002/slip",
+                files={"slip": ("Deposit BUEA.pdf", b"%PDF-1.4 slip2",
+                                "application/pdf")})
+check("slip upload attaches to the sandbox", r.status_code == 303
+      and (bitcash.FILES_DIR / "slip_feedbead0002.pdf").exists())
+r = client.get("/tools/bit-cash-ar/recon/feedbead0002/evidence/slip")
+check("slip is viewable via the evidence route",
+      r.status_code == 200 and r.content.startswith(b"%PDF"))
+r = client.get("/tools/bit-cash-ar/recon/feedbead0002/evidence/advice",
+               follow_redirects=False)
+check("missing advice degrades to a friendly redirect",
+      r.status_code == 303 and "error=" in r.headers["location"])
+
+# --- single-parse progress ticks + replace cleanup + history continuity
+data_bc = bitcash._load()
+data_bc["history"]["2000-01-01"] = {"bit_open": 5}
+bitcash._save(data_bc)
+
+wbp = openpyxl.Workbook()
+wbp.active.append(["Ref", "Amount", "Status"])
+for i in range(3):
+    wbp.active.append([f"P{i}", 100 + i, "Open"])
+p1 = bitcash.UPLOAD_DIR / "bitcash_bit_first.xlsx"
+wbp.save(p1)
+ticks = []
+bitcash.record_upload("bit", p1, "first.xlsx",
+                      progress=lambda **kw: ticks.append(kw))
+check("progress ticks cover the stages up to 100%",
+      any(t.get("stage") == "reading the workbook" for t in ticks)
+      and any(t.get("pct") == 100 for t in ticks)
+      and any(t.get("rows_total") == 3 for t in ticks))
+check("current position remembers the stored file",
+      bitcash.status()["current"]["bit"]["stored"] == "bitcash_bit_first.xlsx")
+
+wbp.save(bitcash.UPLOAD_DIR / "bitcash_bit_second.xlsx")
+bitcash.record_upload("bit", bitcash.UPLOAD_DIR / "bitcash_bit_second.xlsx",
+                      "second.xlsx")
+check("replaced upload file cleaned up, new one is the reference",
+      not p1.exists()
+      and bitcash.status()["current"]["bit"]["stored"]
+      == "bitcash_bit_second.xlsx")
+hist_days = dict(bitcash.status()["history"])
+check("daily graph keeps prior-day figures after replacement",
+      "2000-01-01" in hist_days and hist_days["2000-01-01"]["bit_open"] == 5)
+
+print("\nALL v9.4—v9.9 TESTS PASSED")

@@ -13,11 +13,25 @@
     <script>setTimeout(function () {
       window.location.replace('/tools/bit-cash-ar'); }, 5000);</script>
     <div class="alert alert-info">
-      ⏳ <strong>Processing
+      ⏳ <strong>Ingesting
       {% for f in processing.files %}{{ f.label }} ({{ f.source }}){% if not loop.last %} + {% endif %}{% endfor %}</strong>
-      — started {{ processing.started }}. Counting the open items and storing
-      the rows; this page refreshes itself every few seconds.
-      <div class="progress" style="margin-top:6px;"><i style="width:55%"></i></div>
+      — started {{ processing.started }}.
+      {% if processing.current %}Now on <strong>{{ processing.current }}</strong>
+        · {{ processing.stage }}{% if processing.rows_total %} ·
+        {{ "{:,}".format(processing.rows_done) }} of
+        {{ "{:,}".format(processing.rows_total) }} row(s){% endif %}.{% endif %}
+      <div class="progress" style="margin-top:6px;">
+        <i style="width:{{ processing.pct or 2 }}%"></i></div>
+      <div class="note-small" style="margin-top:4px;">
+        <strong>{{ processing.pct or 0 }}%</strong> ingested
+        {% if processing.eta_seconds is defined and processing.eta_seconds is not none and processing.pct and processing.pct < 100 %}
+          · about
+          {% if processing.eta_seconds >= 60 %}{{ (processing.eta_seconds // 60) }} min {{ (processing.eta_seconds % 60) }} s
+          {% else %}{{ processing.eta_seconds }} s{% endif %} left
+        {% endif %}
+        — the new files replace the previous ones as the reference; the daily
+        graph keeps the prior days. This page refreshes itself.
+      </div>
     </div>
     {% elif processing_error %}
     <div class="alert alert-error">✗ The last upload failed
@@ -134,9 +148,21 @@
       <form action="/tools/bit-cash-ar/journal" method="post"
             style="display:inline;">
         <button class="btn btn-primary" type="submit" data-busy-keep="1">📒
-          Generate journal entry (approved sandboxes)</button>
+          Generate journal entry + pack (approved sandboxes)</button>
       </form>
     </div>
+    {% if journal or pack %}
+    <div class="download-row" style="margin-top:8px;">
+      {% if pack %}
+      <a class="btn btn-primary" href="/download/{{ pack }}">⬇ Full pack
+        (ZIP — payment advices + evidences Excel + journal)</a>
+      {% endif %}
+      {% if journal %}
+      <a class="btn" href="/download/{{ journal }}{% if jname %}?download_as={{ jname|urlencode }}{% endif %}">⬇
+        Journal entry only (Excel)</a>
+      {% endif %}
+    </div>
+    {% endif %}
 
     {% if recons %}
     <div class="table-wrap" style="margin-top:12px;max-height:none;">
