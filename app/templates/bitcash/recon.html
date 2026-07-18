@@ -49,6 +49,26 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+    {% if view.stale %}
+    <div class="alert alert-error">
+      ⚠ <strong>The BIT / Cash AR files on record were replaced after this
+      reconciliation was prepared.</strong> Its old matches pointed into the
+      previous files and are no longer valid — nothing is shown below to
+      avoid mixing sources. Re-run the matching against the current files:
+      <form action="/tools/bit-cash-ar/recon/{{ token }}/rematch" method="post"
+            style="display:inline;margin-left:6px;">
+        <button class="btn btn-primary" type="submit">🔄 Re-run
+          matching</button>
+      </form>
+    </div>
+    {% endif %}
+    {% if view.frozen %}
+    <div class="alert alert-ok">🔒 Approved and <strong>frozen in
+      time</strong> on {{ view.frozen_at }} — the figures below come from the
+      snapshot taken at approval; newer BIT / Cash AR uploads can never
+      change this reconciliation.</div>
+    {% endif %}
+
     <div class="alert alert-info">
       🧮 <strong>Total of evidences is XAF
       {{ "{:,.0f}".format(s.total) }}</strong> — calculated arithmetically
@@ -56,6 +76,9 @@
       own total cell is never trusted{% if s.stated_total %}; it reads
       <strong>{{ "{:,.0f}".format(s.stated_total) }}</strong> here and was
       ignored{% endif %}).
+      {% if view.slip_total %}<strong>Deposit slip total:
+      {{ "{:,.0f}".format(view.slip_total) }} XAF</strong> — the BIT is
+      searched against the banked amount first.{% endif %}
       {% if view.bit_candidates %}The closest BIT matches within
       ±{{ "{:,.0f}".format(view.margin) }} are shown below.{% endif %}
     </div>
@@ -227,12 +250,15 @@
         </tbody>
       </table>
     </div>
-    {% else %}
+    {% elif not view.stale %}
     <div class="alert alert-error">✗ No BIT line within
-      ±{{ "{:,.0f}".format(view.margin) }} of the evidences total of
+      ±{{ "{:,.0f}".format(view.margin) }} of the
+      {% if view.slip_total %}banked amount of
+      <strong>{{ "{:,.0f}".format(view.slip_total) }}</strong> nor the
+      {% endif %}evidences total of
       <strong>{{ "{:,.0f}".format(s.total) }}</strong> — the payment may not
-      have reached the BIT yet. Re-upload a fresh BIT file and reopen this
-      sandbox, or investigate the amount.</div>
+      have reached the BIT yet. Re-upload a fresh BIT file and re-run the
+      matching, or investigate the amount.</div>
     {% endif %}
 
     {% if open %}

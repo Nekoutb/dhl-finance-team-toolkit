@@ -358,20 +358,31 @@ def _persist_rows(kind, path, parsed=None, progress=None):
                 })
                 _row_tick(i + 1)
             store["cash"] = rows
+        # Every (re)upload gets a fresh generation stamp: sandboxes remember
+        # the generation they matched against, so replaced files can never
+        # silently re-point their selected row ids at different invoices.
+        store[f"gen_{kind}"] = uuid.uuid4().hex[:12]
         _atomic(ROWS_PATH, json.dumps(store, ensure_ascii=False))
 
 
 def rows_store():
+    empty = {"bit_header": [], "bit": [], "cash": [],
+             "gen_bit": "", "gen_cash": ""}
     if not ROWS_PATH.exists():
-        return {"bit_header": [], "bit": [], "cash": []}
+        return empty
     try:
         data = json.loads(ROWS_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return {"bit_header": [], "bit": [], "cash": []}
-    data.setdefault("bit_header", [])
-    data.setdefault("bit", [])
-    data.setdefault("cash", [])
+        return empty
+    for key, default in empty.items():
+        data.setdefault(key, default)
     return data
+
+
+def rows_generation(store=None):
+    """The generation stamp of the files currently on record."""
+    store = store or rows_store()
+    return {"bit": store.get("gen_bit", ""), "cash": store.get("gen_cash", "")}
 
 
 def search_cash(query, limit=20):
@@ -440,20 +451,24 @@ BIT_MATCH_MARGIN = 1000.0
 VARIANCE_EMAIL_THRESHOLD = 5000.0
 
 
-def automatch(statement):
+def automatch(statement, slip_total=None):
     """Match a parsed statement against the stored Cash AR + BIT rows.
 
     The statement TOTAL is always recomputed arithmetically from its lines
     (evidence files often carry a broken formula or a text like
     "TOTAL: 523.571" in the total cell — never trusted); any differing total
     stated in the document is kept as ``stated_total`` for disclosure.
+    ``slip_total`` — the amount on the bank deposit slip, when one was
+    uploaded — is the PRIMARY anchor for the BIT search (it is what was
+    actually banked).
 
     Returns (lines, ar_selected, bit_candidates, bit_selected):
       - each statement line gains matched Cash AR row ids (by AWB digits,
         falling back to the reference column),
       - BIT candidates = rows whose |amount| is within BIT_MATCH_MARGIN of
-        the evidence total, closest first; exactly one exact match ->
-        auto-selected, otherwise the user chooses; none -> nothing selected.
+        the slip total or the evidence total, closest first; exactly one
+        exact match (slip first) -> auto-selected, otherwise the user
+        chooses; none -> nothing selected.
     """
     data = rows_store()
     by_awb = {}
@@ -480,35 +495,74 @@ def automatch(statement):
             statement["total"] = arith
 
     total = _to_float(statement.get("total"))
-    cands, exact = [], []
-    if total:
+    slip = abs(_to_float(slip_total)) if slip_total else 0.0
+    # The deposit slip carries the amount actually banked — when present it
+    # is the primary anchor for the BIT search; the evidences total backs
+    # it up.
+    targets = [t for t in (slip, abs(total or 0)) if t]
+    cands, bit_selected = [], None
+    if targets:
+        def _dist(row):
+            return min(abs(abs(row["amount"]) - t) for t in targets)
         near = sorted((r for r in data["bit"]
-                       if abs(abs(r["amount"]) - abs(total)) <= BIT_MATCH_MARGIN),
-                      key=lambda r: (abs(abs(r["amount"]) - abs(total)), r["id"]))
+                       if _dist(r) <= BIT_MATCH_MARGIN),
+                      key=lambda r: (_dist(r), r["id"]))
         cands = [r["id"] for r in near]
-        exact = [r["id"] for r in near if abs(r["amount"]) == abs(total)]
-    bit_selected = exact[0] if len(exact) == 1 \
-        else (cands[0] if len(cands) == 1 else None)
+        for t in targets:
+            exact = [r["id"] for r in near if abs(r["amount"]) == t]
+            if len(exact) == 1:
+                bit_selected = exact[0]
+                break
+            if exact:          # the same amount more than once — user picks
+                break
+        if bit_selected is None and len(cands) == 1:
+            bit_selected = cands[0]
     return lines, sorted(set(ar_selected)), cands, bit_selected
 
 
-def create_recon_async(stored_path, media_type, source, uploaded_by):
+def _read_slip_total(slip_path, slip_media, ai_cfg):
+    """The total banked amount on a deposit slip — Excel slips through the
+    row reader, scans through the document reader. None when unreadable
+    (the slip then stays pure evidence)."""
+    try:
+        if slip_media == "excel":
+            return _read_excel_statement(slip_path)["total"]
+        doc = ai_ocr.extract_payment_statement(
+            Path(slip_path).read_bytes(), slip_media, ai_cfg)
+        return _to_float(doc.get("total")) or None
+    except Exception:  # noqa: BLE001 — a slip that can't be read is fine
+        return None
+
+
+def create_recon_async(stored_path, media_type, source, uploaded_by,
+                       slip_path=None, slip_media=None, slip_source=""):
     """Create a sandbox stub and AI-read/match the statement on a background
     thread (a scanned PDF can take a minute — never block the request).
-    A copy of the payment advice is kept with the sandbox for the journal
-    pack and the variance email."""
+    Copies of the payment advice AND the bank deposit slip (when given) are
+    kept with the sandbox; the slip's total anchors the BIT search."""
     token = uuid.uuid4().hex[:12]
+    FILES_DIR.mkdir(parents=True, exist_ok=True)
     advice_name = ""
     try:
-        FILES_DIR.mkdir(parents=True, exist_ok=True)
         advice_name = f"advice_{token}{Path(stored_path).suffix.lower()}"
         shutil.copyfile(stored_path, FILES_DIR / advice_name)
     except OSError:
         advice_name = ""
+    slip_rec = None
+    if slip_path:
+        try:
+            slip_name = f"slip_{token}{Path(slip_path).suffix.lower()}"
+            shutil.copyfile(slip_path, FILES_DIR / slip_name)
+            slip_rec = {"name": slip_name,
+                        "source": slip_source or slip_name,
+                        "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        except OSError:
+            slip_rec = None
     save_recon({"token": token, "status": "reading",
                 "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "uploaded_by": uploaded_by or "", "source": source,
-                "file": advice_name, "statement": None, "error": ""})
+                "file": advice_name, "slip": slip_rec,
+                "statement": None, "error": ""})
     from ..config import load_config
 
     ai_cfg = load_config().get("ai")
@@ -520,17 +574,24 @@ def create_recon_async(stored_path, media_type, source, uploaded_by):
             else:
                 statement = ai_ocr.extract_payment_statement(
                     Path(stored_path).read_bytes(), media_type, ai_cfg)
-            lines, ar_sel, cands, bit_sel = automatch(statement)
+            slip_total = _read_slip_total(slip_path, slip_media, ai_cfg) \
+                if slip_path else None
+            lines, ar_sel, cands, bit_sel = automatch(statement, slip_total)
             statement["lines"] = lines
-            # "Duplicate" = the EXACT amount appears more than once in the
+            # "Duplicate" = an EXACT amount appears more than once in the
             # BIT; near matches within the margin are choices, not duplicates.
             bit_amounts = {r["id"]: abs(r["amount"])
                            for r in rows_store()["bit"]}
             tot = abs(_to_float(statement.get("total")) or 0)
-            exact_n = sum(1 for i in cands if bit_amounts.get(i) == tot)
+            slp = abs(_to_float(slip_total) or 0)
+            exact_n = max(
+                sum(1 for i in cands if bit_amounts.get(i) == t)
+                for t in (tot, slp)) if (tot or slp) else 0
             rec = load_recon(token) or {}
             rec.update({
                 "status": "open", "statement": statement,
+                "slip_total": slip_total,
+                "rows_gen": rows_generation(),
                 "ar_selected": ar_sel, "bit_candidates": cands,
                 "bit_selected": bit_sel,
                 "bit_duplicate": exact_n > 1, "error": ""})
@@ -543,6 +604,32 @@ def create_recon_async(stored_path, media_type, source, uploaded_by):
 
     threading.Thread(target=_runner, daemon=True).start()
     return token
+
+
+def rematch(token):
+    """Re-run the automatic matching of an OPEN sandbox against the files
+    currently on record (used after the BIT / Cash AR files were replaced).
+    Selections, candidates and the generation stamp are rebuilt from the
+    stored statement; a stale manual plug is dropped."""
+    rec = load_recon(token)
+    if not rec or rec.get("status") != "open" or not rec.get("statement"):
+        return None
+    statement = rec["statement"]
+    lines, ar_sel, cands, bit_sel = automatch(statement,
+                                              rec.get("slip_total"))
+    statement["lines"] = lines
+    bit_amounts = {r["id"]: abs(r["amount"]) for r in rows_store()["bit"]}
+    tot = abs(_to_float(statement.get("total")) or 0)
+    slp = abs(_to_float(rec.get("slip_total")) or 0)
+    exact_n = max(sum(1 for i in cands if bit_amounts.get(i) == t)
+                  for t in (tot, slp)) if (tot or slp) else 0
+    rec.update({"statement": statement, "ar_selected": ar_sel,
+                "bit_candidates": cands, "bit_selected": bit_sel,
+                "bit_duplicate": exact_n > 1,
+                "rows_gen": rows_generation()})
+    rec.pop("plug", None)          # computed for the old difference
+    save_recon(rec)
+    return rec
 
 
 _REF_CANDS = ("awb", "waybill", "reference", "invoice", "ref")
@@ -625,23 +712,44 @@ def _read_excel_statement(path):
 
 
 def recon_view(recon):
-    """Resolve a sandbox's row ids into full rows for the template, plus the
-    live reconciliation difference, the manual plug and the residual left
-    after it."""
+    """Resolve a sandbox's rows for the template, plus the reconciliation
+    difference, the manual plug and the residual left after it.
+
+    Reconciliations are FIXED IN TIME: an approved sandbox reads from the
+    row snapshot frozen at approval, never from the live files. An open
+    sandbox whose BIT / Cash AR files were replaced since it was matched is
+    flagged ``stale`` and resolves NOTHING (re-run the matching) — row ids
+    from an old file must never be read against a new one."""
     data = rows_store()
     statement = recon.get("statement") or {}
     total = abs(_to_float(statement.get("total")) or 0)
-    bit_by_id = {r["id"]: r for r in data["bit"]}
-    cash_by_id = {r["id"]: r for r in data["cash"]}
-    ar_rows = [cash_by_id[i] for i in recon.get("ar_selected", [])
-               if i in cash_by_id]
+    frozen = recon.get("frozen")
+    stale = False
     matched_ids = {i for ln in statement.get("lines", [])
                    for i in ln.get("matched_ids", [])}
-    cands = [{**bit_by_id[i],
-              "delta": round(abs(bit_by_id[i]["amount"]) - total, 2)}
-             for i in recon.get("bit_candidates", []) if i in bit_by_id]
-    sel = recon.get("bit_selected")
-    bit_row = bit_by_id.get(sel) if sel is not None else None
+    if frozen:
+        ar_rows = frozen.get("ar_rows", [])
+        bit_row = frozen.get("bit_row")
+        cands = [{**bit_row,
+                  "delta": round(abs(bit_row["amount"]) - total, 2)}] \
+            if bit_row else []
+    else:
+        rec_gen = recon.get("rows_gen") or {"bit": "", "cash": ""}
+        stale = recon.get("status") in ("open", "approved") \
+            and rec_gen != rows_generation(data)
+        if stale:
+            ar_rows, cands, bit_row = [], [], None
+        else:
+            bit_by_id = {r["id"]: r for r in data["bit"]}
+            cash_by_id = {r["id"]: r for r in data["cash"]}
+            ar_rows = [cash_by_id[i] for i in recon.get("ar_selected", [])
+                       if i in cash_by_id]
+            cands = [{**bit_by_id[i],
+                      "delta": round(abs(bit_by_id[i]["amount"]) - total, 2)}
+                     for i in recon.get("bit_candidates", [])
+                     if i in bit_by_id]
+            sel = recon.get("bit_selected")
+            bit_row = bit_by_id.get(sel) if sel is not None else None
     ar_total = round(sum(r["amount"] for r in ar_rows), 2)
     bit_amount = abs(bit_row["amount"]) if bit_row else 0.0
     plug = recon.get("plug") or None
@@ -654,6 +762,9 @@ def recon_view(recon):
             "plug_amount": plug_amount,
             "residual": round(difference - plug_amount, 2),
             "margin": BIT_MATCH_MARGIN,
+            "stale": stale, "frozen": bool(frozen),
+            "frozen_at": (frozen or {}).get("at", ""),
+            "slip_total": recon.get("slip_total"),
             # Variance escalation: only meaningful once a BIT line is chosen.
             "needs_email": bool(bit_row)
             and abs(difference) > VARIANCE_EMAIL_THRESHOLD,
@@ -662,14 +773,18 @@ def recon_view(recon):
             "slip": recon.get("slip"), "advice": recon.get("file", "")}
 
 
-def set_slip(token, stored_name, source):
+def set_slip(token, stored_name, source, total=None):
     """Attach the bank deposit slip to a sandbox (any non-error state) —
-    extra evidence that pins the exact payment on the bank statement."""
+    the evidence that pins the exact payment on the bank statement. When
+    its total could be read it is stored too, so a re-match anchors the
+    BIT search on the banked amount."""
     rec = load_recon(token)
     if not rec or rec.get("status") not in ("open", "approved"):
         return None
     rec["slip"] = {"name": stored_name, "source": source or stored_name,
                    "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    if total:
+        rec["slip_total"] = round(_to_float(total), 2)
     save_recon(rec)
     return rec
 
@@ -706,10 +821,16 @@ def set_plug(token, amount, account="", note=""):
 
 
 def set_selection(token, ar_ids, bit_id):
+    """Returns the updated record, None when not open, or "stale" when the
+    BIT / Cash AR files were replaced since this sandbox was matched — ids
+    posted against the old files must not be applied to the new ones."""
     rec = load_recon(token)
     if not rec or rec.get("status") not in ("open",):
         return None
     data = rows_store()
+    if (rec.get("rows_gen") or {"bit": "", "cash": ""}) \
+            != rows_generation(data):
+        return "stale"
     valid_cash = {r["id"] for r in data["cash"]}
     valid_bit = {r["id"] for r in data["bit"]}
     rec["ar_selected"] = sorted({int(i) for i in ar_ids
@@ -722,10 +843,29 @@ def set_selection(token, ar_ids, bit_id):
 
 
 def set_status(token, approved, by):
+    """Approve (freezing the selected rows in time) or reopen a sandbox.
+    Returns the record, None when not possible, or "stale" when approval is
+    refused because the files were replaced since matching."""
     rec = load_recon(token)
     if not rec or rec.get("status") not in ("open", "approved"):
         return None
     if approved:
+        data = rows_store()
+        if (rec.get("rows_gen") or {"bit": "", "cash": ""}) \
+                != rows_generation(data):
+            return "stale"
+        # Freeze the resolved rows: the approval is fixed in time and can
+        # never change when newer BIT / Cash AR files are uploaded.
+        cash_by_id = {r["id"]: r for r in data["cash"]}
+        bit_by_id = {r["id"]: r for r in data["bit"]}
+        sel = rec.get("bit_selected")
+        rec["frozen"] = {
+            "ar_rows": [dict(cash_by_id[i])
+                        for i in rec.get("ar_selected", [])
+                        if i in cash_by_id],
+            "bit_row": dict(bit_by_id[sel]) if sel in bit_by_id else None,
+            "rows_gen": rows_generation(data),
+            "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
         rec["status"] = "approved"
         rec["approved_by"] = by or ""
         rec["approved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -733,6 +873,7 @@ def set_status(token, approved, by):
         rec["status"] = "open"
         rec.pop("approved_by", None)
         rec.pop("approved_at", None)
+        rec.pop("frozen", None)     # editing resumes against the live files
     save_recon(rec)
     return rec
 
@@ -772,6 +913,7 @@ def build_journal(out_path, now=None):
                 and r.get("bit_selected") is not None and r.get("ar_selected")]
     if not approved:
         return None
+    gen_now = rows_generation()
     arial = Font(name="Arial", size=10)
     now = now or datetime.now()
     data = rows_store()
@@ -793,12 +935,30 @@ def build_journal(out_path, now=None):
     compact = _compact_date(now)
     r = 4
     lines = 0
+    li = 0
     bank_rows = []
-    for li, rec in enumerate(approved, 1):
-        bit = bit_by_id.get(rec["bit_selected"])
-        ars = [cash_by_id[i] for i in rec["ar_selected"] if i in cash_by_id]
-        if not bit or not ars:
+    written = []
+    skipped = 0
+    for rec in approved:
+        frozen = rec.get("frozen") or {}
+        if frozen.get("bit_row") and frozen.get("ar_rows"):
+            # Approved = fixed in time: always write the frozen snapshot.
+            bit = frozen["bit_row"]
+            ars = frozen["ar_rows"]
+        elif (rec.get("rows_gen") or {"bit": "", "cash": ""}) == gen_now:
+            bit = bit_by_id.get(rec["bit_selected"])
+            ars = [cash_by_id[i] for i in rec["ar_selected"]
+                   if i in cash_by_id]
+        else:
+            # No snapshot and the files were replaced since matching — row
+            # ids would point at the WRONG invoices. Never write those.
+            skipped += 1
             continue
+        if not bit or not ars:
+            skipped += 1
+            continue
+        li += 1
+        written.append(rec)
         bank_rows.append(bit)
         # AWB split: the bank side mirrors the Cash AR one-for-one — a 40
         # line and a 15 line per AWB, each pair carrying the SAME individual
@@ -844,6 +1004,10 @@ def build_journal(out_path, now=None):
             r += 1
             lines += 1
 
+    if not written:
+        return {"count": 0, "lines": 0, "name": "", "tokens": [],
+                "skipped": skipped}
+
     # BANK DETAILS: the raw BIT line of each payment in the journal.
     bd_name = next((n for n in wb.sheetnames
                     if n.strip().upper() == "BANK DETAILS"), None)
@@ -862,11 +1026,12 @@ def build_journal(out_path, now=None):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out_path)
     name = f"CM01_PC TEMPLATE_{now.strftime('%d.%m.%y')}_PC.xlsx"
-    for rec in approved:
+    for rec in written:
         rec["generated_at"] = now.strftime("%Y-%m-%d %H:%M")
         save_recon(rec)
     return {"count": len(bank_rows), "lines": lines, "name": name,
-            "tokens": [rec["token"] for rec in approved]}
+            "tokens": [rec["token"] for rec in written],
+            "skipped": skipped}
 
 
 # --------------------------------------------------------------------------- #

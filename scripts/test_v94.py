@@ -639,4 +639,108 @@ hist_days = dict(bitcash.status()["history"])
 check("daily graph keeps prior-day figures after replacement",
       "2000-01-01" in hist_days and hist_days["2000-01-01"]["bit_open"] == 5)
 
-print("\nALL v9.4—v9.9 TESTS PASSED")
+# === 13. v10.0 — reconciliations fixed in time + slip-anchored matching =====
+# Simulate a file replacement: the row store gets NEW generation stamps.
+FAKE_ROWS["gen_bit"] = "genB1"
+FAKE_ROWS["gen_cash"] = "genC1"
+
+# (a) The approved sandbox is FROZEN: even mutating the live rows (as a
+# replaced file would) cannot change its figures — the exact bug reported.
+view1 = bitcash.recon_view(bitcash.load_recon("feedbead0001"))
+check("approved sandbox reads from the frozen snapshot",
+      view1["frozen"] and not view1["stale"] and view1["ar_total"] == 523571.0)
+_saved_amounts = [r["amount"] for r in FAKE_ROWS["cash"]]
+for r_ in FAKE_ROWS["cash"]:
+    r_["amount"] = 999999.0
+view1b = bitcash.recon_view(bitcash.load_recon("feedbead0001"))
+check("replacing the live rows can NOT change an approved reconciliation",
+      view1b["ar_total"] == 523571.0 and view1b["bit_amount"] == 523500.0)
+for r_, amt in zip(FAKE_ROWS["cash"], _saved_amounts):
+    r_["amount"] = amt
+
+# (b) An OPEN sandbox matched against the OLD files reads as stale — it
+# resolves nothing instead of silently mixing sources.
+st3 = {"label": "STALE CASE", "date": "", "total": 523571.0,
+       "lines": [{"reference": a, "amount": amt, "description": "",
+                  "matched_ids": []} for a, amt in AWBS]}
+rec3 = {"token": "feedbead0003", "status": "open",
+        "uploaded": "2026-07-17 09:00", "uploaded_by": "tester",
+        "source": "OLD FILES.xlsx", "statement": st3,
+        "rows_gen": {"bit": "OLDGEN", "cash": "OLDGEN"},
+        "ar_selected": [0, 1, 2], "bit_candidates": [0], "bit_selected": 0,
+        "bit_duplicate": False, "error": "", "file": ""}
+bitcash.save_recon(rec3)
+view3 = bitcash.recon_view(rec3)
+check("stale sandbox resolves nothing (no mixed-up rows)",
+      view3["stale"] and view3["ar_rows"] == []
+      and view3["bit_candidates"] == [] and view3["ar_total"] == 0)
+page = client.get("/tools/bit-cash-ar/recon/feedbead0003")
+check("stale sandbox shows the replacement warning + re-run button",
+      "files on record were replaced" in page.text
+      and "Re-run" in page.text)
+check("approval refused while stale",
+      bitcash.set_status("feedbead0003", True, "t") == "stale")
+check("selection refused while stale",
+      bitcash.set_selection("feedbead0003", ["0"], "0") == "stale")
+
+# (c) One click re-matches against the CURRENT files and heals the sandbox.
+rec3b = bitcash.rematch("feedbead0003")
+check("re-match rebuilds selections against the current generation",
+      rec3b and rec3b["rows_gen"] == {"bit": "genB1", "cash": "genC1"}
+      and rec3b["ar_selected"] and rec3b["bit_selected"] == 0
+      and not bitcash.recon_view(rec3b)["stale"])
+
+# (d) A legacy APPROVED sandbox without a frozen snapshot whose files were
+# replaced is SKIPPED by the journal, never written from wrong rows.
+rec4 = dict(rec3, token="feedbead0004", status="approved",
+            rows_gen={"bit": "OLDGEN", "cash": "OLDGEN"},
+            approved_by="t", approved_at="2026-07-17 09:30")
+rec4.pop("frozen", None)
+bitcash.save_recon(rec4)
+je2 = bitcash.build_journal(_tmp / "je_v100.xlsx")
+check("journal writes frozen sandboxes and SKIPS stale legacy ones",
+      je2 and "feedbead0001" in je2["tokens"]
+      and "feedbead0004" not in je2["tokens"] and je2["skipped"] >= 1)
+
+# (e) The deposit slip's banked total anchors the BIT search.
+st5 = {"label": "SLIP CASE", "total": 999999.0,
+       "lines": [{"reference": "5550001112", "amount": 999999.0,
+                  "description": ""}]}
+_l5, _a5, cands5, sel5 = bitcash.automatch(st5, slip_total=523500.0)
+check("slip total wins the BIT selection over the evidences total",
+      sel5 == 0 and 0 in cands5)
+
+# (f) Slip uploaded TOGETHER with the statement drives the whole flow.
+wbs = openpyxl.Workbook()
+wbs.active.append(["AWB", "Amount"])
+wbs.active.append(["4095823454", 53639])
+stmt_path = _tmp / "slipflow_stmt.xlsx"
+wbs.save(stmt_path)
+wsl = openpyxl.Workbook()
+wsl.active.append(["Ref", "Amount"])
+wsl.active.append(["1", 523500])
+slip_path = _tmp / "slipflow_slip.xlsx"
+wsl.save(slip_path)
+with open(stmt_path, "rb") as f1, open(slip_path, "rb") as f2:
+    r = client.post("/tools/bit-cash-ar/recon/upload",
+                    files={"statement": ("advice.xlsx", f1, XLSX),
+                           "deposit_slip": ("slip.xlsx", f2, XLSX)})
+check("statement + slip upload accepted", r.status_code == 303)
+tok5 = r.headers["location"].rstrip("/").split("/")[-1]
+for _ in range(100):
+    rec5 = bitcash.load_recon(tok5)
+    if rec5 and rec5["status"] in ("open", "error"):
+        break
+    time.sleep(0.1)
+check("slip stored with the sandbox and its banked total read",
+      rec5["status"] == "open"
+      and (rec5.get("slip") or {}).get("name") == f"slip_{tok5}.xlsx"
+      and rec5.get("slip_total") == 523500.0)
+check("BIT auto-selected from the slip's banked amount",
+      rec5.get("bit_selected") == 0)
+page = client.get(f"/tools/bit-cash-ar/recon/{tok5}")
+flat5 = " ".join(page.text.split())
+check("sandbox narrative discloses the deposit-slip total",
+      "Deposit slip total: 523,500" in flat5)
+
+print("\nALL v9.4—v10.0 TESTS PASSED")

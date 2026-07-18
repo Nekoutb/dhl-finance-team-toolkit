@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v9.9 — 17 Jul 2026 · BIT & Cash AR: journal entry mirrors the AWB detail on both sides (a 40 bank line + 15 customer line per AWB, the AWB in the Doc.Nr column; manual plug booked as a balanced pair); variance above 5,000 XAF triggers a clarification email to the account holder; bank deposit slips attach to reconciliations; journal generation produces a full pack (payment advices + evidences Excel + journal); uploads replace the previous files with a live ingestion tracker (%, rows, time left) while the daily graph keeps prior days"
+APP_VERSION = "v10.0 — 18 Jul 2026 · Reconciliations are now FIXED IN TIME: approval freezes the selected Cash AR / BIT rows, so replacing the BIT/Cash AR files can never change or mix up an approved sandbox; unapproved sandboxes prepared against replaced files are flagged stale with a one-click re-match (never silently re-pointed); the bank deposit slip is uploaded together with the payment statement and its banked total anchors the BIT search"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

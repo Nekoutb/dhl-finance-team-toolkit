@@ -2307,7 +2307,8 @@ _STMT_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif",
 
 @app.post("/tools/bit-cash-ar/recon/upload")
 async def bitcash_recon_upload(request: Request,
-                               statement: UploadFile = File(...)):
+                               statement: UploadFile = File(...),
+                               deposit_slip: UploadFile = File(None)):
     store = bitcash.rows_store()
     if not store["bit"] or not store["cash"]:
         return _bitcash_home(request, error="Upload the BIT and Cash AR files "
@@ -2329,9 +2330,25 @@ async def bitcash_recon_upload(request: Request,
                                  "statements.", status_code=400)
     dest = UPLOAD_DIR / f"stmt_{uuid.uuid4().hex[:8]}{ext}"
     dest.write_bytes(await statement.read())
+    # Optional bank deposit slip, uploaded together with the statement — its
+    # total anchors the BIT search (it is what was actually banked).
+    slip_dest = slip_media = None
+    slip_name = ""
+    if deposit_slip and deposit_slip.filename:
+        s_ext = Path(deposit_slip.filename).suffix.lower()
+        if s_ext not in _STMT_EXT:
+            return _bitcash_home(request, error="Deposit slip: upload a PDF, "
+                                 "a photo or an Excel file.", status_code=400)
+        slip_media = "excel" if s_ext in (".xlsx", ".xlsm", ".xls") \
+            else (ai_ocr.media_type_for(deposit_slip.filename)
+                  or "application/pdf")
+        slip_dest = UPLOAD_DIR / f"slip_{uuid.uuid4().hex[:8]}{s_ext}"
+        slip_dest.write_bytes(await deposit_slip.read())
+        slip_name = deposit_slip.filename
     token = bitcash.create_recon_async(
         dest, media, statement.filename or "statement",
-        getattr(request.state, "user", None) or "")
+        getattr(request.state, "user", None) or "",
+        slip_path=slip_dest, slip_media=slip_media, slip_source=slip_name)
     return RedirectResponse(f"/tools/bit-cash-ar/recon/{token}",
                             status_code=303)
 
@@ -2361,8 +2378,26 @@ async def bitcash_recon_select(request: Request, token: str):
         return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                             error="Selections can only change while the "
                                   "reconciliation is open.")
+    if rec == "stale":
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="The BIT / Cash AR files were replaced "
+                                  "after this reconciliation was prepared — "
+                                  "re-run the matching first.")
     return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                         message="Selection saved.")
+
+
+@app.post("/tools/bit-cash-ar/recon/{token}/rematch")
+async def bitcash_recon_rematch(request: Request, token: str):
+    rec = bitcash.rematch(token)
+    if rec is None:
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="Only an open reconciliation can be "
+                                  "re-matched.")
+    return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                        message="Re-matched against the files currently on "
+                                "record — review the selections (any manual "
+                                "plug was reset).")
 
 
 @app.post("/tools/bit-cash-ar/recon/{token}/plug")
@@ -2402,15 +2437,22 @@ async def bitcash_recon_slip(request: Request, token: str,
     bitcash.FILES_DIR.mkdir(parents=True, exist_ok=True)
     name = f"slip_{token}{ext}"
     (bitcash.FILES_DIR / name).write_bytes(await slip.read())
-    rec = bitcash.set_slip(token, name, slip.filename or name)
+    slip_media = "excel" if ext in (".xlsx", ".xlsm", ".xls") \
+        else (ai_ocr.media_type_for(slip.filename) or "application/pdf")
+    total = bitcash._read_slip_total(bitcash.FILES_DIR / name, slip_media,
+                                     load_config().get("ai"))
+    rec = bitcash.set_slip(token, name, slip.filename or name, total)
     if rec is None:
         return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                             error="The deposit slip can only be attached to "
                                   "an open or approved reconciliation.")
+    note = f" Banked amount read from the slip: {total:,.0f} XAF — " \
+           "re-run the matching to search the BIT against it." if total \
+        else ""
     return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                         message="Deposit slip attached — it is kept with "
                                 "this reconciliation's evidences and goes "
-                                "into the journal pack.")
+                                "into the journal pack." + note)
 
 
 @app.get("/tools/bit-cash-ar/recon/{token}/evidence/{which}")
@@ -2489,12 +2531,21 @@ async def bitcash_recon_approve(request: Request, token: str):
         return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                             error="Select the BIT payment and at least one "
                                   "Cash AR invoice before approving.")
-    bitcash.set_status(token, True, getattr(request.state, "user", None))
+    rec = bitcash.set_status(token, True,
+                             getattr(request.state, "user", None))
+    if rec == "stale":
+        return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
+                            error="The BIT / Cash AR files were replaced "
+                                  "after this reconciliation was prepared — "
+                                  "re-run the matching, review, then "
+                                  "approve.")
     note = "" if view["residual"] == 0 else \
         f" (note: {view['residual']:,.0f} remains unplugged)"
     return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
-                        message="Reconciliation approved — it will be included "
-                                "in the journal entry." + note)
+                        message="Reconciliation approved and frozen in time "
+                                "— later file uploads can never change it. "
+                                "It will be included in the journal entry."
+                                + note)
 
 
 @app.post("/tools/bit-cash-ar/recon/{token}/unapprove")
@@ -2527,6 +2578,16 @@ def bitcash_journal():
                             error="No approved reconciliation is ready — "
                                   "approve at least one sandbox (with a BIT "
                                   "payment and invoices selected) first.")
+    if result["count"] == 0:
+        return redirect_msg("/tools/bit-cash-ar",
+                            error=f"{result.get('skipped', 0)} approved "
+                                  "reconciliation(s) could not be written: "
+                                  "the BIT / Cash AR files were replaced "
+                                  "after they were prepared. Reopen each, "
+                                  "re-run the matching, approve again.")
+    skipped_note = "" if not result.get("skipped") else \
+        f" ⚠ {result['skipped']} sandbox(es) skipped — files replaced " \
+        "since approval; reopen, re-match and approve them again."
     # The audit pack: journal + per-sandbox advice copy / deposit slip /
     # evidences Excel.
     pack = OUTPUT_DIR / f"cm01_pack_{stamp}_{uuid.uuid4().hex[:8]}.zip"
@@ -2539,7 +2600,8 @@ def bitcash_journal():
         "/tools/bit-cash-ar?" + urlencode({
             "message": f"Journal entry ready — {result['count']} "
                        f"reconciliation(s), {result['lines']} line(s). "
-                       "Download the journal or the full pack below.",
+                       "Download the journal or the full pack below."
+                       + skipped_note,
             "journal": out.name, "jname": result["name"],
             "pack": pack_name}),
         status_code=303)

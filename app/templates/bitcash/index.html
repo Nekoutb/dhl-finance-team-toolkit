@@ -128,6 +128,14 @@
         <span class="filedrop-text">Choose the payment statement — scans are
           read automatically (invoice references, amounts and the total).</span>
       </label>
+      <label class="field" style="max-width:420px;">
+        <span>Bank deposit slip (optional but recommended)</span>
+        <input type="file" name="deposit_slip"
+               accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls">
+      </label>
+      <p class="note-small" style="margin:2px 0 6px;">The slip carries the
+        amount actually banked — the BIT is searched against it first, which
+        pins the exact payment on the bank statement.</p>
       <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
     </form>
     {% else %}
@@ -139,6 +147,11 @@
       <label class="filedrop">
         <input type="file" name="statement" accept=".xlsx,.xlsm,.xls" required>
         <span class="filedrop-text">Choose the payment statement (Excel).</span>
+      </label>
+      <label class="field" style="max-width:420px;">
+        <span>Bank deposit slip (optional — stored as evidence)</span>
+        <input type="file" name="deposit_slip"
+               accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls">
       </label>
       <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
     </form>
