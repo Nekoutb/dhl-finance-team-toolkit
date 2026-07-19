@@ -1291,6 +1291,7 @@ check("statement email sounds human",
 from app.tools import mydhlpay  # noqa: E402
 
 mydhlpay.PAY_DIR = _tmp / "mydhlpay"
+mydhlpay.READS_PATH = mydhlpay.PAY_DIR / "_reads.json"
 
 check("the pay page is public", auth.is_public("/pay")
       and auth.is_public("/pay/add"))
@@ -1385,4 +1386,77 @@ r = client.post(f"/tools/bit-cash-ar/cash-recon/{tmp_code}/delete",
 check("an open session can be deleted", r.status_code == 303
       and mydhlpay.load_session(tmp_code) is None)
 
-print("\nALL v9.4—v10.6 TESTS PASSED")
+# === 18. v10.7 — receipt photo reading + barcode discipline =================
+r = client.post("/pay/read-receipt",
+                files=[("photo", ("r.jpg", b"x", "image/jpeg"))])
+check("photo reading declines cleanly when the reader is off",
+      r.status_code == 503)
+
+_orig_conf = ai_ocr.is_configured
+_orig_awbr = getattr(ai_ocr, "extract_awb_receipt")
+ai_ocr.is_configured = lambda cfg: True
+ai_ocr.extract_awb_receipt = lambda blob, media, cfg: {
+    "waybill": "1052176580", "reference": "TR26CMUS0000003",
+    "amount_xaf": 9453162.0, "shipper": "SCHLUMBERGER COPS",
+    "receiver": "SMITH INTERNATIONAL", "date": "2026-06-10"}
+try:
+    r = client.post("/pay/read-receipt", data={"code": ""},
+                    files=[("photo", ("receipt.jpg", b"\xff\xd8photo",
+                                      "image/jpeg"))])
+    d = r.json()
+    check("photographed receipt parsed (off-record: amount off the photo)",
+          r.status_code == 200 and d["awb"] == "1052176580"
+          and d["found"] is False and d["amount"] == 9453162.0
+          and d["amount_source"] == "receipt"
+          and d["reference"] == "TR26CMUS0000003")
+
+    ai_ocr.extract_awb_receipt = lambda blob, media, cfg: {
+        "waybill": "8525614075", "reference": "", "amount_xaf": 12345.0,
+        "shipper": "WHOEVER", "receiver": "", "date": ""}
+    r = client.post("/pay/read-receipt",
+                    files=[("photo", ("receipt.jpg", b"\xff\xd8",
+                                      "image/jpeg"))])
+    d = r.json()
+    check("the ledger overrides the photo when the AWB is on record",
+          d["found"] is True and d["amount"] == 59600.0
+          and d["amount_source"] == "ledger")
+
+    ai_ocr.extract_awb_receipt = lambda blob, media, cfg: {
+        "waybill": "48000001", "reference": "", "amount_xaf": 0,
+        "shipper": "", "receiver": "", "date": ""}
+    r = client.post("/pay/read-receipt",
+                    files=[("photo", ("receipt.jpg", b"\xff\xd8",
+                                      "image/jpeg"))])
+    check("a non-10-digit read is refused (retake), never half-added",
+          r.status_code == 422
+          and "10-digit" in r.json()["error"])
+
+    r = client.post("/pay/read-receipt",
+                    files=[("photo", ("r.txt", b"x", "text/plain"))])
+    check("wrong photo type rejected", r.status_code == 400)
+
+    _day_cap = mydhlpay.MAX_READS_PER_DAY
+    mydhlpay.MAX_READS_PER_DAY = 0
+    r = client.post("/pay/read-receipt",
+                    files=[("photo", ("r.jpg", b"x", "image/jpeg"))])
+    check("daily photo budget enforced", r.status_code == 429)
+    mydhlpay.MAX_READS_PER_DAY = _day_cap
+
+    r = client.post("/pay/add", data={"awb": "1052176580", "code": "",
+                                      "amount": "9453162",
+                                      "amount_source": "receipt"})
+    d = r.json()
+    check("receipt-sourced AWB lands with its source + USSD amount",
+          d["entry"]["on_record"] is False
+          and d["entry"]["amount_source"] == "receipt"
+          and d["entry"]["ussd"].endswith("*9453162#"))
+finally:
+    ai_ocr.is_configured = _orig_conf
+    ai_ocr.extract_awb_receipt = _orig_awbr
+
+r = client.get("/pay")
+check("pay page offers the receipt snap + confirm card",
+      "Snap the" in r.text and "pay-confirm-add" in r.text
+      and "awbFromBarcode" in r.text)
+
+print("\nALL v9.4—v10.7 TESTS PASSED")

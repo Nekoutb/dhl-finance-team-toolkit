@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.6 — 19 Jul 2026 · MyDHLPay: public scan-to-pay page at /pay — scan or type the airwaybill, get a unique transaction reference (DDMM+letters, e.g. 1907ABC) with one-tap copy, and the phone dials Orange Money with the exact amount per AWB (same code, only amounts differ); every session lands in the new Cash Reconciliation section where one click opens a normal sandbox and the code is hunted in the BIT first"
+APP_VERSION = "v10.7 — 19 Jul 2026 · MyDHLPay: 📸 snap the shipment receipt — the page reads the whole document (waybill, reference, XAF amount, names) and the customer confirms before it is added; works on every phone incl. iPhone; the ledger amount overrides the photo when the AWB is on record; barcode scanning tightened to the true 10-digit waybill barcode (license-plate and routing barcodes ignored); photo budgets per session and per day"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

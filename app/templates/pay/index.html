@@ -16,8 +16,24 @@
              border-radius:10px;" playsinline muted></video>
       <button class="btn btn-primary" type="button" id="pay-scan-btn">
         📷 Scan the airwaybill barcode</button>
+      <button class="btn" type="button" id="pay-photo-btn">📸 Snap the
+        shipment receipt</button>
+      <input type="file" id="pay-photo-input" accept="image/*,.pdf"
+             capture="environment" style="display:none;">
       <p class="note-small" id="pay-scan-note" style="margin:6px 0 0;">or
         type the 10-digit airwaybill number below</p>
+      <p class="note-small" id="pay-photo-note" style="margin:4px 0 0;
+         display:none;"></p>
+    </div>
+
+    <!-- Confirm card for a photographed receipt -->
+    <div id="pay-confirm" class="alert alert-info" style="display:none;">
+      <strong>Read from your photo:</strong>
+      <div id="pay-confirm-text" style="margin:4px 0 8px;"></div>
+      <button class="btn btn-primary btn-small" type="button"
+              id="pay-confirm-add">✓ Add to my list</button>
+      <button class="btn btn-small" type="button"
+              id="pay-confirm-retake">✗ Retake</button>
     </div>
     <div class="inline-fields" style="margin-bottom:12px;">
       <label class="field" style="flex:1;min-width:200px;">
@@ -133,12 +149,13 @@
         document.getElementById("pay-total-box").style.display = "";
       }
 
-      function submitAwb(awb, amount) {
+      function submitAwb(awb, amount, source) {
         showError("");
         var fd = new FormData();
         fd.append("awb", awb);
         fd.append("code", code || "");
         if (amount) { fd.append("amount", amount); }
+        if (source) { fd.append("amount_source", source); }
         fetch("/pay/add", {method: "POST", body: fd})
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -184,6 +201,22 @@
           }).catch(function () { window.prompt("Copy the reference:", c); });
         });
 
+      // A waybill barcode encodes EXACTLY ten digits. License plates
+      // (JD…) and routing barcodes ((2L…, contain +) also live on the
+      // label and must never be mistaken for the airwaybill.
+      function awbFromBarcode(raw) {
+        if (!raw || raw.indexOf("+") !== -1) { return null; }
+        var up = raw.toUpperCase();
+        if (up.indexOf("JD") === 0 || up.indexOf("(2L") === 0
+            || up.indexOf("2L") === 0 || up.indexOf("(J") === 0) {
+          return null;
+        }
+        var runs = raw.match(/\d+/g) || [];
+        var tens = runs.filter(function (r) { return r.length === 10; });
+        var tooLong = runs.some(function (r) { return r.length > 10; });
+        return (tens.length === 1 && !tooLong) ? tens[0] : null;
+      }
+
       // Camera barcode scanning where the browser supports it.
       var video = document.getElementById("pay-video");
       var scanning = false;
@@ -192,8 +225,8 @@
           if (!("BarcodeDetector" in window)
               || !navigator.mediaDevices) {
             document.getElementById("pay-scan-note").textContent =
-              "Camera scanning is not supported on this phone — type the " +
-              "number below instead.";
+              "Camera scanning is not supported on this phone — snap the " +
+              "receipt or type the number instead.";
             return;
           }
           if (scanning) { return; }
@@ -208,15 +241,17 @@
               video.play();
               var timer = setInterval(function () {
                 detector.detect(video).then(function (codes) {
-                  var hit = codes.find(function (c) {
-                    return /\d{8,}/.test(c.rawValue);
+                  var awb = null;
+                  codes.some(function (c) {
+                    awb = awbFromBarcode(c.rawValue);
+                    return awb !== null;
                   });
-                  if (hit) {
+                  if (awb) {
                     clearInterval(timer);
                     stream.getTracks().forEach(function (t) { t.stop(); });
                     video.style.display = "none";
                     scanning = false;
-                    submitAwb(hit.rawValue.match(/\d{8,}/)[0], null);
+                    submitAwb(awb, null);
                   }
                 }).catch(function () {});
               }, 400);
@@ -224,8 +259,65 @@
             .catch(function () {
               scanning = false;
               document.getElementById("pay-scan-note").textContent =
-                "Camera access was refused — type the number below.";
+                "Camera access was refused — snap the receipt or type " +
+                "the number instead.";
             });
+        });
+
+      // Photo of the shipment receipt — works on every phone; the parsed
+      // result is CONFIRMED by the customer before it is added.
+      var photoInput = document.getElementById("pay-photo-input");
+      var photoNote = document.getElementById("pay-photo-note");
+      var confirmBox = document.getElementById("pay-confirm");
+      var pendingRead = null;
+      document.getElementById("pay-photo-btn").addEventListener("click",
+        function () { photoInput.click(); });
+      photoInput.addEventListener("change", function () {
+        var f = photoInput.files[0];
+        photoInput.value = "";
+        if (!f) { return; }
+        confirmBox.style.display = "none";
+        photoNote.style.display = "";
+        photoNote.textContent = "⏳ Reading your receipt — a few seconds…";
+        var fd = new FormData();
+        fd.append("photo", f, f.name);
+        fd.append("code", code || "");
+        fetch("/pay/read-receipt", {method: "POST", body: fd})
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            photoNote.style.display = "none";
+            if (d.error) { showError(d.error); return; }
+            pendingRead = d;
+            document.getElementById("pay-confirm-text").innerHTML =
+              "Waybill <strong>" + d.awb + "</strong>" +
+              (d.customer_short ? " · " + d.customer_short : "") +
+              " · <strong>" + fmt(d.amount) + " XAF</strong> " +
+              (d.amount_source === "ledger"
+                ? "(amount per our records)"
+                : "(amount read off the receipt)") +
+              (d.reference ? "<br>Ref " + d.reference : "");
+            confirmBox.style.display = "";
+          })
+          .catch(function () {
+            photoNote.style.display = "none";
+            showError("Network problem while reading the photo — try "
+                      + "again.");
+          });
+      });
+      document.getElementById("pay-confirm-add").addEventListener("click",
+        function () {
+          if (!pendingRead) { return; }
+          confirmBox.style.display = "none";
+          submitAwb(pendingRead.awb,
+                    pendingRead.found ? null : pendingRead.amount,
+                    pendingRead.found ? null : "receipt");
+          pendingRead = null;
+        });
+      document.getElementById("pay-confirm-retake").addEventListener(
+        "click", function () {
+          pendingRead = null;
+          confirmBox.style.display = "none";
+          photoInput.click();
         });
     })();
   </script>

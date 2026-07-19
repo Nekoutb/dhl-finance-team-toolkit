@@ -10,6 +10,7 @@ The API key is pasted in Settings and stored in config.json (git-ignored).
 """
 import base64
 import json
+import re
 
 MAX_PDF_BYTES = 30 * 1024 * 1024  # API limit is 32MB; keep headroom.
 
@@ -621,6 +622,106 @@ def extract_payment_statement(file_bytes, media_type, ai_cfg):
     return {"label": str(data.get("label") or "").strip(),
             "date": str(data.get("date") or "").strip(),
             "total": total, "lines": lines}
+
+
+_AWB_RECEIPT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "waybill": {"type": "string"},
+        "reference": {"type": "string"},
+        "amount_xaf": {"type": "number"},
+        "shipper": {"type": "string"},
+        "receiver": {"type": "string"},
+        "date": {"type": "string"},
+    },
+    "required": ["waybill", "reference", "amount_xaf", "shipper",
+                 "receiver", "date"],
+}
+
+_AWB_RECEIPT_PROMPT = (
+    "This is a DHL air waybill, waybill label or shipment receipt "
+    "(photographed or PDF). Extract:\n"
+    "- waybill: the 10-digit waybill/airwaybill number (digits only, no "
+    "spaces). It may be printed as 'WAYBILL 10 5217 6580' or 'Waybill "
+    "Number: 1052176580'. NEVER use the license plate (starts with J/JD) "
+    "or routing codes.\n"
+    "- reference: the customer/shipment reference (e.g. 'Ref: "
+    "TR26CMUS0000003').\n"
+    "- amount_xaf: the total charge in XAF (e.g. 'Charge Breakdown: "
+    "9,453,162 XAF') — 0 when no XAF amount is printed.\n"
+    "- shipper: the shipper/from company name.\n"
+    "- receiver: the receiver/to company name.\n"
+    "- date: the shipment date as printed.\n"
+    "Use an empty string (or 0 for the amount) for anything not present."
+)
+
+
+def extract_awb_receipt(file_bytes, media_type, ai_cfg):
+    """Read a photographed/scanned DHL waybill or shipment receipt →
+    {waybill, reference, amount_xaf, shipper, receiver, date}. Raises
+    AiNotConfigured / AiReadError like the other extractors."""
+    api_key = (ai_cfg or {}).get("api_key", "").strip()
+    if not api_key:
+        raise AiNotConfigured(
+            "No document-reading key saved — paste it under Settings → "
+            "Document reading.")
+    if len(file_bytes) > MAX_PDF_BYTES:
+        raise AiReadError("That photo is too large to read (over 30 MB).")
+
+    b64 = base64.standard_b64encode(file_bytes).decode("ascii")
+    if media_type == "application/pdf":
+        media_block = {"type": "document",
+                       "source": {"type": "base64",
+                                  "media_type": "application/pdf",
+                                  "data": b64}}
+    else:
+        media_block = {"type": "image",
+                       "source": {"type": "base64",
+                                  "media_type": media_type, "data": b64}}
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    model = (ai_cfg or {}).get("model") or "claude-opus-4-8"
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2000,
+            thinking={"type": "adaptive"},
+            messages=[{
+                "role": "user",
+                "content": [media_block,
+                            {"type": "text", "text": _AWB_RECEIPT_PROMPT}],
+            }],
+            output_config={
+                "format": {"type": "json_schema",
+                           "schema": _AWB_RECEIPT_SCHEMA},
+            },
+        )
+    except anthropic.AuthenticationError:
+        raise AiReadError("The document-reading key was rejected — check it "
+                          "under Settings → Document reading.")
+    except anthropic.RateLimitError:
+        raise AiReadError("Rate-limited by the reading service — try again "
+                          "in a minute.")
+    except anthropic.APIStatusError as exc:
+        raise AiReadError(f"reading service error ({exc.status_code}).")
+    except anthropic.APIConnectionError:
+        raise AiReadError("Could not reach the reading service.")
+
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise AiReadError("The photo could not be read — retake it with "
+                          "the whole receipt visible.")
+    return {"waybill": re.sub(r"\D", "", str(data.get("waybill") or "")),
+            "reference": str(data.get("reference") or "").strip()[:40],
+            "amount_xaf": round(float(data.get("amount_xaf") or 0), 2),
+            "shipper": str(data.get("shipper") or "").strip()[:60],
+            "receiver": str(data.get("receiver") or "").strip()[:60],
+            "date": str(data.get("date") or "").strip()[:20]}
 
 
 def test_key(ai_cfg):

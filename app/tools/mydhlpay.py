@@ -28,9 +28,12 @@ from . import bitcash
 from . import iro
 
 PAY_DIR = DATA_DIR / "mydhlpay"
+READS_PATH = PAY_DIR / "_reads.json"
 CODE_RE = re.compile(r"^\d{4}[A-Z]{3}$")
 MAX_AWBS_PER_SESSION = 30
-MAX_OPEN_SESSIONS_PER_DAY = 300      # abuse guard on the public page
+MAX_OPEN_SESSIONS_PER_DAY = 300      # abuse guards on the public page
+MAX_READS_PER_SESSION = 10           # receipt photos per payment session
+MAX_READS_PER_DAY = 200              # receipt photos across the whole day
 _lock = Lock()
 
 
@@ -114,7 +117,7 @@ def lookup_awb(awb):
     return None, digits
 
 
-def add_awb(code, awb, amount=None):
+def add_awb(code, awb, amount=None, amount_source="typed"):
     """Add an airwaybill to a session (creating the session when ``code``
     is empty). Returns a dict for the page:
       {error} | {need_amount, awb} | {session, entry}."""
@@ -139,12 +142,15 @@ def add_awb(code, awb, amount=None):
         if not amt:
             return {"need_amount": True, "awb": digits}
         entry = {"awb": digits, "amount": round(amt, 2), "customer": "",
-                 "customer_short": "", "account": "", "on_record": False}
+                 "customer_short": "", "account": "", "on_record": False,
+                 "amount_source": "receipt"
+                 if amount_source == "receipt" else "typed"}
     else:
         entry = {"awb": digits, "amount": row.get("amount") or 0,
                  "customer": row.get("customer", ""),
                  "customer_short": _short_name(row.get("customer", "")),
-                 "account": row.get("sap_acct", ""), "on_record": True}
+                 "account": row.get("sap_acct", ""), "on_record": True,
+                 "amount_source": "ledger"}
     if session is None:
         session = create_session()
         if session is None:
@@ -196,6 +202,69 @@ def delete_session(code):
         return False
     _path(s["code"]).unlink(missing_ok=True)
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Receipt photo reading — the universal capture path (works on every phone)
+# --------------------------------------------------------------------------- #
+def _reads_today():
+    if READS_PATH.exists():
+        try:
+            data = json.loads(READS_PATH.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def allow_read(code=""):
+    """Both caps must hold: the day's global budget and the session's."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if _reads_today().get(today, 0) >= MAX_READS_PER_DAY:
+        return False
+    if code:
+        session = load_session(code)
+        if session and session.get("reads", 0) >= MAX_READS_PER_SESSION:
+            return False
+    return True
+
+
+def count_read(code=""):
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _lock:
+        data = {today: _reads_today().get(today, 0) + 1}
+        _atomic(READS_PATH, data)
+    if code:
+        session = load_session(code)
+        if session:
+            session["reads"] = session.get("reads", 0) + 1
+            save_session(session)
+
+
+def read_receipt(blob, media_type, ai_cfg):
+    """A photographed waybill/shipment receipt → the confirm-card payload.
+    The Cash AR stays authoritative: when the read waybill is on record,
+    the ledger's amount and customer OVERRIDE whatever the photo says."""
+    from ..services import ai_ocr
+
+    doc = ai_ocr.extract_awb_receipt(blob, media_type, ai_cfg)
+    awb = doc.get("waybill", "")
+    if len(awb) != 10:
+        return {"error": "Could not read a 10-digit waybill number off the "
+                         "photo — retake it with the whole document "
+                         "visible."}
+    row, _ = lookup_awb(awb)
+    if row is not None:
+        return {"awb": awb, "found": True,
+                "amount": row.get("amount") or 0,
+                "amount_source": "ledger",
+                "customer_short": _short_name(row.get("customer", "")),
+                "reference": doc.get("reference", "")}
+    return {"awb": awb, "found": False,
+            "amount": doc.get("amount_xaf") or 0,
+            "amount_source": "receipt",
+            "customer_short": _short_name(doc.get("shipper", "")),
+            "reference": doc.get("reference", "")}
 
 
 def create_sandbox(code):

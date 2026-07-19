@@ -2726,12 +2726,62 @@ def mydhlpay_page(request: Request, code: str = ""):
     })
 
 
+_PAY_PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+
+
+@app.post("/pay/read-receipt")
+async def mydhlpay_read_receipt(request: Request):
+    """Photo of the waybill / shipment receipt → the parsed confirm card.
+    Nothing is added until the customer confirms what was read."""
+    cfg = load_config()
+    if not ai_ocr.is_configured(cfg):
+        return JSONResponse({"error": "Photo reading is not available "
+                                      "right now — scan the barcode or "
+                                      "type the number instead."},
+                            status_code=503)
+    form = await request.form()
+    code = str(form.get("code") or "").strip()
+    if not mydhlpay.allow_read(code):
+        return JSONResponse({"error": "The photo reader is busy — scan "
+                                      "the barcode or type the number "
+                                      "instead."}, status_code=429)
+    photo = form.get("photo")
+    if photo is None or not getattr(photo, "filename", ""):
+        return JSONResponse({"error": "No photo received — try again."},
+                            status_code=400)
+    ext = Path(photo.filename).suffix.lower()
+    if ext not in _PAY_PHOTO_EXT:
+        return JSONResponse({"error": "Use a photo (JPG/PNG) or a PDF of "
+                                      "the receipt."}, status_code=400)
+    blob = await photo.read()
+    if len(blob) > _IRO_MAX_FILE:
+        return JSONResponse({"error": "The photo is bigger than 15 MB — "
+                                      "retake it at normal quality."},
+                            status_code=400)
+    media = "application/pdf" if ext == ".pdf" \
+        else (ai_ocr.media_type_for(photo.filename) or "image/jpeg")
+    mydhlpay.count_read(code)
+    try:
+        result = mydhlpay.read_receipt(blob, media, cfg.get("ai"))
+    except Exception:  # noqa: BLE001 — a bad photo must never 500 the page
+        return JSONResponse({"error": "The photo could not be read — "
+                                      "retake it with good light and the "
+                                      "whole receipt visible."},
+                            status_code=422)
+    if result.get("error"):
+        return JSONResponse({"error": result["error"]}, status_code=422)
+    return JSONResponse(result)
+
+
 @app.post("/pay/add")
 async def mydhlpay_add(request: Request):
     form = await request.form()
     result = mydhlpay.add_awb(str(form.get("code") or "").strip(),
                               form.get("awb") or "",
-                              form.get("amount") or None)
+                              form.get("amount") or None,
+                              "receipt"
+                              if form.get("amount_source") == "receipt"
+                              else "typed")
     if result.get("error"):
         return JSONResponse({"error": result["error"]}, status_code=400)
     if result.get("need_amount"):
