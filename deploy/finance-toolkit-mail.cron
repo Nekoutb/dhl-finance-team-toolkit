@@ -1,0 +1,5 @@
+# /etc/cron.d/finance-toolkit-mail — operator mailbox poller (IRO returns).
+# Reads the dedicated inbox every 5 minutes and turns "PAYREF <account>"
+# emails into reconciliation sandboxes. No-op until IMAP is configured in
+# Settings. Install:  sudo cp deploy/finance-toolkit-mail.cron /etc/cron.d/finance-toolkit-mail
+*/5 * * * * www-data cd /opt/finance-toolkit && .venv/bin/python scripts/poll_operator_mail.py >> data/iro_mail_cron.log 2>&1

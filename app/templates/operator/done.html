@@ -1,0 +1,19 @@
+{% extends "portal/base.html" %}
+{% block title %}Submission received{% endblock %}
+{% block content %}
+  <section class="panel">
+    <h1>✅ Submission received — thank you</h1>
+    <p class="lead">{{ count }} airwaybill(s) reported for account
+      <strong>{{ rec.account }}</strong>
+      {% if refs %} with reference(s):
+      <strong>{{ refs|join(", ") }}</strong>{% endif %}.
+      The DHL finance team now matches your payment against the bank — you
+      will be contacted only if something needs clarification.</p>
+    <div class="download-row">
+      <a class="btn" href="/operator/{{ token }}">← Back to your
+        statement</a>
+    </div>
+    <p class="note-small">Matched airwaybills disappear from your statement
+      automatically.</p>
+  </section>
+{% endblock %}

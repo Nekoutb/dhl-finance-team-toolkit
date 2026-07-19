@@ -1,0 +1,110 @@
+{% extends "portal/base.html" %}
+{% block title %}Statement of account {{ entry.account }}{% endblock %}
+{% block content %}
+  <section class="panel">
+    <h1>Statement of account — {{ entry.name or entry.account }}</h1>
+    <p class="lead">Account <strong>{{ entry.account }}</strong> ·
+      {{ entry.count }} open airwaybill(s) ·
+      total <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong>.
+      Tick the airwaybills your deposit paid, enter the payment reference,
+      attach the bank deposit slip and submit — the finance team receives it
+      instantly.</p>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    {% if not entry.rows %}
+      <div class="alert alert-ok">Nothing is open on your account — all
+        airwaybills are matched or under review. Thank you!</div>
+    {% else %}
+    <form action="/operator/{{ token }}/submit" method="post"
+          enctype="multipart/form-data">
+      <div class="table-wrap" style="max-height:none;">
+        <table class="tx-table">
+          <thead><tr><th>Paid?</th><th>Airwaybill</th><th>Reference</th>
+            <th>Amount (XAF)</th><th>Payment reference</th></tr></thead>
+          <tbody>
+            {% for r in entry.rows %}
+            <tr>
+              <td><input type="checkbox" name="awb" value="{{ r.awb }}"
+                         class="iro-tick" data-amt="{{ r.amount or 0 }}"></td>
+              <td><strong>{{ r.awb or r.assignment }}</strong></td>
+              <td>{{ r.reference }}</td>
+              <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
+              <td><input type="text" name="ref_{{ r.awb }}" maxlength="40"
+                         class="iro-ref" placeholder="e.g. DEP-4471-BICEC"
+                         style="min-width:150px;"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin:10px 0 4px;">Total of ticked airwaybills:
+        <strong id="iro-total">0</strong> XAF</p>
+      <div class="inline-fields" style="margin-bottom:8px;">
+        <label class="field" style="min-width:220px;">
+          <span>Deposit reference (applies to all ticked lines)</span>
+          <input type="text" name="reference" id="iro-globalref"
+                 maxlength="40" placeholder="e.g. DEP-4471-BICEC">
+        </label>
+        <button class="btn" type="button" id="iro-apply"
+                style="align-self:flex-end;">Apply to ticked lines</button>
+        <label class="field">
+          <span>Payment date</span>
+          <input type="date" name="payment_date">
+        </label>
+        <label class="field">
+          <span>Amount banked (XAF)</span>
+          <input type="text" name="amount_banked" placeholder="e.g. 523500">
+        </label>
+      </div>
+
+      <div class="inline-fields" style="margin-bottom:10px;">
+        <label class="field" style="min-width:280px;">
+          <span>Bank deposit slip(s) — photo or PDF (recommended)</span>
+          <input type="file" name="deposit_slip" multiple
+                 accept=".pdf,.png,.jpg,.jpeg,.webp,.gif">
+        </label>
+        <label class="field" style="min-width:280px;">
+          <span>Or the statement Excel with the Payment reference column
+            filled (optional)</span>
+          <input type="file" name="awb_excel" accept=".xlsx,.xlsm,.xls">
+        </label>
+      </div>
+
+      <button class="btn btn-primary" type="submit">📨 Submit payment
+        references</button>
+      <p class="note-small" style="margin-top:8px;">Airwaybills already
+        reported and matched no longer appear here. Submitting opens a
+        reconciliation with the DHL finance team — you will be contacted if
+        anything needs clarification.</p>
+    </form>
+
+    <script>
+      (function () {
+        function fmt(n) { return n.toLocaleString("en-US",
+          {maximumFractionDigits: 0}); }
+        function total() {
+          var t = 0;
+          document.querySelectorAll(".iro-tick:checked").forEach(function (c) {
+            t += parseFloat(c.getAttribute("data-amt") || "0");
+          });
+          document.getElementById("iro-total").textContent = fmt(t);
+        }
+        document.querySelectorAll(".iro-tick").forEach(function (c) {
+          c.addEventListener("change", total);
+        });
+        document.getElementById("iro-apply").addEventListener("click",
+          function () {
+            var v = document.getElementById("iro-globalref").value;
+            document.querySelectorAll(".iro-tick:checked").forEach(
+              function (c) {
+                var ref = c.closest("tr").querySelector(".iro-ref");
+                if (ref && !ref.value) { ref.value = v; }
+              });
+          });
+        total();
+      })();
+    </script>
+    {% endif %}
+  </section>
+{% endblock %}

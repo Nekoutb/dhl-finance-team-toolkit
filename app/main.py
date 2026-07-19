@@ -26,7 +26,7 @@ from .services import (ai_ocr, ar_master, auth, bank_statement,
                        emailer, eno_allocation, holds, remittance_pdf,
                        remittance_store, turnstile, variance,
                        xlsx_report)
-from .tools import account_stop, bank, bitcash, quickstmt
+from .tools import account_stop, bank, bitcash, iro, quickstmt
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -2285,13 +2285,17 @@ def _bitcash_home(request, error="", message="", status_code=200,
           "values": [v.get("bit_open") for _d, v in history]},
          {"name": "Open Cash AR items", "color": "#16a34a",
           "values": [v.get("cash_open") for _d, v in history]}])
+    recons = bitcash.list_recons()
+    op_pending = sum(1 for r in recons
+                     if str(r.get("uploaded_by", "")).startswith("operator:")
+                     and r.get("status") in ("reading", "open"))
     return templates.TemplateResponse("bitcash/index.html", {
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "error": error, "message": message,
         "current": st["current"], "chart": chart,
         "processing": st.get("processing"),
         "processing_error": st.get("processing_error"),
-        "recons": bitcash.list_recons(),
+        "recons": recons, "op_pending": op_pending,
         "journal": Path(journal).name if journal else "",
         "jname": Path(jname).name if jname else "",
         "pack": Path(pack).name if pack else "",
@@ -2493,15 +2497,26 @@ def bitcash_recon_evidence(token: str, which: str):
     rec = bitcash.load_recon(token)
     if rec is None:
         return redirect_msg("/tools/bit-cash-ar", error="Not found.")
-    name = rec.get("file", "") if which == "advice" \
-        else (rec.get("slip") or {}).get("name", "")
+    if which == "advice":
+        name = rec.get("file", "")
+    elif re.fullmatch(r"slip\d+", which):
+        extras = {e["name"].split("_")[0]: e
+                  for e in rec.get("extra_slips", [])}
+        name = (extras.get(which) or {}).get("name", "")
+    else:
+        name = (rec.get("slip") or {}).get("name", "")
     path = bitcash.FILES_DIR / Path(name).name if name else None
     if not name or not path.exists():
         return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                             error="That evidence file is not on record for "
                                   "this reconciliation.")
-    label = rec.get("source") if which == "advice" \
-        else (rec.get("slip") or {}).get("source")
+    if which == "advice":
+        label = rec.get("source")
+    elif re.fullmatch(r"slip\d+", which):
+        label = next((e.get("source") for e in rec.get("extra_slips", [])
+                      if e["name"].split("_")[0] == which), name)
+    else:
+        label = (rec.get("slip") or {}).get("source")
     media = {
         ".pdf": "application/pdf",
         ".xlsx": "application/vnd.openxmlformats-officedocument"
@@ -2511,6 +2526,250 @@ def bitcash_recon_evidence(token: str, which: str):
     }.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media,
                         filename=Path(label or path.name).name)
+
+
+# --------------------------------------------------------------------------- #
+# IRO Statements & Returns — operator self-service (ADDITIVE: both channels
+# only create the same reconciliation sandboxes finance already reviews)
+# --------------------------------------------------------------------------- #
+_IRO_SLIP_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_IRO_MAX_FILE = 15 * 1024 * 1024
+
+
+@app.get("/tools/bit-cash-ar/operators", response_class=HTMLResponse)
+def iro_panel(request: Request, message: str = "", error: str = ""):
+    groups = iro.operator_accounts()
+    records = iro.all_records()
+    base = str(request.base_url).rstrip("/")
+    rows = []
+    for g in groups:
+        rec = records.get(g["account"]) or iro.load_record(g["account"])
+        rows.append({**g, "email": rec.get("email", ""),
+                     "token": rec.get("token", ""),
+                     "link": f"{base}/operator/{rec['token']}"
+                     if rec.get("token") else "",
+                     "last_sent": (rec.get("sent") or [{}])[-1].get("at", ""),
+                     "submissions": len(rec.get("submissions", []))})
+    return templates.TemplateResponse("bitcash/operators.html", {
+        "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
+        "rows": rows, "quarantine": iro.quarantine_list(),
+        "imap_on": bool((load_config().get("imap") or {}).get("enabled")),
+        "message": message, "error": error,
+    })
+
+
+@app.post("/tools/bit-cash-ar/operators/email")
+async def iro_set_email(request: Request):
+    form = await request.form()
+    account = (form.get("account") or "").strip()
+    email_addr = (form.get("email") or "").strip()
+    if not account or (email_addr and "@" not in email_addr):
+        return redirect_msg("/tools/bit-cash-ar/operators",
+                            error="Give a valid operator email address.")
+    iro.set_email(account, email_addr)
+    return redirect_msg("/tools/bit-cash-ar/operators",
+                        message=f"Email saved for {account}.")
+
+
+@app.post("/tools/bit-cash-ar/operators/regenerate")
+async def iro_regenerate(request: Request):
+    form = await request.form()
+    account = (form.get("account") or "").strip()
+    iro.regenerate_token(account)
+    return redirect_msg("/tools/bit-cash-ar/operators",
+                        message=f"New secure link issued for {account} — "
+                                "the old link no longer works.")
+
+
+@app.post("/tools/bit-cash-ar/operators/send")
+async def iro_send(request: Request):
+    form = await request.form()
+    accounts = [a for a in form.getlist("accounts") if a.strip()]
+    if not accounts:
+        return redirect_msg("/tools/bit-cash-ar/operators",
+                            error="Tick at least one operator account.")
+    cfg = load_config()
+    smtp = cfg.get("smtp", {})
+    base = str(request.base_url).rstrip("/")
+    sent, emls, skipped = [], [], []
+    for account in accounts:
+        entry = iro.account_entry(account)
+        if not entry or not entry["rows"]:
+            skipped.append(f"{account} (no open AWBs)")
+            continue
+        rec = iro.ensure_token(account, entry.get("name", ""))
+        if not rec.get("email"):
+            skipped.append(f"{account} (no email saved)")
+            continue
+        stmt = OUTPUT_DIR / f"IRO_statement_{account}_" \
+                            f"{uuid.uuid4().hex[:8]}.xlsx"
+        iro.build_statement_xlsx(stmt, entry)
+        link = f"{base}/operator/{rec['token']}"
+        subject = f"Your DHL account statement — {account}"
+        body = (
+            f"Dear {entry.get('name') or 'operator'},\n\n"
+            f"Please find attached the statement of open airwaybills on "
+            f"your account {account} "
+            f"({entry['count']} item(s), {entry['total']:,.0f} XAF).\n\n"
+            f"To report your payments, open your secure page — tick the "
+            f"airwaybills paid, enter the payment reference per line and "
+            f"attach the bank deposit slip:\n{link}\n\n"
+            "Or reply by email in this exact format:\n"
+            f"  Subject: PAYREF {account}\n"
+            "  Attach: the bank deposit slip and/or the statement Excel "
+            "with the Payment reference column filled\n"
+            "  Or list in the body: REF: <deposit reference>, then one "
+            "line per airwaybill: AWB <waybill> <amount>\n\n"
+            "Airwaybills already reported and matched no longer appear on "
+            "your statement.\n\nDHL Finance team")
+        if smtp.get("enabled"):
+            try:
+                emailer.send_via_smtp(smtp, rec["email"], subject, body,
+                                      stmt)
+                iro.record_sent(account, rec["email"], "smtp")
+                sent.append(account)
+                continue
+            except Exception as exc:  # noqa: BLE001 — fall through to .eml
+                skipped.append(f"{account} (SMTP failed: {exc})")
+                continue
+        eml = OUTPUT_DIR / f"IRO_statement_{account}_" \
+                           f"{uuid.uuid4().hex[:8]}.eml"
+        emailer.build_eml(eml, smtp.get("from_address", ""), rec["email"],
+                          subject, body, stmt)
+        iro.record_sent(account, rec["email"], "eml")
+        emls.append(eml.name)
+    bits = []
+    if sent:
+        bits.append(f"statement emailed to {len(sent)} operator(s)")
+    if emls:
+        bits.append(f"{len(emls)} ready-to-send email(s) created (SMTP is "
+                    "off) — download: "
+                    + " · ".join(f"/download/{n}" for n in emls))
+    if skipped:
+        bits.append("skipped: " + "; ".join(skipped))
+    return redirect_msg("/tools/bit-cash-ar/operators",
+                        message=" — ".join(bits) or "Nothing to send.")
+
+
+@app.post("/tools/bit-cash-ar/operators/fetch-mail")
+async def iro_fetch_mail(request: Request):
+    result = iro.poll_mailbox(load_config().get("imap"))
+    if not result.get("ok"):
+        return redirect_msg("/tools/bit-cash-ar/operators",
+                            error=result.get("error", "Mailbox check failed."))
+    return redirect_msg(
+        "/tools/bit-cash-ar/operators",
+        message=f"Mailbox checked — {result['seen']} new message(s): "
+                f"{result['created']} submission(s) created, "
+                f"{result['quarantined']} quarantined, "
+                f"{result['duplicates']} duplicate(s).")
+
+
+@app.get("/operator/{token}", response_class=HTMLResponse)
+def operator_page(request: Request, token: str, error: str = ""):
+    rec = iro.find_by_token(token)
+    if rec is None:
+        return HTMLResponse("<h1>Link not valid</h1><p>This statement link "
+                            "is invalid or was replaced — please contact "
+                            "the DHL finance team.</p>", status_code=404)
+    entry = iro.account_entry(rec["account"]) or {
+        "account": rec["account"], "name": rec.get("name", ""),
+        "rows": [], "count": 0, "total": 0.0}
+    return templates.TemplateResponse("operator/statement.html", {
+        "request": request, "cfg": load_config(), "rec": rec,
+        "entry": entry, "error": error, "token": token})
+
+
+@app.post("/operator/{token}/submit")
+async def operator_submit(request: Request, token: str):
+    rec = iro.find_by_token(token)
+    if rec is None:
+        return HTMLResponse("<h1>Link not valid</h1>", status_code=404)
+    if iro.open_submission_count(rec) >= iro.MAX_OPEN_SUBMISSIONS:
+        return operator_page(request, token,
+                             error="Too many submissions are already "
+                                   "awaiting review — the finance team "
+                                   "must treat those first.")
+    entry = iro.account_entry(rec["account"]) or {"rows": []}
+    open_by_awb = {r["awb"]: r for r in entry.get("rows", [])
+                   if r.get("awb")}
+    form = await request.form()
+    lines, refs = [], []
+    for awb in form.getlist("awb"):
+        row = open_by_awb.get(str(awb))
+        if not row:
+            continue
+        pref = str(form.get(f"ref_{awb}") or "").strip()[:40]
+        lines.append({"awb": row["awb"], "amount": row["amount"],
+                      "reference": pref})
+        if pref:
+            refs.append(pref)
+    global_ref = str(form.get("reference") or "").strip()[:40]
+    if global_ref:
+        refs.append(global_ref)
+
+    excel_up = form.get("awb_excel")
+    evidence_path = None
+    if excel_up is not None and getattr(excel_up, "filename", ""):
+        ext = Path(excel_up.filename).suffix.lower()
+        if ext not in (".xlsx", ".xlsm", ".xls"):
+            return operator_page(request, token,
+                                 error="The AWB file must be an Excel "
+                                       "workbook (.xlsx / .xls).")
+        blob = await excel_up.read()
+        if len(blob) > _IRO_MAX_FILE:
+            return operator_page(request, token,
+                                 error="The AWB Excel is bigger than 15 MB.")
+        evidence_path = UPLOAD_DIR / f"iroex_{uuid.uuid4().hex[:8]}{ext}"
+        evidence_path.write_bytes(blob)
+
+    slip_paths = []
+    for slip in form.getlist("deposit_slip"):
+        if slip is None or not getattr(slip, "filename", ""):
+            continue
+        ext = Path(slip.filename).suffix.lower()
+        if ext not in _IRO_SLIP_EXT:
+            return operator_page(request, token,
+                                 error=f"Deposit slip '{slip.filename}': "
+                                       "use a photo or a PDF.")
+        blob = await slip.read()
+        if len(blob) > _IRO_MAX_FILE:
+            return operator_page(request, token,
+                                 error=f"Deposit slip '{slip.filename}' is "
+                                       "bigger than 15 MB.")
+        dest = UPLOAD_DIR / f"iroslip_{uuid.uuid4().hex[:8]}{ext}"
+        dest.write_bytes(blob)
+        slip_paths.append((dest, slip.filename))
+
+    if not lines and evidence_path is None:
+        return operator_page(request, token,
+                             error="Tick at least one airwaybill or attach "
+                                   "the filled statement Excel.")
+    if not refs and evidence_path is None:
+        return operator_page(request, token,
+                             error="Enter the payment reference for the "
+                                   "airwaybills you ticked.")
+    recon_token = iro.create_submission(
+        rec["account"], lines=lines, evidence_path=evidence_path,
+        slip_paths=slip_paths, references=refs, channel="portal",
+        label=f"IRO {rec['account']} — {refs[0] if refs else 'return'}")
+    # Best-effort heads-up to the finance team.
+    try:
+        cfg = load_config()
+        smtp = cfg.get("smtp", {})
+        to = cfg.get("orange_cameroun", {}).get("default_recipient", "")
+        if smtp.get("enabled") and to:
+            emailer.send_via_smtp(
+                smtp, to, f"IRO submission — {rec['account']}",
+                f"Operator {rec.get('name') or rec['account']} submitted "
+                f"{len(lines)} airwaybill(s) "
+                f"(references: {', '.join(refs) or '—'}).\n"
+                f"Review: /tools/bit-cash-ar/recon/{recon_token}")
+    except Exception:  # noqa: BLE001 — the submission itself already landed
+        pass
+    return templates.TemplateResponse("operator/done.html", {
+        "request": request, "cfg": load_config(), "rec": rec,
+        "count": len(lines), "refs": refs, "token": token})
 
 
 @app.post("/tools/bit-cash-ar/recon/{token}/email")
@@ -2886,6 +3145,33 @@ async def app_settings_banks(request: Request):
     save_user_config({"banks": names})         # a list REPLACES (allows removal)
     return RedirectResponse(
         f"/settings?message=Saved {len(names)} bank(s) — one upload slot each.",
+        status_code=303)
+
+
+@app.post("/settings/imap")
+async def app_settings_imap(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return blocked
+    form = await request.form()
+    cfg = load_config()
+    password = form.get("password") or ""
+    save_user_config({"imap": {
+        "enabled": form.get("enabled") == "on",
+        "host": (form.get("host") or "").strip(),
+        "port": int(form.get("port") or 993),
+        "ssl": form.get("ssl") == "on",
+        "username": (form.get("username") or "").strip(),
+        # Blank password field keeps the stored one.
+        "password": password if password
+        else cfg.get("imap", {}).get("password", ""),
+        "folder": (form.get("folder") or "INBOX").strip() or "INBOX",
+    }})
+    on = form.get("enabled") == "on"
+    return RedirectResponse(
+        "/settings?message=Operator mailbox saved — reading is "
+        + ("ON (checked every few minutes and via Fetch mail now)."
+           if on else "off."),
         status_code=303)
 
 

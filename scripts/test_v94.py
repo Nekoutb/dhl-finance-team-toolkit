@@ -879,4 +879,150 @@ finally:
 check("background statement reports trigger the cheque sync",
       bool(_synced) and tok == "feed00000001")
 
-print("\nALL v9.4—v10.1 TESTS PASSED")
+# === 14. v10.3 — IRO Statements & Returns (operator self-service) ===========
+from app.tools import iro  # noqa: E402
+
+iro.IRO_DIR = _tmp / "iro"
+iro.MAIL_LOG = iro.IRO_DIR / "_mail.json"
+
+check("operator links are public (no login)",
+      auth.is_public("/operator/abc123def"))
+
+FAKE2 = {
+    "bit_header": [], "gen_bit": "gen2b", "gen_cash": "gen2c",
+    "bit": [
+        {"id": 0, "amount": -115700.0, "gl_account": "1263001293",
+         "assignment": "0548407000018", "posting_date": "07.07.2026",
+         "reference": "DEP-4471-BICEC", "text": "CASH DEPOSIT DLA",
+         "doc_no": "410009", "posting_key": "40", "raw": []},
+        {"id": 1, "amount": -115700.0, "gl_account": "1263001293",
+         "assignment": "0548407000019", "posting_date": "07.07.2026",
+         "reference": "OTHER-REF", "text": "CASH DEPOSIT YDE",
+         "doc_no": "410010", "posting_key": "40", "raw": []}],
+    "cash": [
+        {"id": 0, "sap_acct": "415774002", "awb": "8525614075",
+         "assignment": "8525614075", "reference": "8525614075",
+         "amount": 59600.0, "customer": "ETS NEW SERVICE TJR",
+         "doc_no": "900001"},
+        {"id": 1, "sap_acct": "415774002", "awb": "2080666324",
+         "assignment": "2080666324", "reference": "2080666324",
+         "amount": 56100.0, "customer": "ETS NEW SERVICE TJR",
+         "doc_no": "900002"},
+        {"id": 2, "sap_acct": "415774002", "awb": "9605628896",
+         "assignment": "9605628896", "reference": "9605628896",
+         "amount": 60011.0, "customer": "ETS NEW SERVICE TJR",
+         "doc_no": "900003"},
+        {"id": 3, "sap_acct": "4003025929", "awb": "4095823454",
+         "assignment": "4095823454", "reference": "4095823454",
+         "amount": 53639.0, "customer": "DHL SERVICE POINT BUEA",
+         "doc_no": "900004"}],
+}
+bitcash.rows_store = lambda: FAKE2
+
+groups = iro.operator_accounts()
+by_acct = {g["account"]: g for g in groups}
+check("operators grouped from the Cash AR by SAP account",
+      "415774002" in by_acct and by_acct["415774002"]["count"] == 3
+      and by_acct["415774002"]["name"] == "ETS NEW SERVICE TJR")
+check("matched AWBs are no longer open — never resent to an IRO",
+      "4003025929" not in by_acct)      # its only AWB is frozen in a sandbox
+
+rec = iro.ensure_token("415774002", "ETS NEW SERVICE TJR")
+tok1 = rec["token"]
+iro.set_email("415774002", "tjr@example.com")
+check("operator record: token issued + email remembered",
+      len(tok1) == 32 and iro.find_by_token(tok1)["email"]
+      == "tjr@example.com")
+old = tok1
+tok1 = iro.regenerate_token("415774002")["token"]
+check("regenerated link invalidates the old one",
+      iro.find_by_token(old) is None
+      and iro.find_by_token(tok1)["account"] == "415774002")
+
+stmt_path = _tmp / "iro_stmt.xlsx"
+iro.build_statement_xlsx(stmt_path, by_acct["415774002"])
+wsx = openpyxl.load_workbook(stmt_path)["Statement"]
+stxt = " ".join(str(c.value) for row in wsx.iter_rows()
+                for c in row if c.value is not None)
+check("statement Excel: AWBs + blank Payment-reference column",
+      "8525614075" in stxt and "Payment reference" in stxt
+      and "175711" in stxt.replace(",", "").replace(".0", ""))
+
+r = client.get(f"/operator/{tok1}")
+check("operator page shows only that account's open AWBs",
+      r.status_code == 200 and "8525614075" in r.text
+      and "4095823454" not in r.text)
+r = client.get("/operator/deadbeef00000000000000000000dead")
+check("unknown operator link -> 404", r.status_code == 404)
+
+r = client.post(f"/operator/{tok1}/submit",
+                data={"awb": ["8525614075", "2080666324"],
+                      "ref_8525614075": "DEP-4471-BICEC",
+                      "ref_2080666324": "DEP-4471-BICEC",
+                      "payment_date": "2026-07-17",
+                      "amount_banked": "115700"},
+                files=[("deposit_slip",
+                        ("slip.png", b"\x89PNG fake", "image/png"))])
+check("portal submission accepted", r.status_code == 200
+      and "Submission received" in r.text)
+sub = iro.load_record("415774002")["submissions"][-1]
+check("submission recorded with references + channel",
+      sub["channel"] == "portal" and "DEP-4471-BICEC" in sub["references"])
+deadline = time.time() + 15
+recx = None
+while time.time() < deadline:
+    recx = bitcash.load_recon(sub["recon_token"])
+    if recx and recx.get("status") != "reading":
+        break
+    time.sleep(0.1)
+check("sandbox opened from the operator return",
+      recx and recx["status"] == "open"
+      and recx["uploaded_by"] == "operator:415774002"
+      and len(recx["statement"]["lines"]) == 2)
+check("reference-first BIT match beats the duplicated amount",
+      recx["bit_selected"] == 0 and recx.get("ref_hits") == [0])
+viewx = bitcash.recon_view(recx)
+check("candidate flagged 'matched by reference'",
+      viewx["bit_candidates"][0].get("by_ref") is True)
+check("slip stored with the sandbox",
+      (recx.get("slip") or {}).get("source") == "slip.png")
+r = client.get(f"/operator/{tok1}")
+check("submitted AWBs leave the operator's statement immediately",
+      "8525614075" not in r.text and "9605628896" in r.text)
+
+# Email channel — the same funnel, guarded by the registered sender.
+mime_bad = (b"From: intruder@example.com\r\nTo: payref@x\r\n"
+            b"Subject: PAYREF 415774002\r\nMessage-ID: <m1@x>\r\n\r\n"
+            b"AWB 9605628896 60011\r\n")
+check("mail from an unregistered sender is quarantined",
+      iro.process_message(mime_bad)["status"] == "quarantined"
+      and "not the registered email"
+      in iro.quarantine_list()[0]["reason"])
+mime_ok = (b"From: tjr@example.com\r\nTo: payref@x\r\n"
+           b"Subject: PAYREF 415774002\r\nMessage-ID: <m2@x>\r\n\r\n"
+           b"REF: OTHER-REF\r\nDATE: 17/07/2026\r\nTOTAL: 60011\r\n"
+           b"AWB 9605628896 60011\r\n")
+out = iro.process_message(mime_ok)
+check("formatted mail creates a submission", out["status"] == "created")
+check("duplicate mail is ignored",
+      iro.process_message(mime_ok)["status"] == "duplicate")
+deadline = time.time() + 15
+recm = None
+while time.time() < deadline:
+    recm = bitcash.load_recon(out["recon_token"])
+    if recm and recm.get("status") != "reading":
+        break
+    time.sleep(0.1)
+check("email return matched via its reference too",
+      recm and recm["status"] == "open" and recm["bit_selected"] == 1
+      and recm["statement"]["lines"][0]["reference"] == "9605628896")
+
+r = client.get("/tools/bit-cash-ar/operators")
+check("staff panel lists operators + quarantine",
+      r.status_code == 200 and "415774002" in r.text
+      and "intruder@example.com" in r.text)
+r = client.get("/tools/bit-cash-ar")
+check("BIT & Cash AR page links the operator returns",
+      "Operator" in r.text and "return(s) awaiting review" in r.text)
+
+print("\nALL v9.4—v10.3 TESTS PASSED")

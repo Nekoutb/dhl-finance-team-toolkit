@@ -163,6 +163,9 @@
         <button class="btn btn-primary" type="submit" data-busy-keep="1">📒
           Generate journal entry + pack (approved sandboxes)</button>
       </form>
+      <a class="btn" href="/tools/bit-cash-ar/operators">👥 Operator
+        statements (IRO){% if op_pending %} —
+        <strong>{{ op_pending }} return(s) awaiting review</strong>{% endif %}</a>
     </div>
     {% if journal or pack %}
     <div class="download-row" style="margin-top:8px;">
@@ -186,7 +189,9 @@
           {% for r in recons %}
           <tr>
             <td>{{ r.uploaded }}</td>
-            <td>{{ (r.statement.label if r.statement else '') or r.source }}</td>
+            <td>{{ (r.statement.label if r.statement else '') or r.source }}
+              {% if r.uploaded_by and r.uploaded_by.startswith('operator:') %}
+              <span class="pill pill-ok">operator return</span>{% endif %}</td>
             <td>{% if r.statement %}{{ "{:,.0f}".format(r.statement.total) }}{% else %}—{% endif %}</td>
             <td>{{ r.statement.lines|length if r.statement else '—' }}</td>
             <td>

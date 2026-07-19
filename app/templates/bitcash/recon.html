@@ -79,6 +79,9 @@
       {% if view.slip_total %}<strong>Deposit slip total:
       {{ "{:,.0f}".format(view.slip_total) }} XAF</strong> — the BIT is
       searched against the banked amount first.{% endif %}
+      {% if view.payment_refs %}Payment reference(s) submitted:
+      <strong>{{ view.payment_refs|join(", ") }}</strong> — looked up inside
+      the BIT before any amount match.{% endif %}
       {% if view.bit_candidates %}The closest BIT matches within
       ±{{ "{:,.0f}".format(view.margin) }} are shown below.{% endif %}
     </div>
@@ -239,7 +242,8 @@
             <td>{{ r.gl_account }}</td>
             <td>{{ r.assignment }}</td>
             <td><strong>{{ "{:,.0f}".format(r.amount) }}</strong></td>
-            <td>{% if r.delta == 0 %}<span class="pill pill-ok">exact</span>
+            <td>{% if r.by_ref %}<div><span class="pill pill-ok">✓ matched by reference</span></div>{% endif %}
+              {% if r.delta == 0 %}<span class="pill pill-ok">exact</span>
               {% else %}<span class="{{ 'diff-bad' if r.delta else '' }}">{{ "{:+,.0f}".format(r.delta) }}</span>{% endif %}</td>
             <td>{{ r.posting_date }}</td>
             <td>{{ r.reference }}</td>
@@ -338,6 +342,10 @@
         View the deposit slip ({{ view.slip.source }})</a>
       <span class="note-inline">attached {{ view.slip.uploaded }}</span>
       {% endif %}
+      {% for ex in view.extra_slips %}
+      <a class="btn" href="/tools/bit-cash-ar/recon/{{ token }}/evidence/{{ ex.name.split('_')[0] }}">🏦
+        Deposit slip {{ loop.index + 1 }} ({{ ex.source }})</a>
+      {% endfor %}
     </div>
     {% if rec.status in ('open', 'approved') %}
     <form action="/tools/bit-cash-ar/recon/{{ token }}/slip" method="post"

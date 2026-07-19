@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Operator statements · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/bit-cash-ar">{{ tool.name }}</a> / Operator statements
+  </nav>
+
+  <section class="panel">
+    <h1>👥 Operator statements — IRO returns</h1>
+    <p class="lead">Each reseller account (the SAP account in the Cash AR =
+      the operator's DHL account number) gets a statement of its
+      <strong>open airwaybills</strong> and a personal secure link. The
+      operator ticks what was paid, gives the payment reference per AWB and
+      attaches the deposit slip — the return opens a reconciliation sandbox
+      automatically. Airwaybills already matched in an open or approved
+      reconciliation are <strong>no longer open</strong> and are never sent
+      out again.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    {% if not rows %}
+      <div class="alert alert-info">No open Cash AR items on record — upload
+        the Cash AR file in <a href="/tools/bit-cash-ar">BIT &amp; Cash
+        AR</a> first.</div>
+    {% else %}
+    <form action="/tools/bit-cash-ar/operators/send" method="post"
+          id="sendform"></form>
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Send</th><th>Account</th><th>Operator</th>
+          <th>Open AWBs</th><th>Open amount (XAF)</th><th>Email</th>
+          <th>Statement</th><th>Secure link</th><th>Returns</th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td><input type="checkbox" name="accounts" value="{{ r.account }}"
+                       form="sendform" {% if r.email %}checked{% endif %}></td>
+            <td><strong>{{ r.account }}</strong></td>
+            <td>{{ r.name or '—' }}</td>
+            <td>{{ r.count }}</td>
+            <td>{{ "{:,.0f}".format(r.total) }}</td>
+            <td>
+              <form action="/tools/bit-cash-ar/operators/email" method="post"
+                    style="display:flex;gap:4px;">
+                <input type="hidden" name="account" value="{{ r.account }}">
+                <input type="email" name="email" value="{{ r.email }}"
+                       placeholder="operator email" style="min-width:170px;">
+                <button class="btn btn-small" type="submit">Save</button>
+              </form>
+            </td>
+            <td>{% if r.last_sent %}sent {{ r.last_sent }}
+                {% else %}<span class="note-inline">never sent</span>{% endif %}</td>
+            <td>
+              {% if r.token %}
+              <span class="note-inline" title="{{ r.link }}">…/operator/{{ r.token[:8] }}…</span>
+              <form action="/tools/bit-cash-ar/operators/regenerate"
+                    method="post" style="display:inline;"
+                    onsubmit="return confirm('Issue a NEW link for {{ r.account }}? The old link stops working.');">
+                <input type="hidden" name="account" value="{{ r.account }}">
+                <button class="btn btn-small" type="submit">⟳</button>
+              </form>
+              {% else %}<span class="note-inline">issued on first send</span>{% endif %}
+            </td>
+            <td>{{ r.submissions }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="download-row" style="margin-top:10px;">
+      <button class="btn btn-primary" type="submit" form="sendform">✉ Email
+        statement + link to the ticked operators</button>
+      <form action="/tools/bit-cash-ar/operators/fetch-mail" method="post"
+            style="display:inline;">
+        <button class="btn" type="submit">📥 Fetch mail now</button>
+      </form>
+    </div>
+    <p class="note-small">Statements carry the open AWBs (Excel) + the
+      secure link + the exact email format
+      (<code>PAYREF &lt;account&gt;</code>).
+      {% if not imap_on %}The operator mailbox is not configured yet —
+      email returns stay off until the IMAP details are saved under
+      <a href="/settings">Settings → Operator mailbox</a>; the portal links
+      work regardless.{% endif %}</p>
+    {% endif %}
+  </section>
+
+  {% if quarantine %}
+  <section class="panel">
+    <h2 class="section-title">Quarantined emails — not processed</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Received</th><th>From</th><th>Subject</th>
+          <th>Why it was not processed</th></tr></thead>
+        <tbody>
+          {% for q in quarantine %}
+          <tr><td>{{ q.at }}</td><td>{{ q["from"] }}</td>
+            <td>{{ q.subject }}</td><td>{{ q.reason }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">A quarantined mail is never turned into a
+      reconciliation — register the operator's email above (or ask them to
+      resend with the right subject) and use “Fetch mail now”.</p>
+  </section>
+  {% endif %}
+{% endblock %}

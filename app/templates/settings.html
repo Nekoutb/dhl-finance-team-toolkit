@@ -273,6 +273,62 @@
     </form>
   </section>
 
+  <!-- ===== Operator mailbox (IMAP) ===== -->
+  <section class="panel">
+    <h2 class="section-title">📬 Operator mailbox (IRO returns)</h2>
+    <p class="lead">The dedicated inbox the tool <strong>reads</strong> to
+      ingest operator payment references sent by email
+      (subject <code>PAYREF &lt;account&gt;</code>). Statements and links
+      are sent with the SMTP settings above; this section is only for
+      RECEIVING the returns.</p>
+    <form action="/settings/imap" method="post">
+      <div class="inline-fields">
+        <label class="field" style="min-width:260px;">
+          <span>IMAP host (e.g. outlook.office365.com / imap.gmail.com)</span>
+          <input type="text" name="host"
+                 value="{{ cfg.imap.host if cfg.imap else '' }}">
+        </label>
+        <label class="field" style="max-width:110px;">
+          <span>Port</span>
+          <input type="number" name="port"
+                 value="{{ cfg.imap.port if cfg.imap else 993 }}">
+        </label>
+        <label class="field" style="max-width:90px;">
+          <span>SSL</span>
+          <input type="checkbox" name="ssl"
+                 {% if not cfg.imap or cfg.imap.ssl %}checked{% endif %}>
+        </label>
+      </div>
+      <div class="inline-fields">
+        <label class="field" style="min-width:240px;">
+          <span>Mailbox address (username)</span>
+          <input type="text" name="username"
+                 value="{{ cfg.imap.username if cfg.imap else '' }}">
+        </label>
+        <label class="field" style="min-width:220px;">
+          <span>Password (blank keeps the stored one)</span>
+          <input type="password" name="password" autocomplete="new-password">
+        </label>
+        <label class="field" style="max-width:140px;">
+          <span>Folder</span>
+          <input type="text" name="folder"
+                 value="{{ cfg.imap.folder if cfg.imap else 'INBOX' }}">
+        </label>
+        <label class="field" style="max-width:120px;">
+          <span>Reading on</span>
+          <input type="checkbox" name="enabled"
+                 {% if cfg.imap and cfg.imap.enabled %}checked{% endif %}>
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit">Save operator
+        mailbox</button>
+    </form>
+    <p class="note-small">Only mail from a registered operator email is
+      processed; everything else is quarantined on the
+      <a href="/tools/bit-cash-ar/operators">Operator statements</a> page.
+      New mail is picked up every few minutes (and on “Fetch mail now”).</p>
+  </section>
+
   <section class="panel">
     <h2 class="section-title">Prove it works</h2>
     <form action="/settings/smtp/test" method="post" class="upload-form">

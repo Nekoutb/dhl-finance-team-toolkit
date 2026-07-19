@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.2 — 19 Jul 2026 · Credit-hold daily graph added to the dashboard (alongside the ageing and BIT/Cash AR trends); plus v10.1: Account Stop strict matching + transaction-date columns, credit-hold graph atop the CtP portal, Orange Money monthly payments pivot + removable processed files, cheque graph refresh on bank statement upload"
+APP_VERSION = "v10.3 — 19 Jul 2026 · IRO Statements & Returns (additive — the existing reconciliation is untouched): each reseller account receives its open-AWB statement + a personal secure link; operators tick the AWBs paid, give the payment reference per line and attach deposit slip(s); returns also arrive by formatted email (PAYREF <account>) read from the dedicated mailbox; submitted references are searched in the BIT FIRST to pin the payment, then the reconciliation continues as before; matched AWBs never go out to an operator again"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -42,6 +42,17 @@ DEFAULT_CONFIG = {
         "username": "",
         "password": "",
         "from_address": "",
+    },
+    # Operator mailbox (IRO returns): the dedicated inbox the tool READS to
+    # ingest "PAYREF <account>" emails. Credentials live only in config.json.
+    "imap": {
+        "enabled": False,
+        "host": "",
+        "port": 993,
+        "ssl": True,
+        "username": "",
+        "password": "",
+        "folder": "INBOX",
     },
     # AI document reading (scanned invoices that have no text layer). The
     # Anthropic API key is pasted in Settings and lives only in config.json

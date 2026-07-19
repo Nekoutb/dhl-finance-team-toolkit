@@ -35,10 +35,10 @@ _THROTTLE_PATH = DATA_DIR / "auth_throttle.json"
 _throttle_lock = Lock()
 
 # Paths reachable without logging in: the login flow, static assets, customer
-# remittance links (token-secured), generated-file downloads (token names),
-# and the health probe.
-PUBLIC_PREFIXES = ("/login", "/logout", "/static/", "/portal/", "/download/",
-                   "/healthz", "/favicon.ico")
+# remittance links (token-secured), operator statement links (token-secured),
+# generated-file downloads (token names), and the health probe.
+PUBLIC_PREFIXES = ("/login", "/logout", "/static/", "/portal/", "/operator/",
+                   "/download/", "/healthz", "/favicon.ico")
 
 
 def hash_password(password, salt=None):

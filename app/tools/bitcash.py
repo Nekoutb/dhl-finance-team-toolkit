@@ -451,24 +451,21 @@ BIT_MATCH_MARGIN = 1000.0
 VARIANCE_EMAIL_THRESHOLD = 5000.0
 
 
-def automatch(statement, slip_total=None):
+def automatch(statement, slip_total=None, payment_refs=None):
     """Match a parsed statement against the stored Cash AR + BIT rows.
 
     The statement TOTAL is always recomputed arithmetically from its lines
     (evidence files often carry a broken formula or a text like
     "TOTAL: 523.571" in the total cell — never trusted); any differing total
     stated in the document is kept as ``stated_total`` for disclosure.
-    ``slip_total`` — the amount on the bank deposit slip, when one was
-    uploaded — is the PRIMARY anchor for the BIT search (it is what was
-    actually banked).
 
-    Returns (lines, ar_selected, bit_candidates, bit_selected):
-      - each statement line gains matched Cash AR row ids (by AWB digits,
-        falling back to the reference column),
-      - BIT candidates = rows whose |amount| is within BIT_MATCH_MARGIN of
-        the slip total or the evidence total, closest first; exactly one
-        exact match (slip first) -> auto-selected, otherwise the user
-        chooses; none -> nothing selected.
+    BIT anchors, strongest first: (1) ``payment_refs`` — bank references
+    submitted with the evidence (operator returns) are looked up INSIDE the
+    BIT's reference/text/assignment; a unique hit auto-selects; (2) the
+    deposit-slip total (what was actually banked); (3) the evidence total,
+    within ±BIT_MATCH_MARGIN, closest first.
+
+    Returns (lines, ar_selected, bit_candidates, bit_selected).
     """
     data = rows_store()
     by_awb = {}
@@ -496,9 +493,10 @@ def automatch(statement, slip_total=None):
 
     total = _to_float(statement.get("total"))
     slip = abs(_to_float(slip_total)) if slip_total else 0.0
-    # The deposit slip carries the amount actually banked — when present it
-    # is the primary anchor for the BIT search; the evidences total backs
-    # it up.
+    refs = list(payment_refs or []) + \
+        [ln.get("payment_reference") for ln in lines
+         if ln.get("payment_reference")]
+    ref_hits = _reference_hits(refs, data["bit"])
     targets = [t for t in (slip, abs(total or 0)) if t]
     cands, bit_selected = [], None
     if targets:
@@ -508,8 +506,16 @@ def automatch(statement, slip_total=None):
                        if _dist(r) <= BIT_MATCH_MARGIN),
                       key=lambda r: (_dist(r), r["id"]))
         cands = [r["id"] for r in near]
+    # Reference hits outrank everything: put them first, auto-select a
+    # unique hit; several hits -> the user picks among them.
+    if ref_hits:
+        cands = ref_hits + [i for i in cands if i not in ref_hits]
+        if len(ref_hits) == 1:
+            bit_selected = ref_hits[0]
+    if bit_selected is None and targets:
+        amounts = {r["id"]: abs(r["amount"]) for r in data["bit"]}
         for t in targets:
-            exact = [r["id"] for r in near if abs(r["amount"]) == t]
+            exact = [i for i in cands if amounts.get(i) == t]
             if len(exact) == 1:
                 bit_selected = exact[0]
                 break
@@ -518,6 +524,29 @@ def automatch(statement, slip_total=None):
         if bit_selected is None and len(cands) == 1:
             bit_selected = cands[0]
     return lines, sorted(set(ar_selected)), cands, bit_selected
+
+
+def _norm_ref(value):
+    """Reference normalisation for BIT lookups: alphanumerics, uppercased."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _reference_hits(refs, bit_rows):
+    """BIT rows whose reference / text / assignment carry one of the
+    submitted payment references (normalised containment, refs >= 4 chars).
+    The bank reference is the strongest anchor there is — these hits rank
+    before any amount-based candidate."""
+    wanted = [_norm_ref(r) for r in (refs or [])]
+    wanted = [w for w in wanted if len(w) >= 4]
+    if not wanted:
+        return []
+    hits = []
+    for row in bit_rows:
+        hay = _norm_ref(f"{row.get('reference', '')} {row.get('text', '')} "
+                        f"{row.get('assignment', '')}")
+        if any(w in hay for w in wanted):
+            hits.append(row["id"])
+    return hits
 
 
 def _read_slip_total(slip_path, slip_media, ai_cfg):
@@ -535,11 +564,13 @@ def _read_slip_total(slip_path, slip_media, ai_cfg):
 
 
 def create_recon_async(stored_path, media_type, source, uploaded_by,
-                       slip_path=None, slip_media=None, slip_source=""):
+                       slip_path=None, slip_media=None, slip_source="",
+                       extra_slips=None, payment_refs=None):
     """Create a sandbox stub and AI-read/match the statement on a background
     thread (a scanned PDF can take a minute — never block the request).
-    Copies of the payment advice AND the bank deposit slip (when given) are
-    kept with the sandbox; the slip's total anchors the BIT search."""
+    Copies of the payment advice AND the bank deposit slip(s) are kept with
+    the sandbox; the slip's total and any submitted payment references
+    anchor the BIT search."""
     token = uuid.uuid4().hex[:12]
     FILES_DIR.mkdir(parents=True, exist_ok=True)
     advice_name = ""
@@ -558,10 +589,21 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
                         "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M")}
         except OSError:
             slip_rec = None
+    extras = []
+    for n, (p, src) in enumerate(extra_slips or [], start=2):
+        try:
+            ename = f"slip{n}_{token}{Path(p).suffix.lower()}"
+            shutil.copyfile(p, FILES_DIR / ename)
+            extras.append({"name": ename, "source": src or ename})
+        except OSError:
+            continue
     save_recon({"token": token, "status": "reading",
                 "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "uploaded_by": uploaded_by or "", "source": source,
                 "file": advice_name, "slip": slip_rec,
+                "extra_slips": extras,
+                "payment_refs": [str(r)[:40] for r in (payment_refs or [])
+                                 if str(r).strip()][:20],
                 "statement": None, "error": ""})
     from ..config import load_config
 
@@ -576,8 +618,14 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
                     Path(stored_path).read_bytes(), media_type, ai_cfg)
             slip_total = _read_slip_total(slip_path, slip_media, ai_cfg) \
                 if slip_path else None
-            lines, ar_sel, cands, bit_sel = automatch(statement, slip_total)
+            stub = load_recon(token) or {}
+            refs = stub.get("payment_refs", [])
+            lines, ar_sel, cands, bit_sel = automatch(statement, slip_total,
+                                                      payment_refs=refs)
             statement["lines"] = lines
+            all_refs = refs + [ln.get("payment_reference") for ln in lines
+                               if ln.get("payment_reference")]
+            ref_hits = _reference_hits(all_refs, rows_store()["bit"])
             # "Duplicate" = an EXACT amount appears more than once in the
             # BIT; near matches within the margin are choices, not duplicates.
             bit_amounts = {r["id"]: abs(r["amount"])
@@ -593,7 +641,7 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
                 "slip_total": slip_total,
                 "rows_gen": rows_generation(),
                 "ar_selected": ar_sel, "bit_candidates": cands,
-                "bit_selected": bit_sel,
+                "bit_selected": bit_sel, "ref_hits": ref_hits,
                 "bit_duplicate": exact_n > 1, "error": ""})
             save_recon(rec)
         except Exception as exc:  # noqa: BLE001 — surface, never crash silently
@@ -615,9 +663,14 @@ def rematch(token):
     if not rec or rec.get("status") != "open" or not rec.get("statement"):
         return None
     statement = rec["statement"]
-    lines, ar_sel, cands, bit_sel = automatch(statement,
-                                              rec.get("slip_total"))
+    lines, ar_sel, cands, bit_sel = automatch(
+        statement, rec.get("slip_total"),
+        payment_refs=rec.get("payment_refs", []))
     statement["lines"] = lines
+    all_refs = rec.get("payment_refs", []) + \
+        [ln.get("payment_reference") for ln in lines
+         if ln.get("payment_reference")]
+    rec["ref_hits"] = _reference_hits(all_refs, rows_store()["bit"])
     bit_amounts = {r["id"]: abs(r["amount"]) for r in rows_store()["bit"]}
     tot = abs(_to_float(statement.get("total")) or 0)
     slp = abs(_to_float(rec.get("slip_total")) or 0)
@@ -692,6 +745,7 @@ def _read_excel_statement(path):
     c_ref = col(*_REF_CANDS)
     c_amt = col(*_AMT_CANDS)
     c_desc = col("consignor", "customer", "client", "name", "description")
+    c_pref = col("payment reference", "payment ref", "pay ref", "bank ref")
     lines = []
     for r in parsed["rows"]:
         d = r["data"]
@@ -699,6 +753,8 @@ def _read_excel_statement(path):
         amt = _to_float(d.get(c_amt)) if c_amt else 0.0
         if ref and amt:
             lines.append({"reference": ref, "amount": amt,
+                          "payment_reference": _cellstr(d.get(c_pref))[:40]
+                          if c_pref else "",
                           "description": _cellstr(d.get(c_desc))[:40]
                           if c_desc else ""})
     if not lines:
@@ -727,11 +783,13 @@ def recon_view(recon):
     stale = False
     matched_ids = {i for ln in statement.get("lines", [])
                    for i in ln.get("matched_ids", [])}
+    ref_hit_ids = set(recon.get("ref_hits", []))
     if frozen:
         ar_rows = frozen.get("ar_rows", [])
         bit_row = frozen.get("bit_row")
         cands = [{**bit_row,
-                  "delta": round(abs(bit_row["amount"]) - total, 2)}] \
+                  "delta": round(abs(bit_row["amount"]) - total, 2),
+                  "by_ref": bit_row.get("id") in ref_hit_ids}] \
             if bit_row else []
     else:
         rec_gen = recon.get("rows_gen") or {"bit": "", "cash": ""}
@@ -745,7 +803,8 @@ def recon_view(recon):
             ar_rows = [cash_by_id[i] for i in recon.get("ar_selected", [])
                        if i in cash_by_id]
             cands = [{**bit_by_id[i],
-                      "delta": round(abs(bit_by_id[i]["amount"]) - total, 2)}
+                      "delta": round(abs(bit_by_id[i]["amount"]) - total, 2),
+                      "by_ref": i in ref_hit_ids}
                      for i in recon.get("bit_candidates", [])
                      if i in bit_by_id]
             sel = recon.get("bit_selected")
@@ -770,7 +829,9 @@ def recon_view(recon):
             and abs(difference) > VARIANCE_EMAIL_THRESHOLD,
             "email_threshold": VARIANCE_EMAIL_THRESHOLD,
             "variance_email": recon.get("variance_email"),
-            "slip": recon.get("slip"), "advice": recon.get("file", "")}
+            "slip": recon.get("slip"), "advice": recon.get("file", ""),
+            "extra_slips": recon.get("extra_slips", []),
+            "payment_refs": recon.get("payment_refs", [])}
 
 
 def set_slip(token, stored_name, source, total=None):
