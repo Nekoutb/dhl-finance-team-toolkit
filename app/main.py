@@ -2661,23 +2661,7 @@ async def iro_send(request: Request):
                             f"{uuid.uuid4().hex[:8]}.xlsx"
         iro.build_statement_xlsx(stmt, entry)
         link = f"{base}/operator/{rec['token']}"
-        subject = f"Your DHL account statement — {account}"
-        body = (
-            f"Dear {entry.get('name') or 'operator'},\n\n"
-            f"Please find attached the statement of open airwaybills on "
-            f"your account {account} "
-            f"({entry['count']} item(s), {entry['total']:,.0f} XAF).\n\n"
-            f"To report your payments, open your secure page — tick the "
-            f"airwaybills paid, enter the payment reference per line and "
-            f"attach the bank deposit slip:\n{link}\n\n"
-            "Or reply by email in this exact format:\n"
-            f"  Subject: PAYREF {account}\n"
-            "  Attach: the bank deposit slip and/or the statement Excel "
-            "with the Payment reference column filled\n"
-            "  Or list in the body: REF: <deposit reference>, then one "
-            "line per airwaybill: AWB <waybill> <amount>\n\n"
-            "Airwaybills already reported and matched no longer appear on "
-            "your statement.\n\nDHL Finance team")
+        subject, body = iro.statement_email(entry, link, account)
         if smtp.get("enabled"):
             try:
                 emailer.send_via_smtp(smtp, rec["email"], subject, body,
@@ -2733,7 +2717,8 @@ def operator_page(request: Request, token: str, error: str = ""):
         "rows": [], "count": 0, "total": 0.0}
     return templates.TemplateResponse("operator/statement.html", {
         "request": request, "cfg": load_config(), "rec": rec,
-        "entry": entry, "error": error, "token": token})
+        "entry": entry, "error": error, "token": token,
+        "draft": rec.get("draft") or None})
 
 
 @app.post("/operator/{token}/read-slip")
@@ -2754,10 +2739,37 @@ async def operator_read_slip(request: Request, token: str,
         return JSONResponse({"error": "The slip is bigger than 15 MB."},
                             status_code=400)
     side = iro.preread_slip(blob, slip.filename or "slip",
-                            load_config().get("ai"))
+                            load_config().get("ai"),
+                            account=rec["account"])
+    if side.get("duplicate"):
+        return JSONResponse({"error": side["duplicate"]}, status_code=409)
     return JSONResponse({"slip_id": side["slip_id"],
                          "source": side["source"],
-                         "total": side["total"], "dhl": side["dhl"]})
+                         "total": side["total"], "date": side["date"],
+                         "dhl": side["dhl"]})
+
+
+@app.post("/operator/{token}/draft")
+async def operator_draft(request: Request, token: str):
+    """Auto-save the IRO's in-progress ticks so nothing is lost before the
+    return is actually sent."""
+    rec = iro.find_by_token(token)
+    if rec is None:
+        return JSONResponse({"error": "invalid link"}, status_code=404)
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "bad payload"}, status_code=400)
+    if not isinstance(payload, dict) \
+            or not isinstance(payload.get("ticks", {}), dict):
+        return JSONResponse({"error": "bad payload"}, status_code=400)
+    draft = iro.save_draft(rec["account"],
+                           payload.get("ticks") or {},
+                           str(payload.get("reference", ""))[:60],
+                           str(payload.get("payment_date", ""))[:10])
+    if draft is None:      # a submission just cleared the draft — stay clear
+        return JSONResponse({"ok": False})
+    return JSONResponse({"ok": True, "saved_at": draft["saved_at"]})
 
 
 @app.post("/operator/{token}/submit")
@@ -2788,15 +2800,30 @@ async def operator_submit(request: Request, token: str):
     if global_ref:
         refs.append(global_ref)
 
+    # Cheap validations FIRST — a rejected form must never burn a deposit
+    # claim.
+    if not lines:
+        return operator_page(request, token,
+                             error="Tick at least one airwaybill your "
+                                   "deposit paid.")
+    if not refs:
+        return operator_page(request, token,
+                             error="Enter the payment reference for the "
+                                   "airwaybills you ticked.")
+
     # Deposit slips: pre-read ids (the normal path — amount already read
-    # and locked) plus raw files as a no-script fallback.
+    # and locked) plus raw files as a no-script fallback. Each deposit is
+    # CLAIMED atomically — the same slip can never be reported twice, even
+    # by two racing submissions.
     slip_paths = []
+    slip_metas = []
     slip_total = None
     for sid in form.getlist("slip_id"):
-        meta = iro.load_preread(sid)
+        meta = iro.load_preread(sid, account=rec["account"])
         if not meta:
             continue
         slip_paths.append((meta["path"], meta["source"]))
+        slip_metas.append(meta)
         if slip_total is None and meta.get("total"):
             slip_total = meta["total"]
     for slip in form.getlist("deposit_slip"):
@@ -2815,15 +2842,17 @@ async def operator_submit(request: Request, token: str):
         dest = UPLOAD_DIR / f"iroslip_{uuid.uuid4().hex[:8]}{ext}"
         dest.write_bytes(blob)
         slip_paths.append((dest, slip.filename))
+        slip_metas.append({"sha": hashlib.sha256(blob).hexdigest(),
+                           "total": None, "date": ""})
+    for m in slip_metas:
+        prior = iro.claim_deposit(m.get("sha", ""), rec["account"],
+                                  m.get("total"), m.get("date", ""),
+                                  refs[0] if refs else "", "portal")
+        if prior:
+            return operator_page(
+                request, token,
+                error=iro.duplicate_message(prior, rec["account"]))
 
-    if not lines:
-        return operator_page(request, token,
-                             error="Tick at least one airwaybill your "
-                                   "deposit paid.")
-    if not refs:
-        return operator_page(request, token,
-                             error="Enter the payment reference for the "
-                                   "airwaybills you ticked.")
     recon_token = iro.create_submission(
         rec["account"], lines=lines,
         slip_paths=slip_paths, references=refs, channel="portal",

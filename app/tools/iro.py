@@ -18,10 +18,12 @@ sandboxes finance already reviews.
 """
 import email
 import email.policy
+import hashlib
 import imaplib
 import json
 import os
 import re
+import time
 import uuid
 from collections import Counter
 from datetime import datetime
@@ -34,6 +36,7 @@ from . import bitcash
 
 IRO_DIR = DATA_DIR / "iro"
 MAIL_LOG = IRO_DIR / "_mail.json"
+DEPOSITS_PATH = IRO_DIR / "_deposits.json"
 MAX_OPEN_SUBMISSIONS = 10          # per operator — runaway/abuse guard
 _lock = Lock()
 
@@ -43,13 +46,68 @@ _BODY_AWB_RE = re.compile(
     re.IGNORECASE | re.MULTILINE)
 _SLIP_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _XLS_EXT = {".xlsx", ".xlsm", ".xls"}
+_MIN_SLIP_BYTES = 20 * 1024        # smaller images = signature logos, noise
 
 
 def _atomic(path, payload):
-    IRO_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Unique tmp per writer — several processes (gunicorn workers + the
+    # mail-poller cron) may write the same store; a shared tmp name would
+    # let one replace the other's bytes or crash on a vanished file.
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:6]}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)
+
+
+class _FileLock:
+    """Cross-PROCESS lock via an O_EXCL sentinel file (the in-process
+    threading lock cannot serialise gunicorn workers or the cron poller).
+    Read-modify-write cycles on the JSON stores run inside it. On timeout
+    it proceeds unlocked — availability over a 500 on a landed submission;
+    a stale sentinel (crashed holder) is broken after 10 s."""
+
+    def __init__(self, target, timeout=3.0, stale=10.0):
+        self.lockfile = Path(f"{target}.lock")
+        self.timeout, self.stale = timeout, stale
+        self.fd = None
+
+    def __enter__(self):
+        deadline = time.time() + self.timeout
+        self.lockfile.parent.mkdir(parents=True, exist_ok=True)
+        while True:
+            try:
+                self.fd = os.open(self.lockfile,
+                                  os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.lockfile.stat().st_mtime \
+                            > self.stale:
+                        self.lockfile.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    pass
+                if time.time() > deadline:
+                    return self
+                time.sleep(0.05)
+
+    def __exit__(self, *_exc):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+            self.lockfile.unlink(missing_ok=True)
+        return False
+
+
+def _mutate_record(account, fn):
+    """Load → mutate → save an operator record atomically ACROSS processes."""
+    path = _rec_path(account)
+    with _FileLock(path):
+        rec = load_record(account)
+        fn(rec)
+        with _lock:
+            _atomic(path, rec)
+    return rec
 
 
 def _norm_ref(value):
@@ -156,29 +214,26 @@ def all_records():
 
 
 def set_email(account, email_addr, name=""):
-    rec = load_record(account)
-    rec["email"] = str(email_addr or "").strip()
-    if name:
-        rec["name"] = name
-    save_record(rec)
-    return rec
+    def _fn(rec):
+        rec["email"] = str(email_addr or "").strip()
+        if name:
+            rec["name"] = name
+    return _mutate_record(account, _fn)
 
 
 def ensure_token(account, name=""):
-    rec = load_record(account)
-    if name:
-        rec["name"] = name
-    if not rec.get("token"):
-        rec["token"] = uuid.uuid4().hex
-        save_record(rec)
-    return rec
+    def _fn(rec):
+        if name:
+            rec["name"] = name
+        if not rec.get("token"):
+            rec["token"] = uuid.uuid4().hex
+    return _mutate_record(account, _fn)
 
 
 def regenerate_token(account):
-    rec = load_record(account)
-    rec["token"] = uuid.uuid4().hex
-    save_record(rec)
-    return rec
+    def _fn(rec):
+        rec["token"] = uuid.uuid4().hex
+    return _mutate_record(account, _fn)
 
 
 def find_by_token(token):
@@ -191,19 +246,17 @@ def find_by_token(token):
 
 
 def record_sent(account, to_addr, mode):
-    rec = load_record(account)
-    rec.setdefault("sent", []).append(
-        {"at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-         "to": to_addr, "mode": mode})
-    save_record(rec)
-    return rec
+    def _fn(rec):
+        rec.setdefault("sent", []).append(
+            {"at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+             "to": to_addr, "mode": mode})
+    return _mutate_record(account, _fn)
 
 
 def record_submission(account, entry):
-    rec = load_record(account)
-    rec.setdefault("submissions", []).append(entry)
-    save_record(rec)
-    return rec
+    def _fn(rec):
+        rec.setdefault("submissions", []).append(entry)
+    return _mutate_record(account, _fn)
 
 
 def open_submission_count(rec):
@@ -319,27 +372,149 @@ def create_submission(account, lines=None, evidence_path=None,
         "references": [r for r in (references or []) if r][:10],
         "amount": slip_total,
         "channel": channel, "recon_token": token})
+    clear_draft(account)               # the return is sent — draft done
     return token
 
 
 # --------------------------------------------------------------------------- #
-# Portal slip pre-read: the deposit slip is read the moment the operator
-# attaches it — the banked amount is populated automatically and locked
-# (a bank deposit amount is never altered by hand).
+# Deposit history — the same bank deposit must never be accepted twice.
+# Identity: exact file hash, OR the same (account, banked total, slip date)
+# read off a different photo of the same slip.
 # --------------------------------------------------------------------------- #
-def preread_slip(blob, filename, ai_cfg):
-    """Save an operator's deposit slip, read the banked total and check the
-    slip mentions DHL as the payee. Returns {slip_id, source, total, dhl}
-    — total None when unreadable (finance verifies manually)."""
+def _deposits():
+    if DEPOSITS_PATH.exists():
+        try:
+            return json.loads(DEPOSITS_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def _match_deposit(entries, sha, account, total, slip_date):
+    for e in entries:
+        if sha and e.get("sha") == sha:
+            return e
+        if account and total and slip_date \
+                and e.get("account") == str(account) \
+                and e.get("total") == total \
+                and e.get("date") == slip_date:
+            return e
+    return None
+
+
+def find_prior_deposit(sha=None, account=None, total=None, slip_date=None):
+    """The earlier deposit entry this slip duplicates, or None (check only)."""
+    return _match_deposit(_deposits(), sha, account, total, slip_date)
+
+
+def claim_deposit(sha, account, total, slip_date, reference, recon_token):
+    """Atomic check-AND-record under the cross-process lock: two racing
+    submissions of the same deposit cannot both pass. Returns the PRIOR
+    entry when the deposit was already claimed (reject), else None after
+    claiming it."""
+    with _FileLock(DEPOSITS_PATH):
+        entries = _deposits()
+        prior = _match_deposit(entries, sha, account, total, slip_date)
+        if prior:
+            return prior
+        entries.append({"sha": sha, "account": str(account), "total": total,
+                        "date": slip_date,
+                        "reference": str(reference or "")[:40],
+                        "recon_token": recon_token,
+                        "at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        with _lock:
+            _atomic(DEPOSITS_PATH, entries[-1000:])
+    return None
+
+
+def duplicate_message(prior, account=None):
+    # The prior reference is disclosed only to the SAME account — a hash
+    # collision across operators must not leak another party's details.
+    same = account is not None \
+        and prior.get("account") == str(account)
+    return (f"This bank deposit slip was already submitted on "
+            f"{prior.get('at', '—')}"
+            + (f" (reference {prior['reference']})"
+               if same and prior.get("reference") else "")
+            + " — the same deposit cannot be reported twice. If this is a "
+              "different deposit, contact the DHL finance team.")
+
+
+# --------------------------------------------------------------------------- #
+# Draft selections — ticks the IRO made but has not sent yet survive a
+# closed browser and are restored on the next visit.
+# --------------------------------------------------------------------------- #
+DRAFT_QUIET_SECONDS = 20       # a late autosave never resurrects a draft
+_MAX_DRAFT_TICKS = 500
+
+
+def save_draft(account, ticks, reference="", payment_date=""):
+    """Returns the saved draft, or None when the save was refused (a
+    submission just cleared the draft — a late in-flight autosave from the
+    old page must not bring the sent selections back)."""
+    result = {}
+
+    def _fn(rec):
+        cleared = rec.get("draft_cleared_epoch", 0)
+        if cleared and time.time() - cleared < DRAFT_QUIET_SECONDS:
+            result["refused"] = True
+            return
+        clean = {}
+        for k, v in list((ticks or {}).items())[:_MAX_DRAFT_TICKS]:
+            clean[str(k)[:20]] = str(v or "")[:40]
+        rec["draft"] = {"ticks": clean,
+                        "reference": str(reference or "")[:40],
+                        "payment_date": str(payment_date or "")[:10],
+                        "saved_at":
+                        datetime.now().strftime("%Y-%m-%d %H:%M")}
+        result["draft"] = rec["draft"]
+    _mutate_record(account, _fn)
+    return result.get("draft")
+
+
+def clear_draft(account):
+    def _fn(rec):
+        rec.pop("draft", None)
+        rec["draft_cleared_epoch"] = time.time()
+    _mutate_record(account, _fn)
+
+
+# --------------------------------------------------------------------------- #
+# Portal slip pre-read: the deposit slip is read the moment the operator
+# attaches it — the banked amount AND the deposit date are populated
+# automatically; the amount is locked (a bank deposit amount is never
+# altered by hand). A slip already on the deposit history is REJECTED here.
+# --------------------------------------------------------------------------- #
+def _iso_date(value):
+    """'17/07/2026' or '2026-07-17…' -> '2026-07-17' ('' when unparseable)."""
+    s = str(value or "").strip()[:10]
+    m = re.fullmatch(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})", s)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    return ""
+
+
+def preread_slip(blob, filename, ai_cfg, account=""):
+    """Save an operator's deposit slip, read the banked total + deposit date
+    and check the slip mentions DHL as the payee. Returns {slip_id, source,
+    total, date, dhl} — or {"duplicate": message} when this deposit was
+    already submitted (same file, or same account/amount/date)."""
+    sha = hashlib.sha256(blob).hexdigest()
+    prior = find_prior_deposit(sha=sha)
+    if prior:
+        return {"duplicate": duplicate_message(prior, account)}
     ext = Path(filename or "slip").suffix.lower()
     slip_id = f"iroslip_{uuid.uuid4().hex[:8]}"
     dest = UPLOAD_DIR / f"{slip_id}{ext}"
     dest.write_bytes(blob)
-    total, dhl = None, False
+    total, dhl, slip_date = None, False, ""
     try:
         doc = ai_ocr.extract_payment_statement(
             blob, _slip_media(dest), ai_cfg)
         total = bitcash._to_float(doc.get("total")) or None
+        slip_date = _iso_date(doc.get("date"))
         blob_txt = " ".join(
             [str(doc.get("label", ""))]
             + [str(ln.get("description", "")) + " "
@@ -348,15 +523,25 @@ def preread_slip(blob, filename, ai_cfg):
         dhl = "dhl" in blob_txt
     except Exception:  # noqa: BLE001 — unreadable slip stays pure evidence
         pass
+    if total and slip_date:
+        prior = find_prior_deposit(account=account, total=total,
+                                   slip_date=slip_date)
+        if prior:
+            dest.unlink(missing_ok=True)
+            return {"duplicate": duplicate_message(prior, account)}
     sidecar = {"slip_id": slip_id, "name": dest.name,
-               "source": filename or dest.name, "total": total, "dhl": dhl}
+               "source": filename or dest.name, "total": total,
+               "date": slip_date, "dhl": dhl, "sha": sha,
+               "account": str(account or "")}
     (UPLOAD_DIR / f"{slip_id}.json").write_text(
         json.dumps(sidecar, ensure_ascii=False), encoding="utf-8")
     return sidecar
 
 
-def load_preread(slip_id):
-    """The saved slip + sidecar for a pre-read id, or None."""
+def load_preread(slip_id, account=None):
+    """The saved slip + sidecar for a pre-read id, or None. A sidecar is
+    bound to the operator it was pre-read for — another account's slip_id
+    resolves to nothing."""
     if not re.fullmatch(r"iroslip_[0-9a-f]{8}", str(slip_id or "")):
         return None
     side = UPLOAD_DIR / f"{slip_id}.json"
@@ -365,6 +550,8 @@ def load_preread(slip_id):
     try:
         meta = json.loads(side.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        return None
+    if account is not None and meta.get("account") != str(account):
         return None
     path = UPLOAD_DIR / meta.get("name", "")
     if not path.exists():
@@ -386,6 +573,40 @@ def _slip_media(path):
 # --------------------------------------------------------------------------- #
 # Email channel — parse + poll (core is IMAP-free and fully testable)
 # --------------------------------------------------------------------------- #
+def statement_email(entry, link, account):
+    """The statement email an operator receives — written like a person,
+    not an automation. Returns (subject, body)."""
+    name = (entry.get("name") or "").title() or "partner"
+    total = entry.get("total", 0)
+    count = entry.get("count", 0)
+    subject = (f"Your DHL account {account} — {count} airwaybill(s) "
+               f"awaiting your payment details")
+    body = (
+        f"Dear {name},\n\n"
+        f"I hope business is going well on your side.\n\n"
+        f"Going through our books, your DHL account {account} still shows "
+        f"{count} airwaybill(s) open for a total of {total:,.0f} XAF — the "
+        f"full detail is in the attached statement. In most cases the money "
+        f"has already been banked and we simply need your deposit details "
+        f"to close the loop.\n\n"
+        f"Could you take two minutes on your personal page? Tick the "
+        f"airwaybills your deposit covered, put the deposit reference next "
+        f"to them and attach a photo of the bank deposit slip — the rest "
+        f"happens on our side:\n\n"
+        f"    {link}\n\n"
+        f"If email is easier for you, just reply with the subject "
+        f"\"PAYREF {account}\", attach the deposit slip, and list the "
+        f"airwaybills paid (one per line, e.g. \"AWB 8525614075 59600\").\n\n"
+        f"Whatever is matched drops off your next statement automatically, "
+        f"so you will never be asked twice for the same shipment. And if "
+        f"any figure looks off to you, tell me — we will look at it "
+        f"together.\n\n"
+        f"Thank you for the good collaboration.\n\n"
+        f"Kind regards,\n"
+        f"The Finance team — DHL Express Cameroon")
+    return subject, body
+
+
 def send_evidence_copy(cfg, account, name, lines, refs, recon_token,
                        slip_paths=None, slip_total=None):
     """A copy of every portal submission is emailed into the operator
@@ -398,21 +619,28 @@ def send_evidence_copy(cfg, account, name, lines, refs, recon_token,
     if not (smtp.get("enabled") and to):
         return "skipped"
     detail = "\n".join(
-        f"  AWB {ln['awb']}  {ln['amount']:,.0f} XAF"
-        + (f"  ref {ln['reference']}" if ln.get("reference") else "")
+        f"    AWB {ln['awb']}  —  {ln['amount']:,.0f} XAF"
+        + (f"  (ref {ln['reference']})" if ln.get("reference") else "")
         for ln in (lines or []))
-    body = (f"Evidence copy of a portal submission.\n\n"
-            f"Operator account: {account} ({name or '—'})\n"
-            f"Payment reference(s): {', '.join(refs) or '—'}\n"
-            + (f"Banked amount read from the deposit slip: "
-               f"{slip_total:,.0f} XAF\n" if slip_total else "")
-            + f"Reconciliation: /tools/bit-cash-ar/recon/{recon_token}\n\n"
-            f"{len(lines or [])} airwaybill(s):\n{detail}\n")
+    who = (name or "").title() or f"the operator on account {account}"
+    body = (
+        f"Hello team,\n\n"
+        f"{who} (account {account}) has just reported a deposit through "
+        f"their statement page"
+        + (f" — {slip_total:,.0f} XAF banked per the deposit slip attached "
+           "to this email" if slip_total else "")
+        + f".\n\nDeposit reference(s): {', '.join(refs) or 'none given'}\n"
+        f"Airwaybills covered ({len(lines or [])}):\n{detail}\n\n"
+        f"The reconciliation is already matched and waiting for review "
+        f"here: /tools/bit-cash-ar/recon/{recon_token}\n\n"
+        f"This message is the email evidence of the submission — keep it "
+        f"in this mailbox.")
     first = (slip_paths or [None])[0]
     attachment = Path(first[0]) if first else None
     try:
         emailer.send_via_smtp(
-            smtp, to, f"Evidence copy — IRO {account} — {recon_token}",
+            smtp, to, f"Evidence copy — deposit reported by {account} "
+                      f"({recon_token})",
             body, attachment)
         return "sent"
     except Exception:  # noqa: BLE001 — the submission itself already landed
@@ -480,18 +708,32 @@ def process_message(raw_bytes):
     IRO_DIR.mkdir(parents=True, exist_ok=True)
     evidence_path = None
     slips = []
+    slip_shas = []
     for part in msg.iter_attachments():
         fname = part.get_filename() or ""
         ext = Path(fname).suffix.lower()
         payload = part.get_payload(decode=True) or b""
         if not payload:
             continue
+        if ext in _SLIP_EXT and len(payload) < _MIN_SLIP_BYTES:
+            continue                    # signature logos etc. — not a slip
+        if ext in _SLIP_EXT:
+            # The same deposit slip is never accepted twice — even by mail.
+            prior = find_prior_deposit(
+                sha=hashlib.sha256(payload).hexdigest())
+            if prior:
+                _quarantine(log, msg, "the attached deposit slip was "
+                                      f"already submitted on "
+                                      f"{prior.get('at', '—')} — rejected")
+                _save_mail_log(log)
+                return {"status": "quarantined", "reason": "duplicate"}
         dest = UPLOAD_DIR / f"iromail_{uuid.uuid4().hex[:8]}{ext}"
         dest.write_bytes(payload)
         if ext in _XLS_EXT and evidence_path is None:
             evidence_path = dest
         elif ext in _SLIP_EXT:
             slips.append((dest, fname or dest.name))
+            slip_shas.append(hashlib.sha256(payload).hexdigest())
 
     body = msg.get_body(preferencelist=("plain",))
     body_text = body.get_content() if body else ""
@@ -507,10 +749,22 @@ def process_message(raw_bytes):
         _save_mail_log(log)
         return {"status": "quarantined", "reason": "content"}
 
+    all_refs = refs or [ln["reference"] for ln in lines
+                        if ln.get("reference")]
+    # Claim the deposits ATOMICALLY before creating the sandbox — two
+    # racing copies of the same mail cannot both pass.
+    for sha in slip_shas:
+        prior = claim_deposit(sha, account, None, "",
+                              all_refs[0] if all_refs else "", "email")
+        if prior:
+            _quarantine(log, msg, "the attached deposit slip was already "
+                                  f"submitted on {prior.get('at', '—')} — "
+                                  "rejected")
+            _save_mail_log(log)
+            return {"status": "quarantined", "reason": "duplicate"}
     token = create_submission(
         account, lines=lines, evidence_path=evidence_path,
-        slip_paths=slips, references=refs or
-        [ln["reference"] for ln in lines if ln.get("reference")],
+        slip_paths=slips, references=all_refs,
         channel="email", label=f"IRO {account} — email")
     _save_mail_log(log)
     return {"status": "created", "recon_token": token, "account": account}

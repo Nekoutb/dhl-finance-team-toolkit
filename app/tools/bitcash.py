@@ -502,9 +502,20 @@ def automatch(statement, slip_total=None, payment_refs=None):
     if targets:
         def _dist(row):
             return min(abs(abs(row["amount"]) - t) for t in targets)
+
+        def _rank(row):
+            # ZERO variance is the principle: the EXACT banked amount on
+            # the deposit slip is the primary suggestion, the exact
+            # evidence total second; the ±margin window is only a fallback.
+            a = abs(row["amount"])
+            if slip and a == slip:
+                return (0, 0.0)
+            if total and a == abs(total):
+                return (1, 0.0)
+            return (2, _dist(row))
         near = sorted((r for r in data["bit"]
                        if _dist(r) <= BIT_MATCH_MARGIN),
-                      key=lambda r: (_dist(r), r["id"]))
+                      key=lambda r: (*_rank(r), r["id"]))
         cands = [r["id"] for r in near]
     # Reference hits outrank everything: put them first, auto-select a
     # unique hit; several hits -> the user picks among them.

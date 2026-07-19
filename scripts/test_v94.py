@@ -884,6 +884,7 @@ from app.tools import iro  # noqa: E402
 
 iro.IRO_DIR = _tmp / "iro"
 iro.MAIL_LOG = iro.IRO_DIR / "_mail.json"
+iro.DEPOSITS_PATH = iro.IRO_DIR / "_deposits.json"
 
 check("operator links are public (no login)",
       auth.is_public("/operator/abc123def"))
@@ -1132,13 +1133,14 @@ check("Excel BIT values per cheque",
 # --- v10.4 portal upgrades: slip pre-read, locked amount, evidence copy ----
 from app.services import ai_ocr  # noqa: E402
 
+BIGSLIP = b"\x89PNG" + b"F" * 25000     # >20 KB — a real slip photo size
 _orig_extract = ai_ocr.extract_payment_statement
 ai_ocr.extract_payment_statement = lambda blob, media, cfg: {
     "label": "DHL EXPRESS CAMEROON SARL", "date": "17/07/2026",
     "total": 115700.0, "lines": []}
 try:
     r = client.post(f"/operator/{tok1}/read-slip",
-                    files=[("slip", ("dep.png", b"\x89PNG fake2",
+                    files=[("slip", ("dep.png", BIGSLIP,
                                      "image/png"))])
     side = r.json()
     check("slip pre-read returns the banked total + DHL check",
@@ -1181,4 +1183,108 @@ check("poller ignores our own evidence copies (no quarantine noise)",
           b"From: a@b\r\nSubject: Evidence copy - IRO 415774002 - t\r\n"
           b"Message-ID: <c1@x>\r\n\r\nx")["status"] == "copy")
 
-print("\nALL v9.4—v10.4c TESTS PASSED")
+# === 16. v10.5 — slip date, drafts, deposit history, exact-first, tone ======
+check("slip date read and ISO-normalised on pre-read",
+      side.get("date") == "2026-07-17")
+check("deposit recorded on the history after submission",
+      iro.find_prior_deposit(account="415774002", total=115700.0,
+                             slip_date="2026-07-17") is not None)
+
+# The SAME deposit slip (same file) is rejected at attach time…
+r = client.post(f"/operator/{tok1}/read-slip",
+                files=[("slip", ("dep.png", BIGSLIP, "image/png"))])
+check("duplicate slip file rejected at pre-read (409)",
+      r.status_code == 409 and "already submitted" in r.json()["error"])
+# …and a DIFFERENT photo of the same deposit (same account+amount+date).
+ai_ocr.extract_payment_statement = lambda blob, media, cfg: {
+    "label": "DHL EXPRESS", "date": "17/07/2026", "total": 115700.0,
+    "lines": []}
+try:
+    r = client.post(f"/operator/{tok1}/read-slip",
+                    files=[("slip", ("dep_other.png", b"\x89PNG fake4",
+                                     "image/png"))])
+    check("same deposit re-photographed rejected too (409)",
+          r.status_code == 409 and "already submitted" in r.json()["error"])
+finally:
+    ai_ocr.extract_payment_statement = _orig_extract
+# …and via the no-script raw-file path at submit.
+r = client.post(f"/operator/{tok1}/submit",
+                data={"awb": ["2080666324"],
+                      "ref_2080666324": "DEP-DUP-TEST"},
+                files=[("deposit_slip", ("dep.png", BIGSLIP,
+                                         "image/png"))])
+check("duplicate slip rejected at submit (raw-file path)",
+      r.status_code == 200 and "already submitted" in r.text)
+# …and via the email channel.
+import email.message as _em  # noqa: E402
+
+_m = _em.EmailMessage()
+_m["From"] = "tjr@example.com"
+_m["Subject"] = "PAYREF 415774002"
+_m["Message-ID"] = "<m9@x>"
+_m.set_content("AWB 2080666324 56100\r\n")
+_m.add_attachment(BIGSLIP, maintype="image", subtype="png",
+                  filename="dep.png")
+check("duplicate slip via email quarantined",
+      iro.process_message(bytes(_m))["status"] == "quarantined"
+      and "already submitted" in iro.quarantine_list()[0]["reason"])
+
+# Draft: unsent selections survive and are restored, then cleared on send.
+_r0 = iro.load_record("415774002")      # step past the post-submit quiet
+_r0["draft_cleared_epoch"] = 0          # window (20 s in real life)
+iro.save_record(_r0)
+r = client.post(f"/operator/{tok1}/draft",
+                json={"ticks": "not-a-dict"})
+check("malformed draft payload -> 400, not a crash", r.status_code == 400)
+r = client.post(f"/operator/{tok1}/draft",
+                json={"ticks": {"2080666324": "DEP-5555-SGBC"},
+                      "reference": "DEP-5555-SGBC",
+                      "payment_date": "2026-07-18"})
+check("draft auto-saved", r.status_code == 200 and r.json()["ok"] is True)
+r = client.get(f"/operator/{tok1}")
+flat5 = " ".join(r.text.split())
+check("draft restored on the next visit",
+      "were restored" in flat5 and 'value="DEP-5555-SGBC"' in r.text
+      and 'value="2026-07-18"' in r.text)
+r = client.post(f"/operator/{tok1}/submit",
+                data={"awb": ["2080666324"],
+                      "ref_2080666324": "DEP-5555-SGBC",
+                      "payment_date": "2026-07-18"})
+check("submission accepted without a slip", r.status_code == 200)
+check("draft cleared once the return is sent",
+      iro.load_record("415774002").get("draft") is None)
+
+# Exact-first BIT matching: zero variance is the primary suggestion.
+FAKE5 = {"bit_header": [], "gen_bit": "g5", "gen_cash": "g5",
+         "bit": [
+             {"id": 0, "amount": -115000.0, "gl_account": "x",
+              "assignment": "a", "posting_date": "", "reference": "",
+              "text": "", "doc_no": "1", "posting_key": "40", "raw": []},
+             {"id": 1, "amount": -115700.0, "gl_account": "x",
+              "assignment": "b", "posting_date": "", "reference": "",
+              "text": "", "doc_no": "2", "posting_key": "40", "raw": []}],
+         "cash": []}
+_prev_store = bitcash.rows_store
+bitcash.rows_store = lambda: FAKE5
+try:
+    _l, _a, cands5, sel5 = bitcash.automatch(
+        {"total": 116000.0, "lines": []}, slip_total=115700.0)
+    check("exact banked amount is the PRIMARY suggestion (window kept)",
+          cands5 == [1, 0] and sel5 == 1)
+finally:
+    bitcash.rows_store = _prev_store
+
+# The statement email reads like a person, not an automation.
+subj5, body5 = iro.statement_email(
+    {"name": "ETS NEW SERVICE TJR", "count": 3, "total": 175711.0},
+    "https://x/operator/abc", "415774002")
+check("statement email sounds human",
+      "Dear Ets New Service Tjr" in body5
+      and "hope business is going well" in body5
+      and "https://x/operator/abc" in body5
+      and "PAYREF 415774002" in body5
+      and "Kind regards" in body5
+      and "Please find attached the statement of open airwaybills" not in
+      body5)
+
+print("\nALL v9.4—v10.5 TESTS PASSED")

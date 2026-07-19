@@ -10,6 +10,11 @@
       attach the bank deposit slip and submit — the finance team receives it
       instantly.</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if draft and draft.ticks %}
+    <div class="alert alert-info">📝 Your unsent selections from
+      {{ draft.saved_at }} were restored — nothing was lost. Review and
+      submit when ready.</div>
+    {% endif %}
 
     {% if not entry.rows %}
       <div class="alert alert-ok">Nothing is open on your account — all
@@ -35,14 +40,17 @@
             <th>Amount (XAF)</th><th>Payment reference</th></tr></thead>
           <tbody>
             {% for r in entry.rows %}
+            {% set drefs = draft.ticks if draft and draft.ticks else {} %}
             <tr>
               <td><input type="checkbox" name="awb" value="{{ r.awb }}"
-                         class="iro-tick" data-amt="{{ r.amount or 0 }}"></td>
+                         class="iro-tick" data-amt="{{ r.amount or 0 }}"
+                         {% if r.awb in drefs %}checked{% endif %}></td>
               <td><strong>{{ r.awb or r.assignment }}</strong></td>
               <td>{{ r.reference }}</td>
               <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
               <td><input type="text" name="ref_{{ r.awb }}" maxlength="40"
                          class="iro-ref" placeholder="e.g. DEP-4471-BICEC"
+                         value="{{ drefs.get(r.awb, '') }}"
                          style="min-width:150px;"></td>
             </tr>
             {% endfor %}
@@ -57,13 +65,15 @@
         <label class="field" style="min-width:220px;">
           <span>Deposit reference (applies to all ticked lines)</span>
           <input type="text" name="reference" id="iro-globalref"
-                 maxlength="40" placeholder="e.g. DEP-4471-BICEC">
+                 maxlength="40" placeholder="e.g. DEP-4471-BICEC"
+                 value="{{ draft.reference if draft else '' }}">
         </label>
         <button class="btn" type="button" id="iro-apply"
                 style="align-self:flex-end;">Apply to ticked lines</button>
         <label class="field">
-          <span>Payment date</span>
-          <input type="date" name="payment_date">
+          <span>Payment date (filled from the deposit slip)</span>
+          <input type="date" name="payment_date" id="iro-paydate"
+                 value="{{ draft.payment_date if draft else '' }}">
         </label>
       </div>
 
@@ -85,11 +95,14 @@
 
       <button class="btn btn-primary" type="submit" id="iro-submit">📨
         Submit payment references</button>
-      <p class="note-small" style="margin-top:8px;">The banked amount is
-        read directly off the deposit slip by the tool and cannot be
-        altered. Airwaybills already reported and matched no longer appear
-        here. Submitting opens a reconciliation with the DHL finance team —
-        you will be contacted if anything needs clarification.</p>
+      <p class="note-small" id="iro-draft-note" style="margin-top:6px;"></p>
+      <p class="note-small" style="margin-top:4px;">The banked amount and
+        deposit date are read directly off the deposit slip by the tool —
+        the amount cannot be altered. A deposit slip already reported once
+        is rejected automatically. Airwaybills already reported and matched
+        no longer appear here. Submitting opens a reconciliation with the
+        DHL finance team — you will be contacted if anything needs
+        clarification.</p>
     </form>
 
     <script>
@@ -138,6 +151,7 @@
 
         var slipInput = document.getElementById("iro-slip-input");
         var banked = document.getElementById("iro-banked");
+        var paydate = document.getElementById("iro-paydate");
         var list = document.getElementById("iro-slip-list");
         var ids = document.getElementById("iro-slip-ids");
         var totals = [];
@@ -152,8 +166,11 @@
                   {method: "POST", body: fd})
               .then(function (r) { return r.json(); })
               .then(function (d) {
-                if (d.error) { row.textContent = "✗ " + f.name + " — "
-                  + d.error; return; }
+                if (d.error) {
+                  row.textContent = "🚫 " + f.name + " — " + d.error;
+                  row.style.color = "#bd3727";
+                  return;
+                }
                 var h = document.createElement("input");
                 h.type = "hidden"; h.name = "slip_id"; h.value = d.slip_id;
                 ids.appendChild(h);
@@ -166,9 +183,14 @@
                   msg += " — amount could not be read (finance will "
                     + "verify)";
                 }
+                if (d.date && !paydate.value) {
+                  paydate.value = d.date;
+                  msg += " · deposit date " + d.date;
+                }
                 msg += d.dhl ? " · payment to DHL identified ✓"
                              : " · DHL not confirmed on the slip";
                 row.textContent = msg;
+                saveDraft();
               })
               .catch(function () {
                 row.textContent = "✗ " + f.name + " — upload failed, "
@@ -177,6 +199,53 @@
           });
           slipInput.value = "";
         });
+
+        var draftTimer = null;
+        var draftNote = document.getElementById("iro-draft-note");
+        function saveDraft() {
+          if (submitted) { return; }
+          var ticks = {};
+          document.querySelectorAll(".iro-tick:checked").forEach(
+            function (c) {
+              var ref = c.closest("tr").querySelector(".iro-ref");
+              ticks[c.value] = ref ? ref.value : "";
+            });
+          fetch("/operator/{{ token }}/draft", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              ticks: ticks,
+              reference: document.getElementById("iro-globalref").value,
+              payment_date: paydate.value })
+          }).then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d.saved_at && draftNote) {
+                draftNote.textContent = "Selections auto-saved " +
+                  d.saved_at + " — you can come back any time before "
+                  + "sending.";
+              }
+            }).catch(function () {});
+        }
+        function queueDraft() {
+          if (submitted) { return; }
+          if (draftTimer) { clearTimeout(draftTimer); }
+          draftTimer = setTimeout(saveDraft, 900);
+        }
+        var submitted = false;
+        document.getElementById("iro-form").addEventListener("input",
+          queueDraft);
+        document.getElementById("iro-form").addEventListener("change",
+          queueDraft);
+        document.getElementById("iro-form").addEventListener("submit",
+          function () {
+            // The return is being SENT: no late autosave may resurrect it,
+            // and a double-click must not create a second reconciliation.
+            submitted = true;
+            if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+            var btn = document.getElementById("iro-submit");
+            btn.disabled = true;
+            btn.textContent = "Sending…";
+          });
       })();
     </script>
     {% endif %}
