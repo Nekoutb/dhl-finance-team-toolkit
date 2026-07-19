@@ -6,9 +6,13 @@
     <p class="lead">{{ count }} airwaybill(s) reported for account
       <strong>{{ rec.account }}</strong>
       {% if refs %} with reference(s):
-      <strong>{{ refs|join(", ") }}</strong>{% endif %}.
+      <strong>{{ refs|join(", ") }}</strong>{% endif %}{% if slip_total %} ·
+      banked amount read from your deposit slip:
+      <strong>{{ "{:,.0f}".format(slip_total) }} XAF</strong>{% endif %}.
       The DHL finance team now matches your payment against the bank — you
-      will be contacted only if something needs clarification.</p>
+      will be contacted only if something needs clarification.
+      {% if copy_state == 'sent' %}A copy of this submission was emailed to
+      the DHL finance mailbox as evidence.{% endif %}</p>
     <div class="download-row">
       <a class="btn" href="/operator/{{ token }}">← Back to your
         statement</a>

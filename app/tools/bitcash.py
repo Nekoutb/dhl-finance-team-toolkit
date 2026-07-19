@@ -565,7 +565,8 @@ def _read_slip_total(slip_path, slip_media, ai_cfg):
 
 def create_recon_async(stored_path, media_type, source, uploaded_by,
                        slip_path=None, slip_media=None, slip_source="",
-                       extra_slips=None, payment_refs=None):
+                       extra_slips=None, payment_refs=None,
+                       slip_total=None):
     """Create a sandbox stub and AI-read/match the statement on a background
     thread (a scanned PDF can take a minute — never block the request).
     Copies of the payment advice AND the bank deposit slip(s) are kept with
@@ -616,12 +617,13 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
             else:
                 statement = ai_ocr.extract_payment_statement(
                     Path(stored_path).read_bytes(), media_type, ai_cfg)
-            slip_total = _read_slip_total(slip_path, slip_media, ai_cfg) \
-                if slip_path else None
+            resolved_slip_total = slip_total if slip_total \
+                else (_read_slip_total(slip_path, slip_media, ai_cfg)
+                      if slip_path else None)
             stub = load_recon(token) or {}
             refs = stub.get("payment_refs", [])
-            lines, ar_sel, cands, bit_sel = automatch(statement, slip_total,
-                                                      payment_refs=refs)
+            lines, ar_sel, cands, bit_sel = automatch(
+                statement, resolved_slip_total, payment_refs=refs)
             statement["lines"] = lines
             all_refs = refs + [ln.get("payment_reference") for ln in lines
                                if ln.get("payment_reference")]
@@ -631,14 +633,14 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
             bit_amounts = {r["id"]: abs(r["amount"])
                            for r in rows_store()["bit"]}
             tot = abs(_to_float(statement.get("total")) or 0)
-            slp = abs(_to_float(slip_total) or 0)
+            slp = abs(_to_float(resolved_slip_total) or 0)
             exact_n = max(
                 sum(1 for i in cands if bit_amounts.get(i) == t)
                 for t in (tot, slp)) if (tot or slp) else 0
             rec = load_recon(token) or {}
             rec.update({
                 "status": "open", "statement": statement,
-                "slip_total": slip_total,
+                "slip_total": resolved_slip_total,
                 "rows_gen": rows_generation(),
                 "ar_selected": ar_sel, "bit_candidates": cands,
                 "bit_selected": bit_sel, "ref_hits": ref_hits,

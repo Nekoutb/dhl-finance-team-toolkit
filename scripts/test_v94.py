@@ -1025,4 +1025,160 @@ r = client.get("/tools/bit-cash-ar")
 check("BIT & Cash AR page links the operator returns",
       "Operator" in r.text and "return(s) awaiting review" in r.text)
 
-print("\nALL v9.4—v10.3 TESTS PASSED")
+# === 15. v10.4 candidate — cheque register × BIT cross-scan =================
+FAKE3 = {
+    "bit_header": [], "gen_bit": "gen3b", "gen_cash": "gen3c",
+    "bit": [
+        {"id": 0, "amount": -250000.0, "gl_account": "1263001293",
+         "assignment": "0548407000018", "posting_date": "15.07.2026",
+         "reference": "REM SGBC", "text": "REMISE CHQ 4471002 SGBC DLA",
+         "doc_no": "410021", "posting_key": "40", "raw": []},
+        {"id": 1, "amount": -85000.0, "gl_account": "1263001293",
+         "assignment": "0548407000019", "posting_date": "16.07.2026",
+         "reference": "", "text": "ENC CHEQUE 5580031 BICEC",
+         "doc_no": "410022", "posting_key": "40", "raw": []}],
+    # The reseller's open rows again (fresh generation) so the portal
+    # upgrades below can submit against a live statement.
+    "cash": [
+        {"id": 0, "sap_acct": "415774002", "awb": "8525614075",
+         "assignment": "8525614075", "reference": "8525614075",
+         "amount": 59600.0, "customer": "ETS NEW SERVICE TJR",
+         "doc_no": "900001"},
+        {"id": 1, "sap_acct": "415774002", "awb": "2080666324",
+         "assignment": "2080666324", "reference": "2080666324",
+         "amount": 56100.0, "customer": "ETS NEW SERVICE TJR",
+         "doc_no": "900002"},
+        {"id": 2, "sap_acct": "415774002", "awb": "9605628896",
+         "assignment": "9605628896", "reference": "9605628896",
+         "amount": 60011.0, "customer": "ETS NEW SERVICE TJR",
+         "doc_no": "900003"}],
+}
+bitcash.rows_store = lambda: FAKE3
+
+cdir = cheques.BATCH_DIR / "bb22cc33dd44"
+cdir.mkdir(parents=True, exist_ok=True)
+(cdir / "results.json").write_text(json.dumps({
+    "status": "done", "uploaded_by": "finance",
+    "created_at": "2026-07-19 09:00", "banks": {}, "bank_line_count": 0,
+    "cheques": [
+        {"idx": 0, "filename": "c1.jpg", "stored": "000.jpg",
+         "media": "image/jpeg", "status": "done", "appearances": [],
+         "error": "", "matched_at": None, "treated": None,
+         "result": {"cheque_number": "4471002",
+                    "customer_name": "NOVIA SARL", "amount": 250000.0,
+                    "amount_currency": "XAF", "cheque_date": "10/07/2026",
+                    "drawee_bank": "SGBC", "readability": "good"}},
+        {"idx": 1, "filename": "c2.jpg", "stored": "001.jpg",
+         "media": "image/jpeg", "status": "done", "appearances": [],
+         "error": "", "matched_at": None, "treated": None,
+         "result": {"cheque_number": "5580031",
+                    "customer_name": "GOOD LOGISTICS", "amount": 90000.0,
+                    "amount_currency": "XAF", "cheque_date": "11/07/2026",
+                    "drawee_bank": "BICEC", "readability": "good"}},
+        {"idx": 2, "filename": "c3.jpg", "stored": "002.jpg",
+         "media": "image/jpeg", "status": "done", "appearances": [],
+         "error": "", "matched_at": None, "treated": None,
+         "result": {"cheque_number": "6692240",
+                    "customer_name": "LA TIGRITUDE", "amount": 50000.0,
+                    "amount_currency": "XAF", "cheque_date": "12/07/2026",
+                    "drawee_bank": "UBA", "readability": "good"}},
+    ]}), encoding="utf-8")
+
+reg3, bmeta = main._register_with_bit(
+    [r_ for r_ in cheques.register_rows() if r_["batch"] == "bb22cc33dd44"])
+by_chq = {r_["cheque_number"]: r_ for r_ in reg3}
+check("cheque found on the BIT with the amount aligned",
+      by_chq["4471002"]["bit"] and by_chq["4471002"]["bit"]["aligned"]
+      and by_chq["4471002"]["bit"]["date"] == "15.07.2026"
+      and by_chq["4471002"]["bit"]["doc_no"] == "410021")
+check("cheque on the BIT but the amount differs (85,000 vs 90,000)",
+      by_chq["5580031"]["bit"] and not by_chq["5580031"]["bit"]["aligned"]
+      and by_chq["5580031"]["bit"]["amount"] == 85000.0)
+check("cheque absent from the BIT", by_chq["6692240"]["bit"] is None)
+
+r = client.get("/tools/cheque-processing")
+flat3 = " ".join(r.text.split())
+check("register page: BIT Reference group + sub-columns render",
+      "BIT Reference" in r.text
+      and "Transaction reference in BIT file" in flat3
+      and "Transaction date in BIT file" in flat3
+      and "Amount in BIT file" in flat3)
+check("register page: BIT reference/date/amount values shown",
+      "REM SGBC" in r.text and "15.07.2026" in r.text
+      and "85,000" in flat3 and "⚠" in flat3)
+check("register page: no stale colspan left behind",
+      'colspan="15"' not in r.text and 'colspan="17"' not in r.text)
+check("footnote names the BIT scan",
+      "BIT Reference" in flat3 and "scans the BIT file on record" in flat3)
+
+r = client.get("/tools/cheque-processing/register/export")
+check("register Excel downloads with the BIT columns",
+      r.status_code == 200 and r.content[:2] == b"PK")
+wbx3 = openpyxl.load_workbook(io.BytesIO(r.content))
+wsx3 = wbx3["Cheque register"]
+hdr3 = [c.value for c in wsx3[1]]
+check("Excel header carries the BIT reference/date/amount columns",
+      hdr3[19:22] == ["BIT transaction reference", "BIT transaction date",
+                      "BIT amount"])
+rows3 = {str(row[2].value): row for row in wsx3.iter_rows(min_row=2)}
+check("Excel BIT values per cheque",
+      rows3["4471002"][19].value == "REM SGBC"
+      and rows3["4471002"][20].value == "15.07.2026"
+      and rows3["4471002"][21].value == 250000.0
+      and rows3["5580031"][19].value == "410022"
+      and rows3["5580031"][21].value == 85000.0
+      and not rows3["6692240"][19].value)
+
+# --- v10.4 portal upgrades: slip pre-read, locked amount, evidence copy ----
+from app.services import ai_ocr  # noqa: E402
+
+_orig_extract = ai_ocr.extract_payment_statement
+ai_ocr.extract_payment_statement = lambda blob, media, cfg: {
+    "label": "DHL EXPRESS CAMEROON SARL", "date": "17/07/2026",
+    "total": 115700.0, "lines": []}
+try:
+    r = client.post(f"/operator/{tok1}/read-slip",
+                    files=[("slip", ("dep.png", b"\x89PNG fake2",
+                                     "image/png"))])
+    side = r.json()
+    check("slip pre-read returns the banked total + DHL check",
+          r.status_code == 200 and side["total"] == 115700.0
+          and side["dhl"] is True and side["slip_id"].startswith("iroslip_"))
+finally:
+    ai_ocr.extract_payment_statement = _orig_extract
+
+r = client.post(f"/operator/{tok1}/submit",
+                data={"awb": ["9605628896"],
+                      "ref_9605628896": "DEP-9999-UBA",
+                      "slip_id": side["slip_id"],
+                      "payment_date": "2026-07-19"})
+check("submission with a pre-read slip accepted", r.status_code == 200
+      and "banked amount read from your deposit slip" in
+      " ".join(r.text.split()).lower())
+sub2 = iro.load_record("415774002")["submissions"][-1]
+check("submission entry carries the locked banked amount",
+      sub2["amount"] == 115700.0)
+deadline = time.time() + 15
+recy = None
+while time.time() < deadline:
+    recy = bitcash.load_recon(sub2["recon_token"])
+    if recy and recy.get("status") != "reading":
+        break
+    time.sleep(0.1)
+check("sandbox carries the pre-read slip total (no second read)",
+      recy and recy["status"] == "open"
+      and recy.get("slip_total") == 115700.0
+      and (recy.get("slip") or {}).get("source") == "dep.png")
+check("portal page has search/filter and locked amount, no Excel upload",
+      (lambda t: "Search / filter" in t
+       and "read from the slip, locked" in t
+       and "awb_excel" not in t)(client.get(f"/operator/{tok1}").text))
+check("evidence-copy email skipped cleanly when SMTP is off",
+      iro.send_evidence_copy({"smtp": {"enabled": False}}, "415774002",
+                             "X", [], [], "t", []) == "skipped")
+check("poller ignores our own evidence copies (no quarantine noise)",
+      iro.process_message(
+          b"From: a@b\r\nSubject: Evidence copy - IRO 415774002 - t\r\n"
+          b"Message-ID: <c1@x>\r\n\r\nx")["status"] == "copy")
+
+print("\nALL v9.4—v10.4c TESTS PASSED")

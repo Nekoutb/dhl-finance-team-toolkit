@@ -486,7 +486,7 @@ def build_register_excel(out_path, rows, aliases=None):
 
     ws = wb.add_worksheet("Cheque register")
     widths = [17, 13, 14, 22, 28, 28, 14, 15, 15, 14, 12, 22, 18, 22, 13, 16,
-              46, 22, 26]
+              46, 22, 26, 16, 13, 15]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     headers = ["Uploaded", "Uploaded by", "Cheque N°", "Issuing bank",
@@ -495,7 +495,9 @@ def build_register_excel(out_path, rows, aliases=None):
                "Cheque amount", "Cheque date", "Scan file",
                "On bank statement?", "Bank credited", "Date credited",
                "Amount credited/debited", "Reference seen on statement",
-               "Treated in accounting", "Duplicate"]
+               "Treated in accounting", "Duplicate",
+               "BIT transaction reference", "BIT transaction date",
+               "BIT amount"]
     for c, h in enumerate(headers):
         ws.write(0, c, h, head)
     r = 1
@@ -542,6 +544,15 @@ def build_register_excel(out_path, rows, aliases=None):
         ws.write(r, 18, (f"DUPLICATE of upload {dup['uploaded']} by "
                          f"{aliases.get(d_who, d_who) or 'unknown'}") if dup else "",
                  no_f if dup else cell)
+        bit = row.get("bit")
+        ws.write(r, 19, (bit or {}).get("reference", "")
+                 or (bit or {}).get("doc_no", ""),
+                 ok_f if bit and bit.get("aligned")
+                 else (no_f if bit else cell))
+        ws.write(r, 20, (bit or {}).get("date", ""), cell)
+        ba = (bit or {}).get("amount")
+        ws.write_number(r, 21, ba, num) if isinstance(ba, (int, float)) \
+            else ws.write(r, 21, "", cell)
         r += 1
     wb.close()
     return out_path

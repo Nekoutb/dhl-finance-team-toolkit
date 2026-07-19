@@ -29,6 +29,7 @@ from pathlib import Path
 from threading import Lock
 
 from ..config import DATA_DIR, UPLOAD_DIR
+from ..services import ai_ocr, emailer
 from . import bitcash
 
 IRO_DIR = DATA_DIR / "iro"
@@ -291,11 +292,13 @@ def build_evidence_xlsx(out_path, lines):
 # --------------------------------------------------------------------------- #
 def create_submission(account, lines=None, evidence_path=None,
                       slip_paths=None, references=None, channel="portal",
-                      label=""):
+                      label="", slip_total=None):
     """Open a reconciliation sandbox from an operator's return. Either
     ``evidence_path`` (an uploaded Excel) or ``lines``
     ([{awb, amount, reference}]) must be given; ``slip_paths`` =
-    [(path, source_name), ...]. Returns the recon token."""
+    [(path, source_name), ...]. ``slip_total`` — the banked amount already
+    read from the deposit slip (skips a second read). Returns the recon
+    token."""
     if not evidence_path:
         evidence_path = UPLOAD_DIR / f"iro_{uuid.uuid4().hex[:8]}.xlsx"
         build_evidence_xlsx(evidence_path, lines or [])
@@ -309,12 +312,65 @@ def create_submission(account, lines=None, evidence_path=None,
         slip_media=_slip_media(first[0]) if first else None,
         slip_source=first[1] if first else "",
         extra_slips=[(p, s) for p, s in slips[1:]],
-        payment_refs=[r for r in (references or []) if r])
+        payment_refs=[r for r in (references or []) if r],
+        slip_total=slip_total)
     record_submission(account, {
         "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "references": [r for r in (references or []) if r][:10],
+        "amount": slip_total,
         "channel": channel, "recon_token": token})
     return token
+
+
+# --------------------------------------------------------------------------- #
+# Portal slip pre-read: the deposit slip is read the moment the operator
+# attaches it — the banked amount is populated automatically and locked
+# (a bank deposit amount is never altered by hand).
+# --------------------------------------------------------------------------- #
+def preread_slip(blob, filename, ai_cfg):
+    """Save an operator's deposit slip, read the banked total and check the
+    slip mentions DHL as the payee. Returns {slip_id, source, total, dhl}
+    — total None when unreadable (finance verifies manually)."""
+    ext = Path(filename or "slip").suffix.lower()
+    slip_id = f"iroslip_{uuid.uuid4().hex[:8]}"
+    dest = UPLOAD_DIR / f"{slip_id}{ext}"
+    dest.write_bytes(blob)
+    total, dhl = None, False
+    try:
+        doc = ai_ocr.extract_payment_statement(
+            blob, _slip_media(dest), ai_cfg)
+        total = bitcash._to_float(doc.get("total")) or None
+        blob_txt = " ".join(
+            [str(doc.get("label", ""))]
+            + [str(ln.get("description", "")) + " "
+               + str(ln.get("reference", ""))
+               for ln in doc.get("lines", [])]).lower()
+        dhl = "dhl" in blob_txt
+    except Exception:  # noqa: BLE001 — unreadable slip stays pure evidence
+        pass
+    sidecar = {"slip_id": slip_id, "name": dest.name,
+               "source": filename or dest.name, "total": total, "dhl": dhl}
+    (UPLOAD_DIR / f"{slip_id}.json").write_text(
+        json.dumps(sidecar, ensure_ascii=False), encoding="utf-8")
+    return sidecar
+
+
+def load_preread(slip_id):
+    """The saved slip + sidecar for a pre-read id, or None."""
+    if not re.fullmatch(r"iroslip_[0-9a-f]{8}", str(slip_id or "")):
+        return None
+    side = UPLOAD_DIR / f"{slip_id}.json"
+    if not side.exists():
+        return None
+    try:
+        meta = json.loads(side.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    path = UPLOAD_DIR / meta.get("name", "")
+    if not path.exists():
+        return None
+    meta["path"] = path
+    return meta
 
 
 def _slip_media(path):
@@ -330,6 +386,39 @@ def _slip_media(path):
 # --------------------------------------------------------------------------- #
 # Email channel — parse + poll (core is IMAP-free and fully testable)
 # --------------------------------------------------------------------------- #
+def send_evidence_copy(cfg, account, name, lines, refs, recon_token,
+                       slip_paths=None, slip_total=None):
+    """A copy of every portal submission is emailed into the operator
+    mailbox as ADDED EVIDENCE (with the deposit slip attached). The subject
+    is marked "Evidence copy" so the poller never re-ingests it. Returns
+    "sent"/"skipped"."""
+    smtp = cfg.get("smtp", {})
+    to = (cfg.get("imap") or {}).get("username", "") \
+        or cfg.get("orange_cameroun", {}).get("default_recipient", "")
+    if not (smtp.get("enabled") and to):
+        return "skipped"
+    detail = "\n".join(
+        f"  AWB {ln['awb']}  {ln['amount']:,.0f} XAF"
+        + (f"  ref {ln['reference']}" if ln.get("reference") else "")
+        for ln in (lines or []))
+    body = (f"Evidence copy of a portal submission.\n\n"
+            f"Operator account: {account} ({name or '—'})\n"
+            f"Payment reference(s): {', '.join(refs) or '—'}\n"
+            + (f"Banked amount read from the deposit slip: "
+               f"{slip_total:,.0f} XAF\n" if slip_total else "")
+            + f"Reconciliation: /tools/bit-cash-ar/recon/{recon_token}\n\n"
+            f"{len(lines or [])} airwaybill(s):\n{detail}\n")
+    first = (slip_paths or [None])[0]
+    attachment = Path(first[0]) if first else None
+    try:
+        emailer.send_via_smtp(
+            smtp, to, f"Evidence copy — IRO {account} — {recon_token}",
+            body, attachment)
+        return "sent"
+    except Exception:  # noqa: BLE001 — the submission itself already landed
+        return "skipped"
+
+
 def _mail_log():
     if MAIL_LOG.exists():
         try:
@@ -369,7 +458,12 @@ def process_message(raw_bytes):
         return {"status": "duplicate"}
     log.setdefault("processed", []).append(msg_id)
 
-    m = _SUBJECT_RE.search(str(msg.get("Subject", "")))
+    subject = str(msg.get("Subject", ""))
+    if "evidence copy" in subject.lower():
+        # Our own submission copies — email evidence, never re-ingested.
+        _save_mail_log(log)
+        return {"status": "copy"}
+    m = _SUBJECT_RE.search(subject)
     if not m:
         _quarantine(log, msg, "subject does not carry PAYREF <account>")
         _save_mail_log(log)

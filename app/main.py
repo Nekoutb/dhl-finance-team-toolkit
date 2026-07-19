@@ -14,7 +14,8 @@ from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -1830,10 +1831,64 @@ def _register_with_ar(register):
     return register, ar_meta
 
 
+def _register_with_bit(register):
+    """Scan the BIT on record for each cheque: the cheque number searched in
+    the BIT line's description/reference/assignment/doc N° (per-field digit
+    containment — same style as the bank-statement matching), with the
+    amount-alignment check. row["bit"] = {found, date, amount, aligned,
+    doc_no} or None; returns (register, bit_meta)."""
+    bit_rows = bitcash.rows_store()["bit"]
+    cur = (bitcash.status().get("current") or {}).get("bit")
+    bit_meta = ({"source": cur.get("source", ""),
+                 "uploaded": cur.get("uploaded", "")} if cur else None)
+    if not bit_rows:
+        for row in register:
+            row["bit"] = None
+        return register, bit_meta
+    digits = re.compile(r"\D")
+    hay = []
+    for b in bit_rows:
+        fields = [b.get("text", ""), b.get("reference", ""),
+                  b.get("assignment", ""), b.get("doc_no", "")] \
+            + [v for v in b.get("raw", []) if v]
+        hay.append((b, [digits.sub("", str(f)) for f in fields if f]))
+    memo = {}
+    for row in register:
+        row["bit"] = None
+        chq = row.get("cheque_number") or ""
+        if row.get("status") != "done" \
+                or len(chq) < cheques.MIN_CHEQUE_DIGITS \
+                or row.get("duplicate_of"):
+            continue
+        key = (chq, row.get("amount"))
+        if key not in memo:
+            hits = [b for b, fields in hay
+                    if any(chq in f for f in fields)]
+            best = None
+            if hits:
+                amt = row.get("amount")
+                aligned = [b for b in hits
+                           if isinstance(amt, (int, float))
+                           and round(abs(b.get("amount") or 0), 2)
+                           == round(amt, 2)]
+                pick = aligned[0] if aligned else hits[0]
+                best = {"found": True,
+                        "date": pick.get("posting_date", ""),
+                        "amount": abs(pick.get("amount") or 0),
+                        "aligned": bool(aligned),
+                        "reference": pick.get("reference", "")
+                        or pick.get("doc_no", ""),
+                        "doc_no": pick.get("doc_no", "")}
+            memo[key] = best
+        row["bit"] = memo[key]
+    return register, bit_meta
+
+
 def _cheque_ctx(request, **extra):
     cfg = load_config()
     _rows, bank_banks = bank.all_statement_lines()
     register, ar_meta = _register_with_ar(cheques.register_rows())
+    register, bit_meta = _register_with_bit(register)
     # Today's headline numbers + the daily series for the graph. Recording on
     # every render keeps the day's snapshot tracking the current truth.
     stats = cheques.register_stats(register)
@@ -1850,7 +1905,7 @@ def _cheque_ctx(request, **extra):
            "ai_ready": ai_ocr.is_configured(cfg),
            "max_cheques": cheques.MAX_CHEQUES,
            "register": register, "stats": stats, "stats_chart": stats_chart,
-           "ar_meta": ar_meta,
+           "ar_meta": ar_meta, "bit_meta": bit_meta,
            "can_treat": _can_treat(request),
            # username -> display alias (set by an admin) for "Uploaded by".
            "aliases": auth.alias_map(cfg.get("auth", {})),
@@ -1949,6 +2004,7 @@ async def cheque_register_resume(request: Request):
 def cheque_register_export():
     out = OUTPUT_DIR / "Electronic_cheque_register.xlsx"
     rows, _ar_meta = _register_with_ar(cheques.register_rows())
+    rows, _bit_meta = _register_with_bit(rows)
     cheques.build_register_excel(out, rows)
     return FileResponse(out, filename="Electronic_cheque_register.xlsx",
                         media_type="application/vnd.openxmlformats-officedocument"
@@ -2680,6 +2736,30 @@ def operator_page(request: Request, token: str, error: str = ""):
         "entry": entry, "error": error, "token": token})
 
 
+@app.post("/operator/{token}/read-slip")
+async def operator_read_slip(request: Request, token: str,
+                             slip: UploadFile = File(...)):
+    """Pre-read a deposit slip the moment the operator attaches it: the
+    banked amount is extracted and LOCKED (a bank deposit amount is never
+    altered by hand), and the slip is checked for DHL as the payee."""
+    rec = iro.find_by_token(token)
+    if rec is None:
+        return JSONResponse({"error": "invalid link"}, status_code=404)
+    ext = Path(slip.filename or "").suffix.lower()
+    if ext not in _IRO_SLIP_EXT:
+        return JSONResponse({"error": "Use a photo or a PDF of the deposit "
+                                      "slip."}, status_code=400)
+    blob = await slip.read()
+    if len(blob) > _IRO_MAX_FILE:
+        return JSONResponse({"error": "The slip is bigger than 15 MB."},
+                            status_code=400)
+    side = iro.preread_slip(blob, slip.filename or "slip",
+                            load_config().get("ai"))
+    return JSONResponse({"slip_id": side["slip_id"],
+                         "source": side["source"],
+                         "total": side["total"], "dhl": side["dhl"]})
+
+
 @app.post("/operator/{token}/submit")
 async def operator_submit(request: Request, token: str):
     rec = iro.find_by_token(token)
@@ -2708,22 +2788,17 @@ async def operator_submit(request: Request, token: str):
     if global_ref:
         refs.append(global_ref)
 
-    excel_up = form.get("awb_excel")
-    evidence_path = None
-    if excel_up is not None and getattr(excel_up, "filename", ""):
-        ext = Path(excel_up.filename).suffix.lower()
-        if ext not in (".xlsx", ".xlsm", ".xls"):
-            return operator_page(request, token,
-                                 error="The AWB file must be an Excel "
-                                       "workbook (.xlsx / .xls).")
-        blob = await excel_up.read()
-        if len(blob) > _IRO_MAX_FILE:
-            return operator_page(request, token,
-                                 error="The AWB Excel is bigger than 15 MB.")
-        evidence_path = UPLOAD_DIR / f"iroex_{uuid.uuid4().hex[:8]}{ext}"
-        evidence_path.write_bytes(blob)
-
+    # Deposit slips: pre-read ids (the normal path — amount already read
+    # and locked) plus raw files as a no-script fallback.
     slip_paths = []
+    slip_total = None
+    for sid in form.getlist("slip_id"):
+        meta = iro.load_preread(sid)
+        if not meta:
+            continue
+        slip_paths.append((meta["path"], meta["source"]))
+        if slip_total is None and meta.get("total"):
+            slip_total = meta["total"]
     for slip in form.getlist("deposit_slip"):
         if slip is None or not getattr(slip, "filename", ""):
             continue
@@ -2741,21 +2816,26 @@ async def operator_submit(request: Request, token: str):
         dest.write_bytes(blob)
         slip_paths.append((dest, slip.filename))
 
-    if not lines and evidence_path is None:
+    if not lines:
         return operator_page(request, token,
-                             error="Tick at least one airwaybill or attach "
-                                   "the filled statement Excel.")
-    if not refs and evidence_path is None:
+                             error="Tick at least one airwaybill your "
+                                   "deposit paid.")
+    if not refs:
         return operator_page(request, token,
                              error="Enter the payment reference for the "
                                    "airwaybills you ticked.")
     recon_token = iro.create_submission(
-        rec["account"], lines=lines, evidence_path=evidence_path,
+        rec["account"], lines=lines,
         slip_paths=slip_paths, references=refs, channel="portal",
-        label=f"IRO {rec['account']} — {refs[0] if refs else 'return'}")
-    # Best-effort heads-up to the finance team.
+        label=f"IRO {rec['account']} — {refs[0] if refs else 'return'}",
+        slip_total=slip_total)
+    cfg = load_config()
+    # A copy of the submission lands in the operator mailbox as EMAIL
+    # EVIDENCE (slip attached), and finance gets a heads-up.
+    copy_state = iro.send_evidence_copy(
+        cfg, rec["account"], rec.get("name", ""), lines, refs,
+        recon_token, slip_paths, slip_total)
     try:
-        cfg = load_config()
         smtp = cfg.get("smtp", {})
         to = cfg.get("orange_cameroun", {}).get("default_recipient", "")
         if smtp.get("enabled") and to:
@@ -2763,13 +2843,16 @@ async def operator_submit(request: Request, token: str):
                 smtp, to, f"IRO submission — {rec['account']}",
                 f"Operator {rec.get('name') or rec['account']} submitted "
                 f"{len(lines)} airwaybill(s) "
-                f"(references: {', '.join(refs) or '—'}).\n"
+                f"(references: {', '.join(refs) or '—'})"
+                + (f", banked {slip_total:,.0f} XAF per the deposit slip"
+                   if slip_total else "") + ".\n"
                 f"Review: /tools/bit-cash-ar/recon/{recon_token}")
     except Exception:  # noqa: BLE001 — the submission itself already landed
         pass
     return templates.TemplateResponse("operator/done.html", {
-        "request": request, "cfg": load_config(), "rec": rec,
-        "count": len(lines), "refs": refs, "token": token})
+        "request": request, "cfg": cfg, "rec": rec,
+        "count": len(lines), "refs": refs, "token": token,
+        "slip_total": slip_total, "copy_state": copy_state})
 
 
 @app.post("/tools/bit-cash-ar/recon/{token}/email")

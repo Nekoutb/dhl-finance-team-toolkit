@@ -17,6 +17,8 @@
                overflow-wrap: anywhere; word-break: break-word;
                background: rgba(100, 116, 139, .10); border-radius: 8px;
                padding: 5px 9px; font-size: 12px; line-height: 1.35; }
+    .diff-ok  { color: #157a4a; font-weight: 700; }
+    .diff-bad { color: #bd3727; font-weight: 700; }
   </style>
 
   <section class="panel">
@@ -155,16 +157,28 @@
     {% if register %}
     <div class="table-wrap" style="max-height:none;">
       <table class="tx-table">
-        <thead><tr>
-          <th>Uploaded</th><th>Uploaded by</th><th>Cheque N°</th><th>Issuing bank</th>
-          <th>Client name</th>
-          <th>AR customer (latest analysis)</th><th>AR account</th>
-          <th>AR balance</th><th>Overdue balance</th>
-          <th>Cheque amount</th><th>Cheque date</th>
-          <th>On bank statement?</th><th>Bank credited</th><th>Date credited</th>
-          <th>Amount credited/debited</th><th>Reference seen on statement</th>
-          <th>Treated in accounting</th>
-        </tr></thead>
+        <thead>
+        <tr>
+          <th rowspan="2">Uploaded</th><th rowspan="2">Uploaded by</th>
+          <th rowspan="2">Cheque N°</th><th rowspan="2">Issuing bank</th>
+          <th rowspan="2">Client name</th>
+          <th rowspan="2">AR customer (latest analysis)</th>
+          <th rowspan="2">AR account</th>
+          <th rowspan="2">AR balance</th><th rowspan="2">Overdue balance</th>
+          <th rowspan="2">Cheque amount</th><th rowspan="2">Cheque date</th>
+          <th rowspan="2">On bank statement?</th><th rowspan="2">Bank credited</th>
+          <th rowspan="2">Date credited</th>
+          <th rowspan="2">Amount credited/debited</th>
+          <th rowspan="2">Reference seen on statement</th>
+          <th colspan="3" style="border-left:3px solid #3b82f6;">🏧 BIT Reference</th>
+          <th rowspan="2">Treated in accounting</th>
+        </tr>
+        <tr>
+          <th style="border-left:3px solid #3b82f6;font-size:11px;">Transaction reference in BIT file</th>
+          <th style="font-size:11px;">Transaction date in BIT file</th>
+          <th style="font-size:11px;">Amount in BIT file</th>
+        </tr>
+        </thead>
         <tbody>
           {% for r in register %}
           <tr{% if r.new %} class="new-match"{% endif %}>
@@ -198,6 +212,16 @@
             <td>{{ r.cleared.date if r.cleared else '—' }}</td>
             <td>{% if r.cleared %}{{ "{:,.0f}".format(r.cleared.amount or 0) }}{% else %}—{% endif %}</td>
             <td>{% if r.ref_snippet %}<div class="ref-box" title="{{ r.cleared.text if r.cleared else '' }}">{{ r.ref_snippet }}</div>{% else %}—{% endif %}</td>
+            <td style="border-left:3px solid #3b82f6;">
+              {% if r.bit %}{{ r.bit.reference or r.bit.doc_no or '—' }}
+                {% if r.bit.doc_no and r.bit.reference and r.bit.doc_no != r.bit.reference %}
+                <div class="note-inline">doc {{ r.bit.doc_no }}</div>{% endif %}
+              {% else %}—{% endif %}</td>
+            <td>{{ r.bit.date if r.bit else '—' }}</td>
+            <td>{% if r.bit %}
+              {% if r.bit.aligned %}<span class="diff-ok" title="Amount aligned with the cheque">{{ "{:,.0f}".format(r.bit.amount) }}</span>
+              {% else %}<span class="diff-bad" title="Amount differs from the cheque">{{ "{:,.0f}".format(r.bit.amount) }} ⚠</span>{% endif %}
+              {% else %}—{% endif %}</td>
             <td style="text-align:center;">
               {% if r.treated %}
                 <span class="pill pill-ok" title="Treated by {{ r.treated.by }} on {{ r.treated.at }}">✓ treated</span>
@@ -221,10 +245,10 @@
               {% endif %}
             </td>
             {% elif r.status == 'error' %}
-            <td colspan="15"><span class="pill pill-stop">read failed</span>
+            <td colspan="18"><span class="pill pill-stop">read failed</span>
               <span class="note-inline">{{ r.filename }} — {{ r.error }}</span></td>
             {% else %}
-            <td colspan="15"><span class="pill pill-watch">reading…</span>
+            <td colspan="18"><span class="pill pill-watch">reading…</span>
               <span class="note-inline">{{ r.filename }}</span></td>
             {% endif %}
           </tr>
@@ -244,7 +268,13 @@
       {{ ar_meta.as_of }}){% endif %} — the client name on the cheque is
       matched to the AR trial balance so you can see which account the
       cheque cleared and how much overdue balance it covers; “—” means no
-      close name match.</p>
+      close name match. The <strong>BIT Reference</strong> column scans the
+      BIT file on record{% if bit_meta %} ({{ bit_meta.source }}, uploaded
+      {{ bit_meta.uploaded }}){% endif %} for the cheque number in the
+      transaction description and shows the BIT transaction reference,
+      date and amount — a <span class="diff-ok">green amount</span> is
+      aligned with the cheque, a <span class="diff-bad">red amount ⚠</span>
+      differs, “—” = not on the BIT yet.</p>
     {% else %}
     <p class="note-small">No cheques on the register yet — upload the first
       scans above.</p>

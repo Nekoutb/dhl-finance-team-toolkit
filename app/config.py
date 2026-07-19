@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.3 — 19 Jul 2026 · IRO Statements & Returns (additive — the existing reconciliation is untouched): each reseller account receives its open-AWB statement + a personal secure link; operators tick the AWBs paid, give the payment reference per line and attach deposit slip(s); returns also arrive by formatted email (PAYREF <account>) read from the dedicated mailbox; submitted references are searched in the BIT FIRST to pin the payment, then the reconciliation continues as before; matched AWBs never go out to an operator again"
+APP_VERSION = "v10.4 — 19 Jul 2026 · Cheque register: clean BIT Reference group (transaction reference / date / amount in the BIT file, colour-coded alignment) on the page + Excel. IRO portal: search/filter across every field, deposit slips read at attach time — the banked amount is populated automatically and LOCKED (never editable), DHL-payee check on the slip, an evidence copy of each submission emailed into the operator mailbox, and the separate AWB Excel upload removed (ticking is enough)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

@@ -16,9 +16,21 @@
         airwaybills are matched or under review. Thank you!</div>
     {% else %}
     <form action="/operator/{{ token }}/submit" method="post"
-          enctype="multipart/form-data">
+          enctype="multipart/form-data" id="iro-form">
+
+      <div class="inline-fields" style="margin-bottom:6px;">
+        <label class="field" style="min-width:280px;">
+          <span>🔎 Search / filter (airwaybill N°, reference, amount — any
+            field)</span>
+          <input type="text" id="iro-filter"
+                 placeholder="type an airwaybill, reference or amount…">
+        </label>
+        <span class="note-inline" style="align-self:flex-end;"
+              id="iro-filter-count">{{ entry.rows|length }} row(s)</span>
+      </div>
+
       <div class="table-wrap" style="max-height:none;">
-        <table class="tx-table">
+        <table class="tx-table" id="iro-table">
           <thead><tr><th>Paid?</th><th>Airwaybill</th><th>Reference</th>
             <th>Amount (XAF)</th><th>Payment reference</th></tr></thead>
           <tbody>
@@ -40,6 +52,7 @@
 
       <p style="margin:10px 0 4px;">Total of ticked airwaybills:
         <strong id="iro-total">0</strong> XAF</p>
+
       <div class="inline-fields" style="margin-bottom:8px;">
         <label class="field" style="min-width:220px;">
           <span>Deposit reference (applies to all ticked lines)</span>
@@ -52,31 +65,31 @@
           <span>Payment date</span>
           <input type="date" name="payment_date">
         </label>
-        <label class="field">
-          <span>Amount banked (XAF)</span>
-          <input type="text" name="amount_banked" placeholder="e.g. 523500">
-        </label>
       </div>
 
-      <div class="inline-fields" style="margin-bottom:10px;">
-        <label class="field" style="min-width:280px;">
-          <span>Bank deposit slip(s) — photo or PDF (recommended)</span>
-          <input type="file" name="deposit_slip" multiple
+      <div class="inline-fields" style="margin-bottom:6px;">
+        <label class="field" style="min-width:300px;">
+          <span>Bank deposit slip(s) — photo or PDF</span>
+          <input type="file" id="iro-slip-input" multiple
                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif">
         </label>
-        <label class="field" style="min-width:280px;">
-          <span>Or the statement Excel with the Payment reference column
-            filled (optional)</span>
-          <input type="file" name="awb_excel" accept=".xlsx,.xlsm,.xls">
+        <label class="field" style="min-width:220px;">
+          <span>Amount banked (XAF) — read from the slip, locked</span>
+          <input type="text" id="iro-banked" value="—" readonly
+                 style="background:rgba(100,116,139,.12);color:#64748b;"
+                 title="The banked amount is read from the deposit slip and cannot be changed">
         </label>
       </div>
+      <div id="iro-slip-list" class="note-small"></div>
+      <div id="iro-slip-ids"></div>
 
-      <button class="btn btn-primary" type="submit">📨 Submit payment
-        references</button>
-      <p class="note-small" style="margin-top:8px;">Airwaybills already
-        reported and matched no longer appear here. Submitting opens a
-        reconciliation with the DHL finance team — you will be contacted if
-        anything needs clarification.</p>
+      <button class="btn btn-primary" type="submit" id="iro-submit">📨
+        Submit payment references</button>
+      <p class="note-small" style="margin-top:8px;">The banked amount is
+        read directly off the deposit slip by the tool and cannot be
+        altered. Airwaybills already reported and matched no longer appear
+        here. Submitting opens a reconciliation with the DHL finance team —
+        you will be contacted if anything needs clarification.</p>
     </form>
 
     <script>
@@ -103,6 +116,67 @@
               });
           });
         total();
+
+        var filter = document.getElementById("iro-filter");
+        filter.addEventListener("input", function () {
+          var q = filter.value.toLowerCase().replace(/[\s,]/g, "");
+          var shown = 0;
+          document.querySelectorAll("#iro-table tbody tr").forEach(
+            function (tr) {
+              var hay = tr.textContent.toLowerCase().replace(/[\s,]/g, "");
+              var refin = tr.querySelector(".iro-ref");
+              if (refin && refin.value) {
+                hay += refin.value.toLowerCase().replace(/[\s,]/g, "");
+              }
+              var hit = !q || hay.indexOf(q) !== -1;
+              tr.style.display = hit ? "" : "none";
+              if (hit) { shown += 1; }
+            });
+          document.getElementById("iro-filter-count").textContent =
+            shown + " row(s)";
+        });
+
+        var slipInput = document.getElementById("iro-slip-input");
+        var banked = document.getElementById("iro-banked");
+        var list = document.getElementById("iro-slip-list");
+        var ids = document.getElementById("iro-slip-ids");
+        var totals = [];
+        slipInput.addEventListener("change", function () {
+          Array.prototype.forEach.call(slipInput.files, function (f) {
+            var fd = new FormData();
+            fd.append("slip", f, f.name);
+            var row = document.createElement("div");
+            row.textContent = "⏳ " + f.name + " — reading the slip…";
+            list.appendChild(row);
+            fetch("/operator/{{ token }}/read-slip",
+                  {method: "POST", body: fd})
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (d.error) { row.textContent = "✗ " + f.name + " — "
+                  + d.error; return; }
+                var h = document.createElement("input");
+                h.type = "hidden"; h.name = "slip_id"; h.value = d.slip_id;
+                ids.appendChild(h);
+                var msg = "✓ " + d.source + " attached";
+                if (d.total) {
+                  totals.push(d.total);
+                  banked.value = fmt(totals[0]);
+                  msg += " — banked amount read: " + fmt(d.total) + " XAF";
+                } else {
+                  msg += " — amount could not be read (finance will "
+                    + "verify)";
+                }
+                msg += d.dhl ? " · payment to DHL identified ✓"
+                             : " · DHL not confirmed on the slip";
+                row.textContent = msg;
+              })
+              .catch(function () {
+                row.textContent = "✗ " + f.name + " — upload failed, "
+                  + "try again";
+              });
+          });
+          slipInput.value = "";
+        });
       })();
     </script>
     {% endif %}
