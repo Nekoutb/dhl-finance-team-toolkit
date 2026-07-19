@@ -602,6 +602,37 @@ def orange_history(request: Request, htoken: str):
     })
 
 
+@app.post("/tools/orange-cameroun/history/{htoken}/delete")
+async def orange_history_delete(request: Request, htoken: str):
+    if orange.delete_upload(htoken):
+        return redirect_msg("/tools/orange-cameroun",
+                            message="Processed file removed from the record "
+                                    "— the monthly report and every "
+                                    "cross-check recompute without it.")
+    return redirect_msg("/tools/orange-cameroun",
+                        error="That processed file was not found.")
+
+
+@app.get("/tools/orange-cameroun/monthly", response_class=HTMLResponse)
+def orange_monthly(request: Request):
+    return templates.TemplateResponse("orange/monthly.html", {
+        "request": request, "cfg": load_config(),
+        "tool": registry.by_slug("orange-cameroun"),
+        "report": orange.monthly_report(),
+    })
+
+
+@app.get("/tools/orange-cameroun/monthly/export")
+def orange_monthly_export():
+    report = orange.monthly_report()
+    out = OUTPUT_DIR / f"orange_monthly_{uuid.uuid4().hex[:8]}.xlsx"
+    orange.build_monthly_xlsx(out, report)
+    return FileResponse(
+        out, filename="Orange_Money_payments_by_month.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument."
+                   "spreadsheetml.sheet")
+
+
 @app.get("/tools/orange-cameroun/customers", response_class=HTMLResponse)
 def orange_customers(request: Request):
     cfg = load_config()
@@ -2063,6 +2094,7 @@ async def bank_upload(request: Request, bank_name: str = Form("", alias="bank"),
         return _bank_home(request, error=f"Could not read the statement(s): {exc}",
                           status_code=400)
     bank.save_report(report)
+    bank.sync_cheque_register()
     return RedirectResponse(
         f"/tools/bank-statements/results/{token}", status_code=303)
 

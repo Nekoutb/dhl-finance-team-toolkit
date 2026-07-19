@@ -44,12 +44,17 @@
     </div>
 
     {% if uploads %}
-    <h2 class="section-title" style="margin-top:22px;">Previous uploads</h2>
+    <h2 class="section-title" style="margin-top:22px;">Processed files on
+      record</h2>
+    <div class="download-row" style="margin:6px 0 8px;">
+      <a class="btn" href="/tools/orange-cameroun/monthly">📅 Customer
+        payments by month →</a>
+    </div>
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr><th>Uploaded</th><th>Month</th><th>Statement file</th>
           <th>Correspondants</th><th>Receipts</th><th>Total credited (XAF)</th>
-          <th>Receipts generated?</th><th></th></tr></thead>
+          <th>Receipts generated?</th><th></th><th></th></tr></thead>
         <tbody>
           {% for u in uploads %}
           <tr>
@@ -62,11 +67,21 @@
             <td>{% if u.generated_at %}<span class="pill pill-ok">✓ {{ u.generated_at }}</span>
                 {% else %}<span class="pill pill-watch">not yet</span>{% endif %}</td>
             <td><a href="/tools/orange-cameroun/history/{{ u.token }}">Compare vs AR →</a></td>
+            <td>
+              <form action="/tools/orange-cameroun/history/{{ u.token }}/delete"
+                    method="post" style="display:inline;"
+                    onsubmit="return confirm('Remove this processed file from the record? Use this when the same statement was treated more than once.');">
+                <button class="btn btn-small" type="submit">🗑 Remove</button>
+              </form>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    <p class="note-small">Remove a file when the same statement was treated
+      more than once — the monthly report and the cross-checks recompute
+      from the remaining files.</p>
     <p class="note-small">Re-uploading the same statement month replaces its
       entry. “Compare vs AR” sets each customer's payments against their
       balance per the latest AR trial balance.</p>

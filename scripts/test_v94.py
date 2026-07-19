@@ -213,8 +213,9 @@ check("generated stamp + identities stored on the history entry",
       and any(c["account"] == "1004000001" for c in u["correspondants"]))
 
 r = client.get("/tools/orange-cameroun")
-check("previous uploads listed on the tool page",
-      "Previous uploads" in r.text and "Compare vs AR" in r.text)
+check("processed files listed on the tool page",
+      "Processed files" in " ".join(r.text.split())
+      and "Compare vs AR" in r.text)
 
 r = client.get(f"/tools/orange-cameroun/history/{htoken}")
 check("history comparison page renders", r.status_code == 200
@@ -743,4 +744,137 @@ flat5 = " ".join(page.text.split())
 check("sandbox narrative discloses the deposit-slip total",
       "Deposit slip total: 523,500" in flat5)
 
-print("\nALL v9.4—v10.0 TESTS PASSED")
+# === 13. v10.1 — match precision, date columns, monthly momo, delete, sync ==
+from app.services import bank_statement  # noqa: E402
+
+check("account-stop matches at strict 0.90 precision",
+      account_stop.MATCH_RATIO == 0.90)
+
+# The strict ratio must reach every matcher call (bank, cheque, momo paths).
+_seen_ratios = []
+_orig_best = bank_statement.best_customer_for
+
+
+def _spy_best(text, custs, min_ratio=0.86):
+    _seen_ratios.append(min_ratio)
+    return _orig_best(text, custs, min_ratio=min_ratio)
+
+
+bank_statement.best_customer_for = _spy_best
+try:
+    account_stop.build_view()
+finally:
+    bank_statement.best_customer_for = _orig_best
+check("every account-stop matcher call uses the strict ratio",
+      _seen_ratios and all(r == 0.90 for r in _seen_ratios))
+
+r = client.get("/tools/account-stop")
+check("transaction-date column present in all three groups",
+      r.text.count("Transaction date on statement") == 3)
+
+r = client.get("/tools/ongoing-ctp-monitoring")
+check("credit-hold graph sits at the TOP of the portal",
+      "Accounts on credit hold" in r.text
+      and r.text.index("Accounts on credit hold")
+      < r.text.index("1. AR transaction file"))
+
+# Orange monthly pivot: two months + one duplicated transaction across files.
+orange._write_upload({
+    "token": "aaaa00000001", "uploaded_at": "2026-06-05 09:00",
+    "source": "june.xls",
+    "meta": {"account": "658902134", "company": "", "month_label":
+             "Juin 2026", "period_start": "2026-06-01",
+             "period_end": "2026-06-30"},
+    "totals": {"count": 2, "credited": 30000.0, "correspondant_count": 1},
+    "correspondants": [{"correspondant": "699111222", "name": "NOVIA SARL",
+                        "account": "4003025929", "count": 2,
+                        "total": 30000.0}],
+    "collections": [
+        {"correspondant": "699111222", "date": "05/06/2026",
+         "reference": "PP260605.1000.X1", "credit": 10000.0},
+        {"correspondant": "699111222", "date": "12/06/2026",
+         "reference": "PP260612.1200.X2", "credit": 20000.0}]})
+orange._write_upload({
+    "token": "aaaa00000002", "uploaded_at": "2026-07-03 09:00",
+    "source": "july.xls",
+    "meta": {"account": "658902134", "company": "", "month_label":
+             "Juillet 2026", "period_start": "2026-07-01",
+             "period_end": "2026-07-31"},
+    "totals": {"count": 2, "credited": 25000.0, "correspondant_count": 1},
+    "correspondants": [{"correspondant": "699111222", "name": "NOVIA SARL",
+                        "account": "4003025929", "count": 2,
+                        "total": 25000.0}],
+    "collections": [
+        {"correspondant": "699111222", "date": "12/06/2026",
+         "reference": "PP260612.1200.X2", "credit": 20000.0},
+        {"correspondant": "699111222", "date": "02/07/2026",
+         "reference": "PP260702.0900.X3", "credit": 5000.0}]})
+rep = orange.monthly_report()
+mrow = next(r_ for r_ in rep["rows"] if r_["correspondant"] == "699111222")
+check("monthly pivot: months ordered and labelled",
+      [m["key"] for m in rep["months"]][-2:] == ["2026-06", "2026-07"]
+      and any(m["label"] == "Juin 2026" for m in rep["months"]))
+check("monthly pivot: duplicate transaction counted once",
+      mrow["months"]["2026-06"] == 30000.0
+      and mrow["months"]["2026-07"] == 5000.0 and mrow["total"] == 35000.0)
+check("monthly pivot row carries name, account and phone",
+      mrow["name"] == "NOVIA SARL" and mrow["account"] == "4003025929")
+r = client.get("/tools/orange-cameroun/monthly")
+check("monthly page renders the pivot", r.status_code == 200
+      and "NOVIA SARL" in r.text and "Juin 2026" in r.text
+      and "35,000" in r.text)
+r = client.get("/tools/orange-cameroun/monthly/export")
+check("monthly Excel export downloads", r.status_code == 200
+      and r.content[:2] == b"PK")
+
+# Processed-file delete (treated twice -> remove one).
+r = client.post("/tools/orange-cameroun/history/aaaa00000002/delete",
+                follow_redirects=False)
+check("processed file removed via the sandbox", r.status_code == 303
+      and orange.load_upload("aaaa00000002") is None)
+check("monthly report recomputes without the removed file",
+      "2026-07" not in {m["key"]
+                        for m in orange.monthly_report()["months"]})
+r = client.post("/tools/orange-cameroun/history/ffff00000000/delete",
+                follow_redirects=False)
+check("unknown processed file -> friendly error",
+      r.status_code == 303 and "error=" in r.headers["location"])
+r = client.get("/tools/orange-cameroun")
+check("upload page offers monthly report + remove buttons",
+      "payments by month" in r.text and "🗑 Remove" in r.text)
+
+# Bank upload -> cheque register re-match + daily stats snapshot.
+_called = []
+_orig_refresh = cheques.refresh_all
+_orig_record = cheques.record_daily_stats
+cheques.refresh_all = lambda rows, summary: _called.append("refresh") or 0
+cheques.record_daily_stats = lambda stats: _called.append("record")
+try:
+    bank.sync_cheque_register()
+finally:
+    cheques.refresh_all = _orig_refresh
+    cheques.record_daily_stats = _orig_record
+check("bank sync re-matches the register and snapshots the daily point",
+      _called == ["refresh", "record"])
+
+_orig_sync = bank.sync_cheque_register
+_orig_build = bank.build_report
+_synced = []
+bank.sync_cheque_register = lambda: _synced.append(True)
+bank.build_report = lambda files, **kw: {
+    "token": kw.get("token", "feed00000001"), "status": "done",
+    "banks": [], "summary": {}, "statement_lines": [],
+    "created_at": "2026-07-19 09:00", "source": "x"}
+try:
+    tok = bank.start_report([(_tmp / "none.pdf", "x.pdf")],
+                            token="feed00000001")
+    deadline = time.time() + 10
+    while time.time() < deadline and not _synced:
+        time.sleep(0.05)
+finally:
+    bank.sync_cheque_register = _orig_sync
+    bank.build_report = _orig_build
+check("background statement reports trigger the cheque sync",
+      bool(_synced) and tok == "feed00000001")
+
+print("\nALL v9.4—v10.1 TESTS PASSED")

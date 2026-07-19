@@ -19,6 +19,13 @@ from . import orange_cameroun as orange
 
 TOOL_SLUG = "account-stop"
 
+# Disclosure page: precision beats recall. 0.90 accepts a narration only
+# when every distinctive word of the customer name appears in it (or the
+# strings are near-identical) — generic-word coincidences that pass the
+# default 0.86 fuzzy bar (e.g. a payer matched to an unrelated customer
+# sharing one common word) are rejected.
+MATCH_RATIO = 0.90
+
 
 def _norm_acct(value):
     s = str(value or "").strip()
@@ -67,7 +74,8 @@ def build_view():
         narration = f"{ln.get('payer', '')} {ln.get('description', '')}".strip()
         if not narration:
             continue
-        hit = bank_statement.best_customer_for(narration, stopped)
+        hit = bank_statement.best_customer_for(narration, stopped,
+                                               min_ratio=MATCH_RATIO)
         if not hit:
             continue
         entry = accounts[str(hit[0].get("key", ""))]
@@ -90,7 +98,8 @@ def build_view():
             continue
         mkey = name.lower()
         if mkey not in memo:
-            hit = bank_statement.best_customer_for(name, stopped)
+            hit = bank_statement.best_customer_for(name, stopped,
+                                                   min_ratio=MATCH_RATIO)
             memo[mkey] = str(hit[0].get("key", "")) if hit else None
         if not memo[mkey]:
             continue
@@ -99,7 +108,7 @@ def build_view():
             "name": name, "amount": r.get("amount"),
             "cheque_number": r.get("cheque_number", ""),
             "bank": cleared.get("bank") or "not cleared yet",
-            "date": cleared.get("date") or r.get("cheque_date") or ""})
+            "date": cleared.get("date") or ""})
 
     # --- Mobile money: Orange uploads joined on AR account (else name) ------
     by_acct = {_norm_acct(k): v for k, v in accounts.items()}
@@ -115,7 +124,8 @@ def build_view():
         for c in u.get("correspondants", []):
             entry = by_acct.get(_norm_acct(c.get("account")))
             if entry is None and (c.get("name") or "").strip():
-                hit = bank_statement.best_customer_for(c["name"], stopped)
+                hit = bank_statement.best_customer_for(
+                    c["name"], stopped, min_ratio=MATCH_RATIO)
                 entry = accounts[str(hit[0].get("key", ""))] if hit else None
             if entry is None:
                 continue

@@ -235,3 +235,115 @@ def load_upload(token):
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def delete_upload(token):
+    """Remove a processed file from the record (e.g. treated twice) — the
+    monthly report and every cross-tool reader recompute without it."""
+    if not token or not re.fullmatch(r"[0-9a-f]+", str(token)):
+        return False
+    path = HISTORY_DIR / f"{token}.json"
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
+def monthly_report():
+    """Customer × month pivot of every Orange Money payment on record: one
+    row per correspondant — customer name, AR account N°, phone number —
+    and, per statement month, the total payments read for them across the
+    processed files (a transaction appearing in overlapping files is
+    counted once)."""
+    uploads = [u for m in list_uploads(limit=1000)
+               if (u := load_upload(m["token"]))]
+    uploads.sort(key=lambda u: u.get("uploaded_at", ""))
+    month_labels = {}                     # "YYYY-MM" -> label ("Avril 2026")
+    rows, seen = {}, set()
+    for u in uploads:
+        meta = u.get("meta", {})
+        mkey = (meta.get("period_start") or u.get("uploaded_at", ""))[:7] \
+            or "?"
+        month_labels.setdefault(mkey, meta.get("month_label") or mkey)
+        idents = {c.get("correspondant", ""): c
+                  for c in u.get("correspondants", [])}
+        for tx in u.get("collections", []):
+            corr = str(tx.get("correspondant", ""))
+            dedup = (corr, str(tx.get("reference", "")),
+                     str(tx.get("date", "")), tx.get("credit", 0))
+            if dedup in seen:
+                continue
+            seen.add(dedup)
+            row = rows.setdefault(corr, {
+                "correspondant": corr, "name": "", "account": "",
+                "months": {}, "total": 0.0})
+            ident = idents.get(corr) or {}
+            if (ident.get("name") or "").strip():
+                row["name"] = ident["name"].strip()
+            if (ident.get("account") or "").strip():
+                row["account"] = ident["account"].strip()
+            amount = float(tx.get("credit") or 0)
+            row["months"][mkey] = round(row["months"].get(mkey, 0) + amount, 2)
+            row["total"] = round(row["total"] + amount, 2)
+    for row in rows.values():             # freshest remembered identity wins
+        row["name"] = row["name"] \
+            or customers.get_name(TOOL_SLUG, row["correspondant"]) or ""
+        row["account"] = row["account"] \
+            or customers.get_name(ACCT_SLUG, row["correspondant"]) or ""
+    months = sorted(month_labels)
+    ordered = sorted(rows.values(), key=lambda r: -r["total"])
+    return {"months": [{"key": m, "label": month_labels[m]} for m in months],
+            "rows": ordered,
+            "grand": {m: round(sum(r["months"].get(m, 0)
+                                   for r in rows.values()), 2)
+                      for m in months},
+            "grand_total": round(sum(r["total"] for r in rows.values()), 2),
+            "uploads": len(uploads)}
+
+
+def build_monthly_xlsx(out_path, report):
+    """The customer × month payments pivot as a clean Excel workbook."""
+    import xlsxwriter
+
+    wb = xlsxwriter.Workbook(str(out_path))
+    ws = wb.add_worksheet("Payments by month")
+    f_title = wb.add_format({"bold": True, "font_size": 13,
+                             "font_name": "Arial"})
+    f_head = wb.add_format({"font_name": "Arial", "font_size": 10,
+                            "bold": True, "bg_color": "#0b2545",
+                            "font_color": "white", "border": 1})
+    f_cell = wb.add_format({"font_name": "Arial", "font_size": 10,
+                            "border": 1})
+    f_num = wb.add_format({"font_name": "Arial", "font_size": 10,
+                           "border": 1, "num_format": "#,##0"})
+    f_tot = wb.add_format({"font_name": "Arial", "font_size": 10,
+                           "bold": True, "border": 1, "num_format": "#,##0",
+                           "bg_color": "#eef3fb"})
+    ws.write("A1", "Orange Money — customer payments by month (XAF)",
+             f_title)
+    headers = ["Customer name", "AR account N°", "Phone number"] + \
+        [m["label"] for m in report["months"]] + ["Total"]
+    for c, h in enumerate(headers):
+        ws.write(2, c, h, f_head)
+    ws.set_column(0, 0, 32)
+    ws.set_column(1, 2, 16)
+    ws.set_column(3, len(headers) - 1, 14)
+    r = 3
+    for row in report["rows"]:
+        ws.write(r, 0, row["name"] or "—", f_cell)
+        ws.write(r, 1, row["account"] or "—", f_cell)
+        ws.write(r, 2, row["correspondant"], f_cell)
+        for c, m in enumerate(report["months"], start=3):
+            ws.write_number(r, c, row["months"].get(m["key"], 0), f_num)
+        ws.write_number(r, 3 + len(report["months"]), row["total"], f_num)
+        r += 1
+    ws.write(r, 0, "TOTAL", f_tot)
+    ws.write(r, 1, "", f_tot)
+    ws.write(r, 2, "", f_tot)
+    for c, m in enumerate(report["months"], start=3):
+        ws.write_number(r, c, report["grand"].get(m["key"], 0), f_tot)
+    ws.write_number(r, 3 + len(report["months"]), report["grand_total"],
+                    f_tot)
+    ws.freeze_panes(3, 0)
+    wb.close()
+    return out_path

@@ -13,6 +13,14 @@
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
 
+    {% if held_chart %}
+    <h2 class="section-title" style="margin-top:6px;">⛔ Accounts on credit
+      hold — daily</h2>
+    <div style="overflow-x:auto;">{{ held_chart|safe }}</div>
+    <p class="note-small">Snapshotted each time an analysis is uploaded — the
+      graph updates daily as new analyses are loaded.</p>
+    {% endif %}
+
     <form class="upload-form-stack" action="/tools/ongoing-ctp-monitoring/analyze"
           method="post" enctype="multipart/form-data">
       <label class="filedrop">
@@ -91,14 +99,6 @@
       <a href="/tools/ongoing-ctp-monitoring/holds">Manage the credit-hold
       register →</a> (who is currently on hold; analyses compare policy vs this
       register)</p>
-
-    {% if held_chart %}
-    <h2 class="section-title" style="margin-top:22px;">Accounts on credit hold
-      — daily</h2>
-    <div style="overflow-x:auto;">{{ held_chart|safe }}</div>
-    <p class="note-small">Snapshotted each time an analysis is uploaded — the
-      graph updates daily as new analyses are loaded.</p>
-    {% endif %}
 
     {% if recent %}
     <h2 class="section-title" style="margin-top:22px;">Recent analyses</h2>

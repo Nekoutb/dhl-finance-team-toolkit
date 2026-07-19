@@ -295,6 +295,20 @@ def refresh_report(token):
     return refreshed
 
 
+def sync_cheque_register():
+    """New statement lines change which cheques count as presented — re-match
+    the whole register and snapshot today's unpresented count so the cheque
+    daily graph updates the moment statements are uploaded (not only when
+    someone opens the cheque page). Never breaks a statement upload."""
+    try:
+        from ..services import cheques
+        rows, summary = all_statement_lines()
+        cheques.refresh_all(rows, summary)
+        cheques.record_daily_stats(cheques.register_stats())
+    except Exception:  # noqa: BLE001 — best-effort side refresh
+        pass
+
+
 def start_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     """Kick off the report on a BACKGROUND thread and return its token at once.
 
@@ -320,6 +334,7 @@ def start_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
                                    bank_slot=bank_slot, period=period)
             report["status"] = "done"
             save_report(report)
+            sync_cheque_register()
         except Exception as exc:  # noqa: BLE001 — surface, never crash silently
             save_report({
                 "token": token, "bank_slot": bank_slot, "period": period,

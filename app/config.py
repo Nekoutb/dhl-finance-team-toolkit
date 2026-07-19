@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.0 — 18 Jul 2026 · Reconciliations are now FIXED IN TIME: approval freezes the selected Cash AR / BIT rows, so replacing the BIT/Cash AR files can never change or mix up an approved sandbox; unapproved sandboxes prepared against replaced files are flagged stale with a one-click re-match (never silently re-pointed); the bank deposit slip is uploaded together with the payment statement and its banked total anchors the BIT search"
+APP_VERSION = "v10.1 — 19 Jul 2026 · Account Stop: stricter name matching (every distinctive word must appear — no more loose look-alike matches) + a Transaction-date-on-statement column in all three payment groups; credit-hold daily graph moved to the top of the CtP portal; Orange Money: customer payments by month (name, AR account, phone, per-month totals + Excel) and removable processed files; cheque unpresented graph now updates the moment bank statements are uploaded"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

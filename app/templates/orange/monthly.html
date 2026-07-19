@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Payments by month · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/orange-cameroun">{{ tool.name }}</a> / Payments by month
+  </nav>
+
+  <section class="panel">
+    <h1>📱 Orange Money — customer payments by month</h1>
+    <p class="lead">Every payment read from the
+      <strong>{{ report.uploads }}</strong> processed file(s) on record,
+      pivoted per customer: name, AR account N°, phone number and the total
+      collected each statement month. A transaction appearing in overlapping
+      files is counted once.</p>
+
+    {% if not report.rows %}
+      <div class="alert alert-info">No processed Orange Money files on record
+        yet — upload a statement and it appears here.</div>
+    {% else %}
+      <div class="download-row" style="margin-bottom:10px;">
+        <a class="btn btn-primary"
+           href="/tools/orange-cameroun/monthly/export">⬇ Download as
+          Excel</a>
+        <a class="btn" href="/tools/orange-cameroun">← Back to uploads</a>
+      </div>
+
+      <div class="table-wrap" style="max-height:none;">
+        <table class="tx-table">
+          <thead><tr>
+            <th>Customer name</th><th>AR account N°</th><th>Phone number</th>
+            {% for m in report.months %}<th>{{ m.label }}</th>{% endfor %}
+            <th>Total (XAF)</th>
+          </tr></thead>
+          <tbody>
+            {% for r in report.rows %}
+            <tr>
+              <td>{{ r.name or '—' }}</td>
+              <td>{{ r.account or '—' }}</td>
+              <td>{{ r.correspondant }}</td>
+              {% for m in report.months %}
+              <td>{% if r.months.get(m.key) %}{{ "{:,.0f}".format(r.months[m.key]) }}{% else %}—{% endif %}</td>
+              {% endfor %}
+              <td><strong>{{ "{:,.0f}".format(r.total) }}</strong></td>
+            </tr>
+            {% endfor %}
+            <tr>
+              <td><strong>TOTAL</strong></td><td></td><td></td>
+              {% for m in report.months %}
+              <td><strong>{{ "{:,.0f}".format(report.grand.get(m.key, 0)) }}</strong></td>
+              {% endfor %}
+              <td><strong>{{ "{:,.0f}".format(report.grand_total) }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note-small">Names and AR accounts come from the identities
+        confirmed on the review pages (remembered per correspondant). “—” =
+        not identified yet — fill it on the next upload's review page or
+        under <a href="/tools/orange-cameroun/customers">saved
+        customers</a>.</p>
+    {% endif %}
+  </section>
+{% endblock %}
