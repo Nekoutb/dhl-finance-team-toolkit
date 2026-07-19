@@ -10,6 +10,7 @@
       attach the bank deposit slip and submit — the finance team receives it
       instantly.</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <div id="iro-error" class="alert alert-error" style="display:none;"></div>
     {% if draft and draft.ticks %}
     <div class="alert alert-info">📝 Your unsent selections from
       {{ draft.saved_at }} were restored — nothing was lost. Review and
@@ -79,19 +80,78 @@
 
       <div class="inline-fields" style="margin-bottom:6px;">
         <label class="field" style="min-width:300px;">
-          <span>Bank deposit slip(s) — photo or PDF</span>
+          <span><strong>Bank deposit slip — the only evidence you need</strong>
+            (photo or PDF)</span>
           <input type="file" id="iro-slip-input" multiple
                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif">
-        </label>
-        <label class="field" style="min-width:220px;">
-          <span>Amount banked (XAF) — read from the slip, locked</span>
-          <input type="text" id="iro-banked" value="—" readonly
-                 style="background:rgba(100,116,139,.12);color:#64748b;"
-                 title="The banked amount is read from the deposit slip and cannot be changed">
         </label>
       </div>
       <div id="iro-slip-list" class="note-small"></div>
       <div id="iro-slip-ids"></div>
+
+      <!-- Everything below is READ OFF THE SLIP and locked -->
+      <div id="iro-slipinfo" style="border:1px solid rgba(100,116,139,.35);
+           border-radius:10px;padding:10px;margin:8px 0 10px;">
+        <p class="note-small" style="margin:0 0 6px;"><strong>Read from
+          your deposit slip</strong> — filled automatically, cannot be
+          changed:</p>
+        <div class="inline-fields">
+          <label class="field" style="min-width:160px;">
+            <span>Amount banked (XAF)</span>
+            <input type="text" id="iro-banked" value="—" readonly
+                   class="iro-locked"></label>
+          <label class="field" style="min-width:140px;">
+            <span>Deposit date</span>
+            <input type="text" id="iro-slip-date" value="—" readonly
+                   class="iro-locked"></label>
+          <label class="field" style="min-width:150px;">
+            <span>Beneficiary bank</span>
+            <input type="text" id="iro-slip-bank" value="—" readonly
+                   class="iro-locked"></label>
+          <label class="field" style="min-width:170px;">
+            <span>Slip reference</span>
+            <input type="text" id="iro-slip-ref" value="—" readonly
+                   class="iro-locked"></label>
+        </div>
+        <div class="inline-fields">
+          <label class="field" style="min-width:180px;">
+            <span>Deposited by</span>
+            <input type="text" id="iro-slip-depositor" value="—" readonly
+                   class="iro-locked"></label>
+          <label class="field" style="min-width:220px;">
+            <span>Beneficiary (must be DHL)</span>
+            <input type="text" id="iro-slip-benef" value="—" readonly
+                   class="iro-locked"></label>
+          <label class="field" style="min-width:170px;">
+            <span>Account credited</span>
+            <input type="text" id="iro-slip-acct" value="—" readonly
+                   class="iro-locked"></label>
+        </div>
+      </div>
+      <style>.iro-locked { background: rgba(100,116,139,.12);
+        color: #64748b; }</style>
+
+      <!-- Optional: an Excel TABLE of deposit slips — tick the deposits -->
+      <div class="inline-fields" style="margin-bottom:4px;">
+        <label class="field" style="min-width:300px;">
+          <span>Optional — deposit slips list (Excel: Date · Bank ·
+            Reference · Amount)</span>
+          <input type="file" id="iro-deplist-input"
+                 accept=".xlsx,.xlsm,.xls">
+        </label>
+      </div>
+      <div id="iro-deplist-box" style="display:none;margin-bottom:10px;">
+        <p class="note-small" style="margin:0 0 4px;">Tick the deposits
+          funding this return:</p>
+        <div class="table-wrap" style="max-height:220px;">
+          <table class="tx-table" id="iro-deplist-table">
+            <thead><tr><th></th><th>Date</th><th>Bank</th>
+              <th>Reference</th><th>Amount (XAF)</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note-small" id="iro-deplist-note" style="margin:4px 0 0;"></p>
+      </div>
 
       <button class="btn btn-primary" type="submit" id="iro-submit">📨
         Submit payment references</button>
@@ -109,6 +169,11 @@
       (function () {
         function fmt(n) { return n.toLocaleString("en-US",
           {maximumFractionDigits: 0}); }
+        function showError(msg) {
+          var e = document.getElementById("iro-error");
+          e.textContent = msg || "";
+          e.style.display = msg ? "" : "none";
+        }
         function total() {
           var t = 0;
           document.querySelectorAll(".iro-tick:checked").forEach(function (c) {
@@ -185,8 +250,17 @@
                 }
                 if (d.date && !paydate.value) {
                   paydate.value = d.date;
-                  msg += " · deposit date " + d.date;
                 }
+                function put(id, v) {
+                  var el = document.getElementById(id);
+                  if (el && v && el.value === "—") { el.value = v; }
+                }
+                put("iro-slip-date", d.date);
+                put("iro-slip-bank", d.bank);
+                put("iro-slip-ref", d.slip_reference);
+                put("iro-slip-depositor", d.depositor);
+                put("iro-slip-benef", d.beneficiary);
+                put("iro-slip-acct", d.account_credited);
                 msg += d.dhl ? " · payment to DHL identified ✓"
                              : " · DHL not confirmed on the slip";
                 row.textContent = msg;
@@ -198,6 +272,51 @@
               });
           });
           slipInput.value = "";
+        });
+
+        // Optional deposit-slip LIST (Excel) — tick the deposits funding
+        // this return; ticked references ride into the reconciliation.
+        var depInput = document.getElementById("iro-deplist-input");
+        depInput.addEventListener("change", function () {
+          var f = depInput.files[0];
+          depInput.value = "";
+          if (!f) { return; }
+          var fd = new FormData();
+          fd.append("deposit_list", f, f.name);
+          fetch("/operator/{{ token }}/read-deposit-list",
+                {method: "POST", body: fd})
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d.error) { showError(d.error); return; }
+              showError("");
+              var tbody = document.querySelector(
+                "#iro-deplist-table tbody");
+              tbody.innerHTML = "";
+              d.rows.forEach(function (dep) {
+                var tr = document.createElement("tr");
+                var cells = ["", dep.date || "—", dep.bank || "—",
+                             dep.reference || "—", fmt(dep.amount || 0)];
+                cells.forEach(function (v) {
+                  var td = document.createElement("td");
+                  td.textContent = v;           // never innerHTML — the
+                  tr.appendChild(td);           // values come from a file
+                });
+                var cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.name = "deposit_ref";
+                cb.value = dep.reference || "";
+                tr.children[0].appendChild(cb);
+                tbody.appendChild(tr);
+              });
+              document.getElementById("iro-deplist-box").style.display =
+                "";
+              document.getElementById("iro-deplist-note").textContent =
+                d.rows.length + " deposit(s) on the list — ticked "
+                + "references are matched against the BIT.";
+            })
+            .catch(function () {
+              showError("Could not read the deposit list — try again.");
+            });
         });
 
         var draftTimer = null;

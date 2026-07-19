@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.8 — 19 Jul 2026 · Every graph on the site now labels each data point with its value (thousands-separated; long ranges thinned to stay readable, the latest point always labelled) — cheque register, BIT & Cash AR, CtP credit-hold and all three dashboard trends"
+APP_VERSION = "v10.9 — 19 Jul 2026 · Dedicated deposit-slip reader: the slip is the ONLY evidence an IRO uploads — bank (e.g. BICEC), depositor, beneficiary (proper DHL check), account credited, slip reference, date (French included) and amount all read automatically into locked boxes; slip reference + account hunted in the BIT (with amount-agreement safeguards); optional Excel deposit-slips list with tickable rows; finance sees the full slip reading on every sandbox"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

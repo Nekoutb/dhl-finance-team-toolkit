@@ -1134,10 +1134,12 @@ check("Excel BIT values per cheque",
 from app.services import ai_ocr  # noqa: E402
 
 BIGSLIP = b"\x89PNG" + b"F" * 25000     # >20 KB — a real slip photo size
-_orig_extract = ai_ocr.extract_payment_statement
-ai_ocr.extract_payment_statement = lambda blob, media, cfg: {
-    "label": "DHL EXPRESS CAMEROON SARL", "date": "17/07/2026",
-    "total": 115700.0, "lines": []}
+_orig_extract = ai_ocr.extract_deposit_slip
+ai_ocr.extract_deposit_slip = lambda blob, media, cfg: {
+    "bank": "UBA", "depositor": "AGENT X",
+    "beneficiary": "DHL EXPRESS CAMEROON SARL",
+    "account_credited": "000111", "slip_reference": "R-1",
+    "date": "17/07/2026", "amount_xaf": 115700.0}
 try:
     r = client.post(f"/operator/{tok1}/read-slip",
                     files=[("slip", ("dep.png", BIGSLIP,
@@ -1147,7 +1149,7 @@ try:
           r.status_code == 200 and side["total"] == 115700.0
           and side["dhl"] is True and side["slip_id"].startswith("iroslip_"))
 finally:
-    ai_ocr.extract_payment_statement = _orig_extract
+    ai_ocr.extract_deposit_slip = _orig_extract
 
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["9605628896"],
@@ -1172,8 +1174,9 @@ check("sandbox carries the pre-read slip total (no second read)",
       and recy.get("slip_total") == 115700.0
       and (recy.get("slip") or {}).get("source") == "dep.png")
 check("portal page has search/filter and locked amount, no Excel upload",
-      (lambda t: "Search / filter" in t
-       and "read from the slip, locked" in t
+      (lambda t: "Search / filter" in " ".join(t.split())
+       and "filled automatically" in " ".join(t.split())
+       and 'id="iro-banked"' in t
        and "awb_excel" not in t)(client.get(f"/operator/{tok1}").text))
 check("evidence-copy email skipped cleanly when SMTP is off",
       iro.send_evidence_copy({"smtp": {"enabled": False}}, "415774002",
@@ -1196,9 +1199,11 @@ r = client.post(f"/operator/{tok1}/read-slip",
 check("duplicate slip file rejected at pre-read (409)",
       r.status_code == 409 and "already submitted" in r.json()["error"])
 # …and a DIFFERENT photo of the same deposit (same account+amount+date).
-ai_ocr.extract_payment_statement = lambda blob, media, cfg: {
-    "label": "DHL EXPRESS", "date": "17/07/2026", "total": 115700.0,
-    "lines": []}
+ai_ocr.extract_deposit_slip = lambda blob, media, cfg: {
+    "bank": "UBA", "depositor": "AGENT X",
+    "beneficiary": "DHL EXPRESS", "account_credited": "000111",
+    "slip_reference": "R-1", "date": "17/07/2026",
+    "amount_xaf": 115700.0}
 try:
     r = client.post(f"/operator/{tok1}/read-slip",
                     files=[("slip", ("dep_other.png", b"\x89PNG fake4",
@@ -1206,7 +1211,7 @@ try:
     check("same deposit re-photographed rejected too (409)",
           r.status_code == 409 and "already submitted" in r.json()["error"])
 finally:
-    ai_ocr.extract_payment_statement = _orig_extract
+    ai_ocr.extract_deposit_slip = _orig_extract
 # …and via the no-script raw-file path at submit.
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["2080666324"],
@@ -1476,4 +1481,141 @@ long19 = charts.line_svg(
 check("long ranges thin the labels but always keep the latest",
       ">59<" in long19 and long19.count('font-size="10"') <= 16)
 
-print("\nALL v9.4—v10.8 TESTS PASSED")
+# === 20. v10.9 — dedicated slip extractor, locked boxes, deposit list =======
+check("French slip dates parse to ISO",
+      iro._iso_date("07 Juillet 2026 à 13:50") == "2026-07-07"
+      and iro._iso_date("1er décembre 2026") == "2026-12-01"
+      and iro._iso_date("17/07/2026") == "2026-07-17")
+
+_orig_slipx = ai_ocr.extract_deposit_slip
+ai_ocr.extract_deposit_slip = lambda blob, media, cfg: {
+    "bank": "BICEC", "depositor": "FONTEM FONKI A",
+    "beneficiary": "Societe DHL International Cameroun (STE)",
+    "account_credited": "00123101000-83", "slip_reference": "012372",
+    "date": "07 Juillet 2026 à 13:50", "amount_xaf": 523500.0}
+try:
+    side20 = iro.preread_slip(b"SLIP" + b"B" * 25000, "bicec.jpg",
+                              {"api_key": "x"}, account="415774002")
+    check("dedicated extractor fills the whole sidecar",
+          side20["total"] == 523500.0 and side20["date"] == "2026-07-07"
+          and side20["bank"] == "BICEC"
+          and side20["depositor"] == "FONTEM FONKI A"
+          and side20["account_credited"] == "00123101000-83"
+          and side20["slip_reference"] == "012372")
+    check("the DHL check now uses the BENEFICIARY (fixes the miss)",
+          side20["dhl"] is True)
+
+    ai_ocr.is_configured = lambda cfg: True
+    r = client.post(f"/operator/{tok1}/read-slip",
+                    files=[("slip", ("bicec2.jpg", b"SLIP" + b"C" * 25000,
+                                     "image/png"))])
+    d20 = r.json()
+    check("read-slip returns every locked-box field incl. beneficiary bank",
+          r.status_code == 200 and d20["bank"] == "BICEC"
+          and d20["beneficiary"].startswith("Societe DHL")
+          and d20["slip_reference"] == "012372"
+          and d20["depositor"] == "FONTEM FONKI A")
+finally:
+    ai_ocr.extract_deposit_slip = _orig_slipx
+    ai_ocr.is_configured = _orig_conf
+
+r = client.get(f"/operator/{tok1}")
+flat20 = " ".join(r.text.split())
+check("portal shows the locked slip panel + beneficiary bank box",
+      "iro-slip-bank" in r.text and "Beneficiary bank" in flat20
+      and "the only evidence you need" in flat20
+      and "iro-locked" in r.text)
+check("portal offers the deposit-list option",
+      "deposit slips list" in flat20.lower()
+      and "iro-deplist-table" in r.text)
+
+dep_xlsx = _tmp / "deplist.xlsx"
+wbd = openpyxl.Workbook()
+wbd.active.append(["Date", "Banque", "Reference", "Montant"])
+wbd.active.append(["07/07/2026", "BICEC", "012372", 523500])
+wbd.active.append(["08/07/2026", "SGBC", "DEP-99", 100000])
+wbd.save(dep_xlsx)
+rows20 = iro.parse_deposit_list(dep_xlsx)
+check("deposit list parsed (date/bank/reference/amount)",
+      len(rows20) == 2 and rows20[0]["bank"] == "BICEC"
+      and rows20[0]["reference"] == "012372"
+      and rows20[0]["amount"] == 523500.0
+      and rows20[0]["date"] == "2026-07-07")
+with open(dep_xlsx, "rb") as fh:
+    r = client.post(f"/operator/{tok1}/read-deposit-list",
+                    files=[("deposit_list", ("deplist.xlsx", fh, XLSX))])
+check("deposit-list endpoint returns tickable rows",
+      r.status_code == 200 and len(r.json()["rows"]) == 2)
+
+# Submit with the slip + a ticked deposit ref: the sandbox stores the full
+# slip info and hunts BOTH references in the BIT.
+FAKE7 = {"bit_header": [], "gen_bit": "g7", "gen_cash": "g7",
+         "bit": [
+             {"id": 0, "amount": -523500.0, "gl_account": "1263001293",
+              "assignment": "0548", "posting_date": "07.07.2026",
+              "reference": "BICEC 012372", "text": "VERSEMENT ESPECES",
+              "doc_no": "410200", "posting_key": "40", "raw": []}],
+         "cash": FAKE3["cash"]}
+bitcash.rows_store = lambda: FAKE7
+r = client.post(f"/operator/{tok1}/submit",
+                data={"awb": ["9605628896"],
+                      "ref_9605628896": "OM-778899",
+                      "deposit_ref": "012372",
+                      "slip_id": side20["slip_id"],
+                      "payment_date": "2026-07-07"})
+check("submission with slip + ticked deposit accepted",
+      r.status_code == 200 and "Submission received" in r.text)
+sub20 = iro.load_record("415774002")["submissions"][-1]
+deadline = time.time() + 15
+recz = None
+while time.time() < deadline:
+    recz = bitcash.load_recon(sub20["recon_token"])
+    if recz and recz.get("status") != "reading":
+        break
+    time.sleep(0.1)
+check("sandbox stores the full slip reading",
+      recz and recz["status"] == "open"
+      and (recz.get("slip_info") or {}).get("bank") == "BICEC"
+      and recz["slip_info"]["slip_reference"] == "012372"
+      and recz["slip_info"]["depositor"] == "FONTEM FONKI A")
+check("slip reference pins the BIT line (reference-first)",
+      recz["bit_selected"] == 0 and 0 in recz.get("ref_hits", []))
+r = client.get(f"/tools/bit-cash-ar/recon/{sub20['recon_token']}")
+flatz = " ".join(r.text.split())
+check("finance sees the slip reading on the sandbox",
+      "Read off the deposit slip" in flatz and "BICEC" in flatz
+      and "FONTEM FONKI A" in flatz and "012372" in flatz)
+
+# --- review fixes: anchor tiers, empty-info gate, portal JS repairs --------
+strongA, agreeA, trailA = bitcash._anchor_hits(
+    [], ["012372", "00123101000-83"], FAKE7["bit"], 523500.0)
+check("slip anchor agreeing on the amount is authoritative",
+      strongA == [] and agreeA == [0] and trailA == [])
+strongB, agreeB, trailB = bitcash._anchor_hits(
+    [], ["012372"], FAKE7["bit"], 111.0)
+check("slip anchor DISAGREEING on the amount only trails, never selects",
+      agreeB == [] and trailB == [0])
+_l7, _a7, cands7, sel7 = bitcash.automatch(
+    {"total": 999.0, "lines": []}, slip_total=523500.0,
+    slip_refs=["012372"])
+check("unique agreeing slip anchor auto-selects", sel7 == 0)
+_l8, _a8, cands8, sel8 = bitcash.automatch(
+    {"total": 999.0, "lines": []}, slip_total=111.0,
+    slip_refs=["012372"])
+check("disagreeing slip anchor never auto-selects",
+      sel8 is None and cands8[-1] == 0)
+check("short slip serials are ignored as anchors",
+      bitcash._anchor_hits([], ["0154"], FAKE7["bit"], 523500.0)[1] == [])
+
+recheck = bitcash.load_recon(sub20["recon_token"])
+recheck2 = bitcash.rematch(sub20["recon_token"])
+check("re-match keeps the slip anchors (no vanishing on file replacement)",
+      recheck2 and recheck2["bit_selected"] == 0
+      and 0 in recheck2.get("ref_hits", []))
+
+r = client.get(f"/operator/{tok1}")
+check("portal defines its own error surface (deposit list is alive)",
+      'id="iro-error"' in r.text and "function showError" in r.text
+      and "textContent = v" in r.text)
+
+print("\nALL v9.4—v10.9 TESTS PASSED")

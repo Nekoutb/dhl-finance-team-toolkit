@@ -451,7 +451,8 @@ BIT_MATCH_MARGIN = 1000.0
 VARIANCE_EMAIL_THRESHOLD = 5000.0
 
 
-def automatch(statement, slip_total=None, payment_refs=None):
+def automatch(statement, slip_total=None, payment_refs=None,
+              slip_refs=None):
     """Match a parsed statement against the stored Cash AR + BIT rows.
 
     The statement TOTAL is always recomputed arithmetically from its lines
@@ -496,7 +497,8 @@ def automatch(statement, slip_total=None, payment_refs=None):
     refs = list(payment_refs or []) + \
         [ln.get("payment_reference") for ln in lines
          if ln.get("payment_reference")]
-    ref_hits = _reference_hits(refs, data["bit"])
+    strong, agree, trail = _anchor_hits(refs, slip_refs, data["bit"], slip)
+    ref_hits = strong + agree
     targets = [t for t in (slip, abs(total or 0)) if t]
     cands, bit_selected = [], None
     if targets:
@@ -517,12 +519,18 @@ def automatch(statement, slip_total=None, payment_refs=None):
                        if _dist(r) <= BIT_MATCH_MARGIN),
                       key=lambda r: (*_rank(r), r["id"]))
         cands = [r["id"] for r in near]
-    # Reference hits outrank everything: put them first, auto-select a
-    # unique hit; several hits -> the user picks among them.
+    # Reference hits outrank everything: submitted references first, then
+    # slip anchors that AGREE on the banked amount; disagreeing slip hits
+    # trail at the bottom. Auto-select: a unique submitted-reference hit,
+    # else a unique agreeing slip hit.
     if ref_hits:
         cands = ref_hits + [i for i in cands if i not in ref_hits]
-        if len(ref_hits) == 1:
-            bit_selected = ref_hits[0]
+        if len(strong) == 1:
+            bit_selected = strong[0]
+        elif not strong and len(agree) == 1:
+            bit_selected = agree[0]
+    if trail:
+        cands = [i for i in cands if i not in trail] + trail
     if bit_selected is None and targets:
         amounts = {r["id"]: abs(r["amount"]) for r in data["bit"]}
         for t in targets:
@@ -532,8 +540,9 @@ def automatch(statement, slip_total=None, payment_refs=None):
                 break
             if exact:          # the same amount more than once — user picks
                 break
-        if bit_selected is None and len(cands) == 1:
-            bit_selected = cands[0]
+        if bit_selected is None and len(cands) == 1 \
+                and cands[0] not in trail:
+            bit_selected = cands[0]     # a lone TRAIL hit is a suggestion,
     return lines, sorted(set(ar_selected)), cands, bit_selected
 
 
@@ -560,24 +569,65 @@ def _reference_hits(refs, bit_rows):
     return hits
 
 
-def _read_slip_total(slip_path, slip_media, ai_cfg):
-    """The total banked amount on a deposit slip — Excel slips through the
-    row reader, scans through the document reader. None when unreadable
-    (the slip then stays pure evidence)."""
+def _slip_refs(info):
+    """Machine-read anchors off the deposit slip (its reference + the
+    account credited)."""
+    info = info or {}
+    return [r for r in (info.get("slip_reference", ""),
+                        info.get("account_credited", "")) if r]
+
+
+def _anchor_hits(strong_refs, slip_refs, bit_rows, slip_amount):
+    """Two anchor tiers: STRONG = references a person submitted (unique hit
+    auto-selects); WEAK = machine-read slip anchors (>= 6 chars after
+    normalisation — short serials substring-match unrelated rows). A weak
+    hit only carries authority when the row's amount AGREES with the slip
+    total; disagreeing weak hits trail as low-rank suggestions.
+    Returns (strong, agree, trail)."""
+    strong = _reference_hits(strong_refs, bit_rows)
+    srcs = [r for r in (slip_refs or []) if len(_norm_ref(r)) >= 6]
+    weak = [i for i in _reference_hits(srcs, bit_rows) if i not in strong]
+    amounts = {r["id"]: abs(r["amount"]) for r in bit_rows}
+    slip_amt = abs(_to_float(slip_amount) or 0)
+    agree = [i for i in weak if slip_amt and amounts.get(i) == slip_amt]
+    trail = [i for i in weak if i not in agree]
+    return strong, agree, trail
+
+
+def _read_slip_info(slip_path, slip_media, ai_cfg):
+    """Full deposit-slip reading via the dedicated extractor → {amount,
+    date, bank, depositor, beneficiary, account_credited, slip_reference}
+    (Excel slips: amount only). None when unreadable — the slip then stays
+    pure evidence."""
     try:
         if slip_media == "excel":
-            return _read_excel_statement(slip_path)["total"]
-        doc = ai_ocr.extract_payment_statement(
+            return {"amount": _read_excel_statement(slip_path)["total"],
+                    "date": "", "bank": "", "depositor": "",
+                    "beneficiary": "", "account_credited": "",
+                    "slip_reference": ""}
+        info = ai_ocr.extract_deposit_slip(
             Path(slip_path).read_bytes(), slip_media, ai_cfg)
-        return _to_float(doc.get("total")) or None
+        return {"amount": _to_float(info.get("amount_xaf")) or None,
+                "date": info.get("date", ""),
+                "bank": info.get("bank", ""),
+                "depositor": info.get("depositor", ""),
+                "beneficiary": info.get("beneficiary", ""),
+                "account_credited": info.get("account_credited", ""),
+                "slip_reference": info.get("slip_reference", "")}
     except Exception:  # noqa: BLE001 — a slip that can't be read is fine
         return None
+
+
+def _read_slip_total(slip_path, slip_media, ai_cfg):
+    """Back-compat wrapper: just the banked amount."""
+    return (_read_slip_info(slip_path, slip_media, ai_cfg) or {}) \
+        .get("amount")
 
 
 def create_recon_async(stored_path, media_type, source, uploaded_by,
                        slip_path=None, slip_media=None, slip_source="",
                        extra_slips=None, payment_refs=None,
-                       slip_total=None):
+                       slip_total=None, slip_info=None):
     """Create a sandbox stub and AI-read/match the statement on a background
     thread (a scanned PDF can take a minute — never block the request).
     Copies of the payment advice AND the bank deposit slip(s) are kept with
@@ -628,17 +678,28 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
             else:
                 statement = ai_ocr.extract_payment_statement(
                     Path(stored_path).read_bytes(), media_type, ai_cfg)
+            # A pre-read that FAILED (empty fields) must not suppress the
+            # background read — only a slip_info with content is trusted.
+            usable = slip_info if slip_info and any(
+                slip_info.get(k) for k in ("amount", "slip_reference",
+                                           "bank", "beneficiary")) else None
+            info = usable or (_read_slip_info(slip_path, slip_media,
+                                              ai_cfg)
+                              if slip_path else None)
             resolved_slip_total = slip_total if slip_total \
-                else (_read_slip_total(slip_path, slip_media, ai_cfg)
-                      if slip_path else None)
+                else (info or {}).get("amount")
             stub = load_recon(token) or {}
             refs = stub.get("payment_refs", [])
             lines, ar_sel, cands, bit_sel = automatch(
-                statement, resolved_slip_total, payment_refs=refs)
+                statement, resolved_slip_total, payment_refs=refs,
+                slip_refs=_slip_refs(info))
             statement["lines"] = lines
             all_refs = refs + [ln.get("payment_reference") for ln in lines
                                if ln.get("payment_reference")]
-            ref_hits = _reference_hits(all_refs, rows_store()["bit"])
+            strong_h, agree_h, _trail_h = _anchor_hits(
+                all_refs, _slip_refs(info), rows_store()["bit"],
+                resolved_slip_total)
+            ref_hits = strong_h + agree_h
             # "Duplicate" = an EXACT amount appears more than once in the
             # BIT; near matches within the margin are choices, not duplicates.
             bit_amounts = {r["id"]: abs(r["amount"])
@@ -652,6 +713,7 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
             rec.update({
                 "status": "open", "statement": statement,
                 "slip_total": resolved_slip_total,
+                "slip_info": info,
                 "rows_gen": rows_generation(),
                 "ar_selected": ar_sel, "bit_candidates": cands,
                 "bit_selected": bit_sel, "ref_hits": ref_hits,
@@ -678,12 +740,16 @@ def rematch(token):
     statement = rec["statement"]
     lines, ar_sel, cands, bit_sel = automatch(
         statement, rec.get("slip_total"),
-        payment_refs=rec.get("payment_refs", []))
+        payment_refs=rec.get("payment_refs", []),
+        slip_refs=_slip_refs(rec.get("slip_info")))
     statement["lines"] = lines
     all_refs = rec.get("payment_refs", []) + \
         [ln.get("payment_reference") for ln in lines
          if ln.get("payment_reference")]
-    rec["ref_hits"] = _reference_hits(all_refs, rows_store()["bit"])
+    strong_h, agree_h, _trail_h = _anchor_hits(
+        all_refs, _slip_refs(rec.get("slip_info")), rows_store()["bit"],
+        rec.get("slip_total"))
+    rec["ref_hits"] = strong_h + agree_h
     bit_amounts = {r["id"]: abs(r["amount"]) for r in rows_store()["bit"]}
     tot = abs(_to_float(statement.get("total")) or 0)
     slp = abs(_to_float(rec.get("slip_total")) or 0)
@@ -843,15 +909,17 @@ def recon_view(recon):
             "email_threshold": VARIANCE_EMAIL_THRESHOLD,
             "variance_email": recon.get("variance_email"),
             "slip": recon.get("slip"), "advice": recon.get("file", ""),
+            "slip_info": recon.get("slip_info"),
             "extra_slips": recon.get("extra_slips", []),
             "payment_refs": recon.get("payment_refs", [])}
 
 
-def set_slip(token, stored_name, source, total=None):
+def set_slip(token, stored_name, source, total=None, info=None):
     """Attach the bank deposit slip to a sandbox (any non-error state) —
     the evidence that pins the exact payment on the bank statement. When
     its total could be read it is stored too, so a re-match anchors the
-    BIT search on the banked amount."""
+    BIT search on the banked amount; the full slip reading (bank,
+    depositor, beneficiary, account, reference) rides along."""
     rec = load_recon(token)
     if not rec or rec.get("status") not in ("open", "approved"):
         return None
@@ -859,6 +927,8 @@ def set_slip(token, stored_name, source, total=None):
                    "uploaded": datetime.now().strftime("%Y-%m-%d %H:%M")}
     if total:
         rec["slip_total"] = round(_to_float(total), 2)
+    if info:
+        rec["slip_info"] = info
     save_recon(rec)
     return rec
 

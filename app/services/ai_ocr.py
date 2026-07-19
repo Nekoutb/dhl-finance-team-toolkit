@@ -724,6 +724,113 @@ def extract_awb_receipt(file_bytes, media_type, ai_cfg):
             "date": str(data.get("date") or "").strip()[:20]}
 
 
+_DEPOSIT_SLIP_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "bank": {"type": "string"},
+        "depositor": {"type": "string"},
+        "beneficiary": {"type": "string"},
+        "account_credited": {"type": "string"},
+        "slip_reference": {"type": "string"},
+        "date": {"type": "string"},
+        "amount_xaf": {"type": "number"},
+    },
+    "required": ["bank", "depositor", "beneficiary", "account_credited",
+                 "slip_reference", "date", "amount_xaf"],
+}
+
+_DEPOSIT_SLIP_PROMPT = (
+    "This is a BANK DEPOSIT SLIP (bordereau de versement), often in "
+    "French, photographed or scanned. Extract:\n"
+    "- bank: the name of the bank the deposit was made at (e.g. BICEC, "
+    "SGBC, UBA, Afriland) — from the letterhead/logo/stamp.\n"
+    "- depositor: the person or company who MADE the deposit (versant / "
+    "déposant).\n"
+    "- beneficiary: the account holder CREDITED (bénéficiaire / titulaire "
+    "du compte), e.g. a DHL entity.\n"
+    "- account_credited: the account number credited (digits and dashes "
+    "as printed).\n"
+    "- slip_reference: the slip's serial / reference / transaction number "
+    "as printed.\n"
+    "- date: the deposit date exactly as printed (may be French, e.g. "
+    "'07 Juillet 2026 à 13:50').\n"
+    "- amount_xaf: the total amount deposited in XAF.\n"
+    "Use an empty string (or 0 for the amount) for anything not present."
+)
+
+
+def extract_deposit_slip(file_bytes, media_type, ai_cfg):
+    """Read a bank deposit slip → {bank, depositor, beneficiary,
+    account_credited, slip_reference, date, amount_xaf}. Raises
+    AiNotConfigured / AiReadError like the other extractors."""
+    api_key = (ai_cfg or {}).get("api_key", "").strip()
+    if not api_key:
+        raise AiNotConfigured(
+            "No document-reading key saved — paste it under Settings → "
+            "Document reading.")
+    if len(file_bytes) > MAX_PDF_BYTES:
+        raise AiReadError("That slip is too large to read (over 30 MB).")
+
+    b64 = base64.standard_b64encode(file_bytes).decode("ascii")
+    if media_type == "application/pdf":
+        media_block = {"type": "document",
+                       "source": {"type": "base64",
+                                  "media_type": "application/pdf",
+                                  "data": b64}}
+    else:
+        media_block = {"type": "image",
+                       "source": {"type": "base64",
+                                  "media_type": media_type, "data": b64}}
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    model = (ai_cfg or {}).get("model") or "claude-opus-4-8"
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2000,
+            thinking={"type": "adaptive"},
+            messages=[{
+                "role": "user",
+                "content": [media_block,
+                            {"type": "text",
+                             "text": _DEPOSIT_SLIP_PROMPT}],
+            }],
+            output_config={
+                "format": {"type": "json_schema",
+                           "schema": _DEPOSIT_SLIP_SCHEMA},
+            },
+        )
+    except anthropic.AuthenticationError:
+        raise AiReadError("The document-reading key was rejected — check it "
+                          "under Settings → Document reading.")
+    except anthropic.RateLimitError:
+        raise AiReadError("Rate-limited by the reading service — try again "
+                          "in a minute.")
+    except anthropic.APIStatusError as exc:
+        raise AiReadError(f"reading service error ({exc.status_code}).")
+    except anthropic.APIConnectionError:
+        raise AiReadError("Could not reach the reading service.")
+
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise AiReadError("The slip could not be read — retake the photo "
+                          "with the whole slip visible.")
+    return {"bank": str(data.get("bank") or "").strip()[:40],
+            "depositor": str(data.get("depositor") or "").strip()[:60],
+            "beneficiary": str(data.get("beneficiary") or "").strip()[:60],
+            "account_credited":
+            str(data.get("account_credited") or "").strip()[:30],
+            "slip_reference":
+            str(data.get("slip_reference") or "").strip()[:40],
+            "date": str(data.get("date") or "").strip()[:40],
+            "amount_xaf": round(float(data.get("amount_xaf") or 0), 2)}
+
+
 def test_key(ai_cfg):
     """Cheap round-trip to confirm the saved key works. Raises AiReadError."""
     api_key = (ai_cfg or {}).get("api_key", "").strip()

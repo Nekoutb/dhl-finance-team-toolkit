@@ -2532,9 +2532,10 @@ async def bitcash_recon_slip(request: Request, token: str,
     (bitcash.FILES_DIR / name).write_bytes(await slip.read())
     slip_media = "excel" if ext in (".xlsx", ".xlsm", ".xls") \
         else (ai_ocr.media_type_for(slip.filename) or "application/pdf")
-    total = bitcash._read_slip_total(bitcash.FILES_DIR / name, slip_media,
-                                     load_config().get("ai"))
-    rec = bitcash.set_slip(token, name, slip.filename or name, total)
+    info = bitcash._read_slip_info(bitcash.FILES_DIR / name, slip_media,
+                                   load_config().get("ai"))
+    total = (info or {}).get("amount")
+    rec = bitcash.set_slip(token, name, slip.filename or name, total, info)
     if rec is None:
         return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                             error="The deposit slip can only be attached to "
@@ -2869,7 +2870,13 @@ async def operator_read_slip(request: Request, token: str,
     return JSONResponse({"slip_id": side["slip_id"],
                          "source": side["source"],
                          "total": side["total"], "date": side["date"],
-                         "dhl": side["dhl"]})
+                         "dhl": side["dhl"],
+                         "bank": side.get("bank", ""),
+                         "depositor": side.get("depositor", ""),
+                         "beneficiary": side.get("beneficiary", ""),
+                         "account_credited":
+                         side.get("account_credited", ""),
+                         "slip_reference": side.get("slip_reference", "")})
 
 
 @app.post("/operator/{token}/draft")
@@ -2893,6 +2900,38 @@ async def operator_draft(request: Request, token: str):
     if draft is None:      # a submission just cleared the draft — stay clear
         return JSONResponse({"ok": False})
     return JSONResponse({"ok": True, "saved_at": draft["saved_at"]})
+
+
+@app.post("/operator/{token}/read-deposit-list")
+async def operator_read_deposit_list(request: Request, token: str,
+                                     deposit_list: UploadFile = File(...)):
+    """An Excel table of deposit slips → tickable rows on the portal so
+    the IRO identifies the deposits funding this return."""
+    rec = iro.find_by_token(token)
+    if rec is None:
+        return JSONResponse({"error": "invalid link"}, status_code=404)
+    ext = Path(deposit_list.filename or "").suffix.lower()
+    if ext not in (".xlsx", ".xlsm", ".xls"):
+        return JSONResponse({"error": "Upload the deposit list as an Excel "
+                                      "file (.xlsx / .xls)."},
+                            status_code=400)
+    blob = await deposit_list.read()
+    if len(blob) > _IRO_MAX_FILE:
+        return JSONResponse({"error": "The file is bigger than 15 MB."},
+                            status_code=400)
+    dest = UPLOAD_DIR / f"irodep_{uuid.uuid4().hex[:8]}{ext}"
+    dest.write_bytes(blob)
+    try:
+        rows = iro.parse_deposit_list(dest)
+    except Exception:  # noqa: BLE001 — a bad table never 500s the page
+        return JSONResponse({"error": "Could not read the table — it needs "
+                                      "Date, Bank, Reference and Amount "
+                                      "columns."}, status_code=422)
+    if not rows:
+        return JSONResponse({"error": "No deposit lines found — the table "
+                                      "needs Reference and Amount "
+                                      "columns."}, status_code=422)
+    return JSONResponse({"rows": rows})
 
 
 @app.post("/operator/{token}/submit")
@@ -2976,11 +3015,29 @@ async def operator_submit(request: Request, token: str):
                 request, token,
                 error=iro.duplicate_message(prior, rec["account"]))
 
+    first_meta = slip_metas[0] if slip_metas else {}
+    # Only a pre-read that actually READ something is passed through —
+    # otherwise the background thread re-reads the slip itself.
+    slip_info = {"amount": first_meta.get("total"),
+                 "date": first_meta.get("date", ""),
+                 "bank": first_meta.get("bank", ""),
+                 "depositor": first_meta.get("depositor", ""),
+                 "beneficiary": first_meta.get("beneficiary", ""),
+                 "account_credited": first_meta.get("account_credited", ""),
+                 "slip_reference": first_meta.get("slip_reference", "")} \
+        if (first_meta.get("total") or first_meta.get("slip_reference")
+            or first_meta.get("bank")) else None
+    # Ticked deposits from an uploaded deposit-slip LIST ride along as
+    # extra references for the BIT hunt.
+    for dref in form.getlist("deposit_ref"):
+        dref = str(dref or "").strip()[:40]
+        if dref and dref not in refs:
+            refs.append(dref)
     recon_token = iro.create_submission(
         rec["account"], lines=lines,
         slip_paths=slip_paths, references=refs, channel="portal",
         label=f"IRO {rec['account']} — {refs[0] if refs else 'return'}",
-        slip_total=slip_total)
+        slip_total=slip_total, slip_info=slip_info)
     cfg = load_config()
     # A copy of the submission lands in the operator mailbox as EMAIL
     # EVIDENCE (slip attached), and finance gets a heads-up.

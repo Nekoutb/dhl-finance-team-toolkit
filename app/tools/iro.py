@@ -345,7 +345,7 @@ def build_evidence_xlsx(out_path, lines):
 # --------------------------------------------------------------------------- #
 def create_submission(account, lines=None, evidence_path=None,
                       slip_paths=None, references=None, channel="portal",
-                      label="", slip_total=None):
+                      label="", slip_total=None, slip_info=None):
     """Open a reconciliation sandbox from an operator's return. Either
     ``evidence_path`` (an uploaded Excel) or ``lines``
     ([{awb, amount, reference}]) must be given; ``slip_paths`` =
@@ -366,7 +366,7 @@ def create_submission(account, lines=None, evidence_path=None,
         slip_source=first[1] if first else "",
         extra_slips=[(p, s) for p, s in slips[1:]],
         payment_refs=[r for r in (references or []) if r],
-        slip_total=slip_total)
+        slip_total=slip_total, slip_info=slip_info)
     record_submission(account, {
         "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "references": [r for r in (references or []) if r][:10],
@@ -485,22 +485,39 @@ def clear_draft(account):
 # automatically; the amount is locked (a bank deposit amount is never
 # altered by hand). A slip already on the deposit history is REJECTED here.
 # --------------------------------------------------------------------------- #
+_MONTHS = {"janvier": 1, "fevrier": 2, "février": 2, "mars": 3, "avril": 4,
+           "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "août": 8,
+           "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12,
+           "décembre": 12, "january": 1, "february": 2, "march": 3,
+           "april": 4, "may": 5, "june": 6, "july": 7, "august": 8,
+           "september": 9, "october": 10, "november": 11, "december": 12}
+
+
 def _iso_date(value):
-    """'17/07/2026' or '2026-07-17…' -> '2026-07-17' ('' when unparseable)."""
-    s = str(value or "").strip()[:10]
-    m = re.fullmatch(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})", s)
+    """'17/07/2026', '2026-07-17…' or '07 Juillet 2026 à 13:50' ->
+    '2026-07-17' ('' when unparseable). French month names included —
+    Cameroonian deposit slips are usually in French."""
+    s = str(value or "").strip()
+    m = re.match(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})", s)
     if m:
         return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-        return s
+    if re.match(r"\d{4}-\d{2}-\d{2}", s):
+        return s[:10]
+    m = re.match(r"(\d{1,2})(?:er)?\s+([A-Za-zéûî]+)\.?\s+(\d{4})", s)
+    if m:
+        month = _MONTHS.get(m.group(2).lower())
+        if month:
+            return f"{m.group(3)}-{month:02d}-{int(m.group(1)):02d}"
     return ""
 
 
 def preread_slip(blob, filename, ai_cfg, account=""):
-    """Save an operator's deposit slip, read the banked total + deposit date
-    and check the slip mentions DHL as the payee. Returns {slip_id, source,
-    total, date, dhl} — or {"duplicate": message} when this deposit was
-    already submitted (same file, or same account/amount/date)."""
+    """Save an operator's deposit slip and read EVERYTHING off it with the
+    dedicated slip extractor: banked total, deposit date, depositor,
+    beneficiary (the DHL check), account credited, slip reference and the
+    beneficiary bank. Returns the sidecar dict — or {"duplicate": message}
+    when this deposit was already submitted (same file, or same
+    account/amount/date)."""
     sha = hashlib.sha256(blob).hexdigest()
     prior = find_prior_deposit(sha=sha)
     if prior:
@@ -509,20 +526,15 @@ def preread_slip(blob, filename, ai_cfg, account=""):
     slip_id = f"iroslip_{uuid.uuid4().hex[:8]}"
     dest = UPLOAD_DIR / f"{slip_id}{ext}"
     dest.write_bytes(blob)
+    info = {}
     total, dhl, slip_date = None, False, ""
     try:
-        doc = ai_ocr.extract_payment_statement(
-            blob, _slip_media(dest), ai_cfg)
-        total = bitcash._to_float(doc.get("total")) or None
-        slip_date = _iso_date(doc.get("date"))
-        blob_txt = " ".join(
-            [str(doc.get("label", ""))]
-            + [str(ln.get("description", "")) + " "
-               + str(ln.get("reference", ""))
-               for ln in doc.get("lines", [])]).lower()
-        dhl = "dhl" in blob_txt
+        info = ai_ocr.extract_deposit_slip(blob, _slip_media(dest), ai_cfg)
+        total = bitcash._to_float(info.get("amount_xaf")) or None
+        slip_date = _iso_date(info.get("date"))
+        dhl = "dhl" in str(info.get("beneficiary", "")).lower()
     except Exception:  # noqa: BLE001 — unreadable slip stays pure evidence
-        pass
+        info = {}
     if total and slip_date:
         prior = find_prior_deposit(account=account, total=total,
                                    slip_date=slip_date)
@@ -532,10 +544,59 @@ def preread_slip(blob, filename, ai_cfg, account=""):
     sidecar = {"slip_id": slip_id, "name": dest.name,
                "source": filename or dest.name, "total": total,
                "date": slip_date, "dhl": dhl, "sha": sha,
-               "account": str(account or "")}
+               "account": str(account or ""),
+               "bank": info.get("bank", ""),
+               "depositor": info.get("depositor", ""),
+               "beneficiary": info.get("beneficiary", ""),
+               "account_credited": info.get("account_credited", ""),
+               "slip_reference": info.get("slip_reference", "")}
     (UPLOAD_DIR / f"{slip_id}.json").write_text(
         json.dumps(sidecar, ensure_ascii=False), encoding="utf-8")
     return sidecar
+
+
+# --------------------------------------------------------------------------- #
+# Deposit-slip LIST (Excel): banks hand out statements of deposits; the IRO
+# uploads the table and simply TICKS the deposits funding this return.
+# --------------------------------------------------------------------------- #
+def parse_deposit_list(path):
+    """An Excel of deposit slips → [{date, bank, reference, amount}].
+    Columns are found by name (date / banque|bank / ref / montant|amount),
+    with the same tolerance the evidence reader has."""
+    from ..services import excel_reader
+
+    parsed = excel_reader.read_transactions(path)
+    header = parsed["header"]
+    low = {h: re.sub(r"\s+", " ", str(h or "")).strip().lower()
+           for h in header}
+
+    def col(*cands):
+        for cand in cands:
+            for h in header:
+                if cand in low[h]:
+                    return h
+        return None
+
+    c_date = col("date")
+    c_bank = col("banque", "bank")
+    c_ref = col("reference", "référence", "ref", "bordereau", "slip")
+    c_amt = col("montant", "amount", "value")
+    rows = []
+    for r in parsed["rows"]:
+        d = r["data"]
+        amount = bitcash._to_float(d.get(c_amt)) if c_amt else 0.0
+        ref = bitcash._cellstr(d.get(c_ref)) if c_ref else ""
+        if not amount and not ref:
+            continue
+        rows.append({
+            "date": _iso_date(d.get(c_date))
+            or bitcash._cellstr(d.get(c_date))[:10] if c_date else "",
+            "bank": bitcash._cellstr(d.get(c_bank))[:30] if c_bank else "",
+            "reference": ref[:40],
+            "amount": amount})
+        if len(rows) >= 100:
+            break
+    return rows
 
 
 def load_preread(slip_id, account=None):

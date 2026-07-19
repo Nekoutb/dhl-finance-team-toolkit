@@ -347,6 +347,23 @@
         Deposit slip {{ loop.index + 1 }} ({{ ex.source }})</a>
       {% endfor %}
     </div>
+    {% if view.slip_info %}
+    <p class="note-small" style="margin-top:8px;">🏦 <strong>Read off the
+      deposit slip:</strong>
+      {% if view.slip_info.amount %}{{ "{:,.0f}".format(view.slip_info.amount) }} XAF{% endif %}
+      {% if view.slip_info.bank %} · bank <strong>{{ view.slip_info.bank }}</strong>{% endif %}
+      {% if view.slip_info.date %} · {{ view.slip_info.date }}{% endif %}
+      {% if view.slip_info.depositor %} · deposited by
+        <strong>{{ view.slip_info.depositor }}</strong>{% endif %}
+      {% if view.slip_info.beneficiary %} · beneficiary
+        {{ view.slip_info.beneficiary }}{% endif %}
+      {% if view.slip_info.account_credited %} · account
+        {{ view.slip_info.account_credited }}{% endif %}
+      {% if view.slip_info.slip_reference %} · slip ref
+        <strong>{{ view.slip_info.slip_reference }}</strong>{% endif %}
+      — the slip reference and account are hunted in the BIT on matching
+      (re-run the matching after attaching a slip to apply them).</p>
+    {% endif %}
     {% if rec.status in ('open', 'approved') %}
     <form action="/tools/bit-cash-ar/recon/{{ token }}/slip" method="post"
           enctype="multipart/form-data" class="inline-fields"
