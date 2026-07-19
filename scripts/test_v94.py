@@ -182,6 +182,8 @@ check("dashboard shows the ageing trend", "&gt; 60 days %" in r.text
       or "> 60 days %" in r.text)
 check("dashboard shows the trends section",
       "Receivables ageing" in r.text and "open items per day" in r.text)
+check("dashboard shows the credit-hold daily graph",
+      "Accounts on credit hold" in r.text)
 
 # === 6. Orange Money — AR columns, history, comparison ======================
 customers.set_name(orange.TOOL_SLUG, "699559325", "ACME LOGISTICS SARL")

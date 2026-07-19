@@ -418,6 +418,7 @@ def dashboard(request: Request, welcome: str = ""):
         "s": _home_stats(),
         "trend_ar": _dash_trend_ar(),
         "trend_bitcash": _dash_trend_bitcash(),
+        "trend_held": _held_chart(),
         "welcome": bool(welcome) and getattr(request.state, "user", None),
     })
 

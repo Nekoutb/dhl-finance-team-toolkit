@@ -161,6 +161,18 @@
           files in <a href="/tools/bit-cash-ar">BIT &amp; Cash AR</a>.</p>
       {% endif %}
     </div>
+    <div class="qcard">
+      <h2>⛔ Accounts on credit hold — daily</h2>
+      {% if trend_held %}
+        <div style="overflow-x:auto;">{{ trend_held|safe }}</div>
+        <p class="note-small">Snapshotted each time an AR analysis is
+          uploaded in the <a href="/tools/ongoing-ctp-monitoring">CtP
+          Portal</a>.</p>
+      {% else %}
+        <p class="note-small">No history yet — points are recorded each time
+          an AR analysis is uploaded in the CtP Portal.</p>
+      {% endif %}
+    </div>
   </div>
 
   {% for category, tools in groups.items() %}

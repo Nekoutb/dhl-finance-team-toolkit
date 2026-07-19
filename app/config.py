@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.1 — 19 Jul 2026 · Account Stop: stricter name matching (every distinctive word must appear — no more loose look-alike matches) + a Transaction-date-on-statement column in all three payment groups; credit-hold daily graph moved to the top of the CtP portal; Orange Money: customer payments by month (name, AR account, phone, per-month totals + Excel) and removable processed files; cheque unpresented graph now updates the moment bank statements are uploaded"
+APP_VERSION = "v10.2 — 19 Jul 2026 · Credit-hold daily graph added to the dashboard (alongside the ageing and BIT/Cash AR trends); plus v10.1: Account Stop strict matching + transaction-date columns, credit-hold graph atop the CtP portal, Orange Money monthly payments pivot + removable processed files, cheque graph refresh on bank statement upload"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
