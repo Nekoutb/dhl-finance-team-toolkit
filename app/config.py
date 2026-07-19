@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.5 — 19 Jul 2026 · IRO returns: deposit date read off the slip and auto-filled; unsent AWB selections auto-saved and restored (cleared once sent); a deposit history — the same slip (same file, or same account/amount/date) is flagged and rejected on the portal AND by email; reconciliation suggests the EXACT banked amount first (zero-variance principle, ±1,000 kept as fallback); statement + evidence emails rewritten in a human voice; hardened against double-submits and concurrent-write races"
+APP_VERSION = "v10.6 — 19 Jul 2026 · MyDHLPay: public scan-to-pay page at /pay — scan or type the airwaybill, get a unique transaction reference (DDMM+letters, e.g. 1907ABC) with one-tap copy, and the phone dials Orange Money with the exact amount per AWB (same code, only amounts differ); every session lands in the new Cash Reconciliation section where one click opens a normal sandbox and the code is hunted in the BIT first"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -42,6 +42,12 @@ DEFAULT_CONFIG = {
         "username": "",
         "password": "",
         "from_address": "",
+    },
+    # MyDHLPay: the public scan-to-pay page. The USSD template + merchant
+    # number the Pay buttons dial (Orange Money merchant payment).
+    "mydhlpay": {
+        "merchant": "675153953",
+        "ussd_template": "*126*1*1*{merchant}*{amount}#",
     },
     # Operator mailbox (IRO returns): the dedicated inbox the tool READS to
     # ingest "PAYREF <account>" emails. Credentials live only in config.json.

@@ -1287,4 +1287,102 @@ check("statement email sounds human",
       and "Please find attached the statement of open airwaybills" not in
       body5)
 
-print("\nALL v9.4—v10.5 TESTS PASSED")
+# === 17. v10.6 — MyDHLPay + Cash Reconciliation =============================
+from app.tools import mydhlpay  # noqa: E402
+
+mydhlpay.PAY_DIR = _tmp / "mydhlpay"
+
+check("the pay page is public", auth.is_public("/pay")
+      and auth.is_public("/pay/add"))
+c1 = mydhlpay.new_code()
+check("code format is DDMM + three letters",
+      mydhlpay.CODE_RE.fullmatch(c1)
+      and c1[:4] == __import__("datetime").datetime.now().strftime("%d%m"))
+
+r = client.post("/pay/add", data={"awb": "8525614075", "code": ""})
+d1 = r.json()
+check("scan adds a known AWB with code + USSD",
+      r.status_code == 200 and mydhlpay.CODE_RE.fullmatch(d1["code"])
+      and d1["entry"]["on_record"] is True
+      and d1["entry"]["ussd"] == "*126*1*1*675153953*59600#"
+      and len(d1["entry"]["customer_short"]) <= 13)
+pay_code = d1["code"]
+r = client.post("/pay/add", data={"awb": "8525614075", "code": pay_code})
+check("the same AWB cannot be added twice", r.status_code == 400
+      and "already on your list" in r.json()["error"])
+r = client.post("/pay/add", data={"awb": "1112223334", "code": pay_code})
+check("unknown AWB asks for the amount",
+      r.status_code == 200 and r.json().get("need_amount") is True)
+r = client.post("/pay/add", data={"awb": "1112223334", "code": pay_code,
+                                  "amount": "5000"})
+d2 = r.json()
+check("unknown AWB added with a typed amount, flagged off-record",
+      d2["entry"]["on_record"] is False and d2["count"] == 2
+      and d2["total"] == 64600.0
+      and d2["total_ussd"].endswith("*64600#"))
+r = client.post("/pay/add", data={"awb": "12", "code": pay_code})
+check("junk input rejected politely", r.status_code == 400)
+
+r = client.get(f"/pay?code={pay_code}")
+check("pay page resumes a session by code",
+      r.status_code == 200 and pay_code in r.text
+      and "8525614075" in r.text and "transaction" in r.text.lower())
+
+r = client.get("/tools/bit-cash-ar/cash-recon")
+check("Cash Reconciliation lists the session",
+      r.status_code == 200 and pay_code in r.text
+      and "not on record" in r.text)
+r = client.get("/tools/bit-cash-ar")
+check("BIT & Cash AR page links Cash Reconciliation",
+      "Cash" in r.text and "cash-recon" in r.text)
+
+# The session code sits in a BIT line — reference-first matching finds it
+# even though another line carries the identical amount.
+FAKE6 = {"bit_header": [], "gen_bit": "g6", "gen_cash": "g6",
+         "bit": [
+             {"id": 0, "amount": -64600.0, "gl_account": "1263001293",
+              "assignment": "0548", "posting_date": "19.07.2026",
+              "reference": "", "text": f"OM MERCHANT {pay_code}",
+              "doc_no": "410100", "posting_key": "40", "raw": []},
+             {"id": 1, "amount": -64600.0, "gl_account": "1263001293",
+              "assignment": "0549", "posting_date": "19.07.2026",
+              "reference": "", "text": "OM MERCHANT OTHER",
+              "doc_no": "410101", "posting_key": "40", "raw": []}],
+         "cash": FAKE3["cash"]}
+bitcash.rows_store = lambda: FAKE6
+r = client.post(f"/tools/bit-cash-ar/cash-recon/{pay_code}/sandbox",
+                follow_redirects=False)
+check("session becomes a sandbox", r.status_code == 303
+      and "/tools/bit-cash-ar/recon/" in r.headers["location"])
+pay_tok = r.headers["location"].rsplit("/", 1)[1]
+deadline = time.time() + 15
+recp = None
+while time.time() < deadline:
+    recp = bitcash.load_recon(pay_tok)
+    if recp and recp.get("status") != "reading":
+        break
+    time.sleep(0.1)
+check("sandbox carries the code as payment reference + both AWBs",
+      recp and recp["status"] == "open"
+      and recp.get("payment_refs") == [pay_code]
+      and len(recp["statement"]["lines"]) == 2)
+check("the code pins the BIT line despite a duplicated amount",
+      recp["bit_selected"] == 0 and recp.get("ref_hits") == [0])
+check("session marked sandboxed with the recon link",
+      mydhlpay.load_session(pay_code)["status"] == "sandboxed"
+      and mydhlpay.load_session(pay_code)["recon_token"] == pay_tok)
+r = client.post(f"/tools/bit-cash-ar/cash-recon/{pay_code}/delete",
+                follow_redirects=False)
+check("a reconciled session cannot be deleted",
+      "error=" in r.headers["location"]
+      and mydhlpay.load_session(pay_code) is not None)
+
+r = client.post("/pay/add", data={"awb": "2080666324", "code": ""})
+tmp_code = r.json()["code"]
+check("codes are unique per session", tmp_code != pay_code)
+r = client.post(f"/tools/bit-cash-ar/cash-recon/{tmp_code}/delete",
+                follow_redirects=False)
+check("an open session can be deleted", r.status_code == 303
+      and mydhlpay.load_session(tmp_code) is None)
+
+print("\nALL v9.4—v10.6 TESTS PASSED")

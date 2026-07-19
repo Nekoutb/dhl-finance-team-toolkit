@@ -38,7 +38,7 @@ _throttle_lock = Lock()
 # remittance links (token-secured), operator statement links (token-secured),
 # generated-file downloads (token names), and the health probe.
 PUBLIC_PREFIXES = ("/login", "/logout", "/static/", "/portal/", "/operator/",
-                   "/download/", "/healthz", "/favicon.ico")
+                   "/pay", "/download/", "/healthz", "/favicon.ico")
 
 
 def hash_password(password, salt=None):

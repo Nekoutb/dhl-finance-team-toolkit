@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Cash Reconciliation · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs">
+    <a href="/">Dashboard</a> /
+    <a href="/tools/bit-cash-ar">{{ tool.name }}</a> / Cash Reconciliation
+  </nav>
+
+  <section class="panel">
+    <h1>💵 Cash Reconciliation — MyDHLPay sessions</h1>
+    <p class="lead">Every scan-to-pay session from the public
+      <strong>MyDHLPay</strong> page (<code>/pay</code>): the customer
+      scanned the airwaybills, received a unique transaction code and paid
+      by Orange Money with that code as the reference. One click turns a
+      session into a normal reconciliation sandbox — the code is searched
+      in the BIT first.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    {% if not sessions %}
+      <div class="alert alert-info">No MyDHLPay sessions yet — the page is
+        live at <code>/pay</code>; sessions appear here the moment a
+        customer scans an airwaybill.</div>
+    {% else %}
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Code</th><th>Created</th><th>AWBs</th>
+          <th>Total (XAF)</th><th>Status</th><th></th><th></th></tr></thead>
+        <tbody>
+          {% for s in sessions %}
+          <tr>
+            <td><strong style="font-family:monospace;letter-spacing:2px;">{{ s.code }}</strong></td>
+            <td>{{ s.created }}</td>
+            <td>{{ s.count }}
+              {% if s.off_record %}<span class="pill pill-watch"
+                title="Airwaybills not found in the Cash AR at scan time — amounts typed by the payer">{{ s.off_record }} not on record</span>{% endif %}</td>
+            <td>{{ "{:,.0f}".format(s.total) }}</td>
+            <td>{% if s.status == 'sandboxed' %}
+              <span class="pill pill-ok">sandboxed</span>
+              {% else %}<span class="pill pill-watch">open</span>{% endif %}</td>
+            <td>
+              {% if s.status == 'sandboxed' and s.recon_token %}
+              <a href="/tools/bit-cash-ar/recon/{{ s.recon_token }}">open
+                sandbox →</a>
+              {% elif s.count %}
+              <form action="/tools/bit-cash-ar/cash-recon/{{ s.code }}/sandbox"
+                    method="post" style="display:inline;">
+                <button class="btn btn-small" type="submit">→
+                  Reconcile</button>
+              </form>
+              {% endif %}
+            </td>
+            <td>
+              {% if s.status != 'sandboxed' %}
+              <form action="/tools/bit-cash-ar/cash-recon/{{ s.code }}/delete"
+                    method="post" style="display:inline;"
+                    onsubmit="return confirm('Remove session {{ s.code }}? Only do this for abandoned scans.');">
+                <button class="btn btn-small" type="submit">🗑</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">“→ Reconcile” builds the evidence from the
+      scanned airwaybills (the session code as the payment reference on
+      every line) and opens the sandbox — the reference-first BIT matching
+      hunts the code, then review, approve and journal exactly as usual.
+      The code also appears in the Orange Money report when the payer
+      pasted it as the transaction reference.</p>
+    {% endif %}
+  </section>
+{% endblock %}

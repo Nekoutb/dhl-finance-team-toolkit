@@ -1,0 +1,232 @@
+{% extends "portal/base.html" %}
+{% block title %}MyDHLPay{% endblock %}
+{% block content %}
+  <section class="panel" style="max-width:520px;margin:0 auto;">
+    <h1 style="text-align:center;">📲 MyDHLPay</h1>
+    <p class="lead" style="text-align:center;">Scan the airwaybill you want
+      to pay, copy your transaction reference, and pay by Orange Money —
+      all from this page.</p>
+
+    <div id="pay-error" class="alert alert-error" style="display:none;"></div>
+
+    <!-- 1. Scan / type the airwaybill -->
+    <div id="scan-box" style="border:2px dashed #d40511;border-radius:14px;
+         padding:14px;text-align:center;margin-bottom:10px;">
+      <video id="pay-video" style="width:100%;max-height:220px;display:none;
+             border-radius:10px;" playsinline muted></video>
+      <button class="btn btn-primary" type="button" id="pay-scan-btn">
+        📷 Scan the airwaybill barcode</button>
+      <p class="note-small" id="pay-scan-note" style="margin:6px 0 0;">or
+        type the 10-digit airwaybill number below</p>
+    </div>
+    <div class="inline-fields" style="margin-bottom:12px;">
+      <label class="field" style="flex:1;min-width:200px;">
+        <span>Airwaybill number</span>
+        <input type="text" id="pay-awb" inputmode="numeric"
+               placeholder="e.g. 9605628896">
+      </label>
+      <button class="btn" type="button" id="pay-add"
+              style="align-self:flex-end;">➕ Add</button>
+    </div>
+    <div class="inline-fields" id="pay-amount-box"
+         style="display:none;margin-bottom:12px;">
+      <label class="field" style="flex:1;min-width:200px;">
+        <span>This airwaybill is not on record yet — enter the amount from
+          the waybill (XAF)</span>
+        <input type="text" id="pay-amount" inputmode="numeric"
+               placeholder="e.g. 53639">
+      </label>
+      <button class="btn" type="button" id="pay-amount-ok"
+              style="align-self:flex-end;">OK</button>
+    </div>
+
+    <!-- 2. The transaction reference -->
+    <div id="pay-code-box" class="alert alert-info"
+         style="text-align:center;{% if not session %}display:none;{% endif %}">
+      <span style="font-size:12px;">Your transaction reference</span><br>
+      <strong id="pay-code" style="font-size:30px;letter-spacing:5px;
+        font-family:monospace;">{{ session.code if session else '' }}</strong>
+      <button class="btn btn-small" type="button" id="pay-copy">📋
+        Copy</button><br>
+      <span style="font-size:12px;">Paste it as the <strong>transaction
+        reference</strong> when the payment request appears on your
+        phone.</span>
+    </div>
+
+    <!-- 3. The airwaybills to pay -->
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table" id="pay-table"
+             {% if not rows %}style="display:none;"{% endif %}>
+        <thead><tr><th>Airwaybill</th><th>Client</th>
+          <th>Amount (XAF)</th><th></th></tr></thead>
+        <tbody id="pay-rows">
+          {% for r in rows %}
+          <tr>
+            <td><strong>{{ r.awb }}</strong>
+              {% if not r.on_record %}<div class="note-inline">not on
+                record yet</div>{% endif %}</td>
+            <td>{{ r.customer_short or '—' }}</td>
+            <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
+            <td><a class="btn btn-small pay-dial"
+                   data-ussd="{{ r.ussd }}" href="#">📲 Pay</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="pay-total-box" style="margin-top:10px;text-align:center;
+         {% if not rows %}display:none;{% endif %}">
+      <a class="btn btn-primary pay-dial" id="pay-all" href="#"
+         data-ussd="{{ total_ussd }}">📲 Pay all —
+        <span id="pay-total">{{ "{:,.0f}".format(total or 0) }}</span>
+        XAF</a>
+      <p class="note-small" style="margin-top:6px;">Tapping Pay opens your
+        dialer with the Orange Money code ready — just confirm, then paste
+        your transaction reference when asked.</p>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      var code = {{ (session.code if session else '')|tojson }};
+      var pendingAwb = null;
+      function fmt(n) { return n.toLocaleString("en-US",
+        {maximumFractionDigits: 0}); }
+      function showError(msg) {
+        var e = document.getElementById("pay-error");
+        e.textContent = msg; e.style.display = msg ? "" : "none";
+      }
+      function dialHref(ussd) { return "tel:" + encodeURIComponent(ussd); }
+      function wireDial(el) {
+        el.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          window.location.href = dialHref(el.getAttribute("data-ussd"));
+        });
+      }
+      document.querySelectorAll(".pay-dial").forEach(wireDial);
+
+      function addRow(d) {
+        code = d.code;
+        var url = new URL(window.location);
+        url.searchParams.set("code", code);
+        window.history.replaceState({}, "", url);
+        document.getElementById("pay-code").textContent = code;
+        document.getElementById("pay-code-box").style.display = "";
+        var tbody = document.getElementById("pay-rows");
+        var tr = document.createElement("tr");
+        var flag = d.entry.on_record ? "" :
+          '<div class="note-inline">not on record yet</div>';
+        tr.innerHTML = "<td><strong>" + d.entry.awb + "</strong>" + flag +
+          "</td><td>" + (d.entry.customer_short || "—") + "</td><td>" +
+          fmt(d.entry.amount) + "</td><td></td>";
+        var a = document.createElement("a");
+        a.className = "btn btn-small pay-dial";
+        a.setAttribute("data-ussd", d.entry.ussd);
+        a.href = "#"; a.textContent = "📲 Pay";
+        tr.children[3].appendChild(a);
+        wireDial(a);
+        tbody.appendChild(tr);
+        document.getElementById("pay-table").style.display = "";
+        document.getElementById("pay-total").textContent = fmt(d.total);
+        document.getElementById("pay-all")
+          .setAttribute("data-ussd", d.total_ussd);
+        document.getElementById("pay-total-box").style.display = "";
+      }
+
+      function submitAwb(awb, amount) {
+        showError("");
+        var fd = new FormData();
+        fd.append("awb", awb);
+        fd.append("code", code || "");
+        if (amount) { fd.append("amount", amount); }
+        fetch("/pay/add", {method: "POST", body: fd})
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.error) { showError(d.error); return; }
+            if (d.need_amount) {
+              pendingAwb = d.awb;
+              document.getElementById("pay-amount-box").style.display = "";
+              document.getElementById("pay-amount").focus();
+              return;
+            }
+            document.getElementById("pay-amount-box").style.display =
+              "none";
+            document.getElementById("pay-awb").value = "";
+            pendingAwb = null;
+            addRow(d);
+          })
+          .catch(function () { showError("Network problem — try again."); });
+      }
+      document.getElementById("pay-add").addEventListener("click",
+        function () {
+          submitAwb(document.getElementById("pay-awb").value, null);
+        });
+      document.getElementById("pay-awb").addEventListener("keydown",
+        function (ev) {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            submitAwb(ev.target.value, null);
+          }
+        });
+      document.getElementById("pay-amount-ok").addEventListener("click",
+        function () {
+          if (pendingAwb) {
+            submitAwb(pendingAwb,
+                      document.getElementById("pay-amount").value);
+          }
+        });
+      document.getElementById("pay-copy").addEventListener("click",
+        function () {
+          var c = document.getElementById("pay-code").textContent;
+          (navigator.clipboard ? navigator.clipboard.writeText(c)
+                               : Promise.reject()).then(function () {
+            document.getElementById("pay-copy").textContent = "✓ Copied";
+          }).catch(function () { window.prompt("Copy the reference:", c); });
+        });
+
+      // Camera barcode scanning where the browser supports it.
+      var video = document.getElementById("pay-video");
+      var scanning = false;
+      document.getElementById("pay-scan-btn").addEventListener("click",
+        function () {
+          if (!("BarcodeDetector" in window)
+              || !navigator.mediaDevices) {
+            document.getElementById("pay-scan-note").textContent =
+              "Camera scanning is not supported on this phone — type the " +
+              "number below instead.";
+            return;
+          }
+          if (scanning) { return; }
+          scanning = true;
+          var detector = new BarcodeDetector(
+            {formats: ["code_128", "ean_13", "itf", "code_39"]});
+          navigator.mediaDevices.getUserMedia(
+            {video: {facingMode: "environment"}})
+            .then(function (stream) {
+              video.srcObject = stream;
+              video.style.display = "";
+              video.play();
+              var timer = setInterval(function () {
+                detector.detect(video).then(function (codes) {
+                  var hit = codes.find(function (c) {
+                    return /\d{8,}/.test(c.rawValue);
+                  });
+                  if (hit) {
+                    clearInterval(timer);
+                    stream.getTracks().forEach(function (t) { t.stop(); });
+                    video.style.display = "none";
+                    scanning = false;
+                    submitAwb(hit.rawValue.match(/\d{8,}/)[0], null);
+                  }
+                }).catch(function () {});
+              }, 400);
+            })
+            .catch(function () {
+              scanning = false;
+              document.getElementById("pay-scan-note").textContent =
+                "Camera access was refused — type the number below.";
+            });
+        });
+    })();
+  </script>
+{% endblock %}

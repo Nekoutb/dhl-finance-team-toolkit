@@ -329,6 +329,30 @@
       New mail is picked up every few minutes (and on “Fetch mail now”).</p>
   </section>
 
+  <!-- ===== MyDHLPay ===== -->
+  <section class="panel">
+    <h2 class="section-title">📲 MyDHLPay (scan-to-pay)</h2>
+    <p class="lead">The public payment page at <code>/pay</code> dials
+      Orange Money with these settings. The amount is filled per
+      airwaybill automatically.</p>
+    <form action="/settings/mydhlpay" method="post">
+      <div class="inline-fields">
+        <label class="field" style="min-width:200px;">
+          <span>Merchant number (receives the payments)</span>
+          <input type="text" name="merchant"
+                 value="{{ cfg.mydhlpay.merchant if cfg.mydhlpay else '675153953' }}">
+        </label>
+        <label class="field" style="min-width:300px;">
+          <span>USSD template</span>
+          <input type="text" name="ussd_template"
+                 value="{{ cfg.mydhlpay.ussd_template if cfg.mydhlpay else '*126*1*1*{merchant}*{amount}#' }}">
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit">Save MyDHLPay
+        settings</button>
+    </form>
+  </section>
+
   <section class="panel">
     <h2 class="section-title">Prove it works</h2>
     <form action="/settings/smtp/test" method="post" class="upload-form">

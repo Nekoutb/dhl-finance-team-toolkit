@@ -27,7 +27,7 @@ from .services import (ai_ocr, ar_master, auth, bank_statement,
                        emailer, eno_allocation, holds, remittance_pdf,
                        remittance_store, turnstile, variance,
                        xlsx_report)
-from .tools import account_stop, bank, bitcash, iro, quickstmt
+from .tools import account_stop, bank, bitcash, iro, mydhlpay, quickstmt
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -2705,6 +2705,79 @@ async def iro_fetch_mail(request: Request):
                 f"{result['duplicates']} duplicate(s).")
 
 
+# --------------------------------------------------------------------------- #
+# MyDHLPay — public scan-to-pay page + the Cash Reconciliation section
+# --------------------------------------------------------------------------- #
+@app.get("/pay", response_class=HTMLResponse)
+def mydhlpay_page(request: Request, code: str = ""):
+    cfg = load_config()
+    session = mydhlpay.load_session(code) if code else None
+    pay_cfg = cfg.get("mydhlpay", {})
+    rows = []
+    if session:
+        for a in session["awbs"]:
+            rows.append({**a, "ussd": mydhlpay.ussd_for(pay_cfg,
+                                                        a["amount"])})
+    return templates.TemplateResponse("pay/index.html", {
+        "request": request, "cfg": cfg, "session": session, "rows": rows,
+        "total": mydhlpay.session_total(session) if session else 0,
+        "total_ussd": mydhlpay.ussd_for(
+            pay_cfg, mydhlpay.session_total(session)) if session else "",
+    })
+
+
+@app.post("/pay/add")
+async def mydhlpay_add(request: Request):
+    form = await request.form()
+    result = mydhlpay.add_awb(str(form.get("code") or "").strip(),
+                              form.get("awb") or "",
+                              form.get("amount") or None)
+    if result.get("error"):
+        return JSONResponse({"error": result["error"]}, status_code=400)
+    if result.get("need_amount"):
+        return JSONResponse({"need_amount": True, "awb": result["awb"]})
+    session = result["session"]
+    pay_cfg = load_config().get("mydhlpay", {})
+    entry = {**result["entry"],
+             "ussd": mydhlpay.ussd_for(pay_cfg, result["entry"]["amount"])}
+    total = mydhlpay.session_total(session)
+    return JSONResponse({
+        "code": session["code"], "entry": entry, "total": total,
+        "total_ussd": mydhlpay.ussd_for(pay_cfg, total),
+        "count": len(session["awbs"])})
+
+
+@app.get("/tools/bit-cash-ar/cash-recon", response_class=HTMLResponse)
+def mydhlpay_cash_recon(request: Request, message: str = "",
+                        error: str = ""):
+    return templates.TemplateResponse("bitcash/cashrecon.html", {
+        "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
+        "sessions": mydhlpay.list_sessions(),
+        "message": message, "error": error,
+    })
+
+
+@app.post("/tools/bit-cash-ar/cash-recon/{code}/sandbox")
+async def mydhlpay_sandbox(request: Request, code: str):
+    token = mydhlpay.create_sandbox(code)
+    if token is None:
+        return redirect_msg("/tools/bit-cash-ar/cash-recon",
+                            error="That session is empty, unknown or "
+                                  "already reconciled.")
+    return RedirectResponse(f"/tools/bit-cash-ar/recon/{token}",
+                            status_code=303)
+
+
+@app.post("/tools/bit-cash-ar/cash-recon/{code}/delete")
+async def mydhlpay_delete(request: Request, code: str):
+    if mydhlpay.delete_session(code):
+        return redirect_msg("/tools/bit-cash-ar/cash-recon",
+                            message=f"Session {code} removed.")
+    return redirect_msg("/tools/bit-cash-ar/cash-recon",
+                        error="Only sessions not yet reconciled can be "
+                              "removed.")
+
+
 @app.get("/operator/{token}", response_class=HTMLResponse)
 def operator_page(request: Request, token: str, error: str = ""):
     rec = iro.find_by_token(token)
@@ -3257,6 +3330,27 @@ async def app_settings_banks(request: Request):
     save_user_config({"banks": names})         # a list REPLACES (allows removal)
     return RedirectResponse(
         f"/settings?message=Saved {len(names)} bank(s) — one upload slot each.",
+        status_code=303)
+
+
+@app.post("/settings/mydhlpay")
+async def app_settings_mydhlpay(request: Request):
+    blocked = _admin_block(request)
+    if blocked:
+        return blocked
+    form = await request.form()
+    template = (form.get("ussd_template") or "").strip() \
+        or "*126*1*1*{merchant}*{amount}#"
+    if "{amount}" not in template:
+        return RedirectResponse(
+            "/settings?error=The USSD template must contain the amount "
+            "placeholder.", status_code=303)
+    save_user_config({"mydhlpay": {
+        "merchant": (form.get("merchant") or "").strip() or "675153953",
+        "ussd_template": template,
+    }})
+    return RedirectResponse(
+        "/settings?message=MyDHLPay payment settings saved.",
         status_code=303)
 
 
