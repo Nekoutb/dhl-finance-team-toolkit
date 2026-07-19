@@ -1459,4 +1459,21 @@ check("pay page offers the receipt snap + confirm card",
       "Snap the" in r.text and "pay-confirm-add" in r.text
       and "awbFromBarcode" in r.text)
 
-print("\nALL v9.4—v10.7 TESTS PASSED")
+# === 19. v10.8 — value labels on every graph point ==========================
+from app.services import charts  # noqa: E402
+
+svg19 = charts.line_svg(
+    ["07-16", "07-17"],
+    [{"name": "Open BIT items", "color": "#3b82f6",
+      "values": [2872, 1500]},
+     {"name": "> 60 days %", "color": "#dc2626", "values": [17.6, 9.1]}])
+check("graphs label every point with its value",
+      ">2,872<" in svg19 and ">1,500<" in svg19
+      and ">17.6<" in svg19 and ">9.1<" in svg19)
+long19 = charts.line_svg(
+    [str(i) for i in range(60)],
+    [{"name": "x", "color": "#000", "values": list(range(60))}])
+check("long ranges thin the labels but always keep the latest",
+      ">59<" in long19 and long19.count('font-size="10"') <= 16)
+
+print("\nALL v9.4—v10.8 TESTS PASSED")

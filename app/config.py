@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.7 — 19 Jul 2026 · MyDHLPay: 📸 snap the shipment receipt — the page reads the whole document (waybill, reference, XAF amount, names) and the customer confirms before it is added; works on every phone incl. iPhone; the ledger amount overrides the photo when the AWB is on record; barcode scanning tightened to the true 10-digit waybill barcode (license-plate and routing barcodes ignored); photo budgets per session and per day"
+APP_VERSION = "v10.8 — 19 Jul 2026 · Every graph on the site now labels each data point with its value (thousands-separated; long ranges thinned to stay readable, the latest point always labelled) — cheque register, BIT & Cash AR, CtP credit-hold and all three dashboard trends"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
