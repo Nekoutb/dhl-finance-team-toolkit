@@ -112,16 +112,24 @@
             drop.classList.remove("dragover");
           });
         });
+        // Picking or dropping the scans STARTS the reading immediately —
+        // no extra click needed.
+        function autoScan(count) {
+          if (text) text.textContent = count +
+            " cheque scan(s) — reading them into the register now…";
+          var btn = document.querySelector(
+            "#chqform button[type=submit]");
+          if (btn) { btn.disabled = true; btn.textContent = "Reading…"; }
+          document.getElementById("chqform").submit();
+        }
         drop.addEventListener("drop", function (e) {
           if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
             input.files = e.dataTransfer.files;
-            if (text) text.textContent = e.dataTransfer.files.length +
-              " cheque scan(s) ready — click “Read cheques into the register”.";
+            autoScan(e.dataTransfer.files.length);
           }
         });
         input.addEventListener("change", function () {
-          if (text && input.files.length) text.textContent =
-            input.files.length + " cheque scan(s) ready — click “Read cheques into the register”.";
+          if (input.files.length) { autoScan(input.files.length); }
         });
       })();
     </script>

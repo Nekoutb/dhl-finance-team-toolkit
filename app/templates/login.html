@@ -27,6 +27,12 @@
       <p class="lead" style="font-size:13px;">Staff access — finance team only.</p>
 
       {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      {% if request.query_params.get('expired') %}
+      <div class="alert alert-info">Your session ended (sessions renew
+        while you work, but pause long enough and they expire for
+        security). Nothing was lost — sign in to continue where you
+        were.</div>
+      {% endif %}
 
       <form action="/login" method="post">
         <input type="hidden" name="next" value="{{ next }}">

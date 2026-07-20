@@ -81,6 +81,11 @@
     {% endif %}
 
     {% if request.state.is_admin is not defined or request.state.is_admin %}
+    <div class="nav-section">Account</div>
+    <a class="nav-item {% if path == '/profile' %}active{% endif %}" href="/profile">
+      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.5"/><path d="M5 19.5a7 7 0 0 1 14 0"/></svg></span>
+      <span class="nav-label">My profile</span></a>
+
     <div class="nav-section">Admin</div>
     <a class="nav-item {% if path == '/admin' %}active{% endif %}" href="/admin">
       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 6.5a3 3 0 0 1 0 5.5"/><path d="M17.5 14.5a5.5 5.5 0 0 1 3 4.5"/></svg></span>

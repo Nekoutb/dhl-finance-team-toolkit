@@ -134,12 +134,23 @@ async def gate_and_cache(request: Request, call_next):
     cfg = load_config()
     auth_cfg = cfg.get("auth", {})
     user = None
+    renew_session = False
     if auth.enabled(auth_cfg):
-        user = auth.read_token(auth_cfg.get("secret_key", ""),
-                               request.cookies.get(auth.COOKIE))
+        user, tok_age = auth.read_token_with_age(
+            auth_cfg.get("secret_key", ""),
+            request.cookies.get(auth.COOKIE))
         if user is None and not auth.is_public(request.url.path):
             nxt = request.url.path
-            return RedirectResponse(f"/login?next={nxt}", status_code=303)
+            # Tell the user WHY when a session genuinely ran out — a bare
+            # login page after hours of work reads as a scary error.
+            had_cookie = bool(request.cookies.get(auth.COOKIE))
+            return RedirectResponse(
+                f"/login?next={nxt}" + ("&expired=1" if had_cookie else ""),
+                status_code=303)
+        # Sliding sessions: an ACTIVE user never hits the hard 12-hour
+        # cliff mid-work — the cookie is re-issued once it ages past 30 min.
+        renew_session = bool(user) and tok_age is not None \
+            and tok_age > auth.RENEW_AFTER
     request.state.user = user
     request.state.is_admin = auth.is_admin(auth_cfg, user)
     # Per-area access rights drive the nav/landing (what a user may see) and
@@ -162,6 +173,12 @@ async def gate_and_cache(request: Request, call_next):
                 and level != auth.ACCESS_MODIFY:
             return _access_denied(request, read_only=True)
     response = await call_next(request)
+    if renew_session and "set-cookie" not in response.headers:
+        response.set_cookie(
+            auth.COOKIE,
+            auth.issue(auth_cfg.get("secret_key", ""), user),
+            max_age=auth.MAX_AGE, httponly=True, samesite="lax",
+            secure=bool(auth_cfg.get("secure_cookies")))
     if request.url.path.startswith("/static/"):
         # Versioned URLs (?v=<release hash>) make long caching safe: a new
         # release changes the URL, so browsers fetch fresh files instantly.
@@ -302,6 +319,9 @@ async def login_submit(request: Request):
     stored = auth_cfg.get("users", {}).get(username)
     if stored and auth.verify_password(password, stored):
         auth.clear_failures(username)
+        # A fresh admin-issued password must become the user's own first.
+        if auth.needs_password_change(auth_cfg, username):
+            return _finish_login(auth_cfg, username, "/profile?first=1")
         return _finish_login(auth_cfg, username, nxt)
 
     client_ip = request.client.host if request.client else ""
@@ -318,6 +338,63 @@ def logout():
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(auth.COOKIE)
     return resp
+
+# --------------------------------------------------------------------------- #
+# My profile — every signed-in user manages their own password here
+# --------------------------------------------------------------------------- #
+@app.get("/profile", response_class=HTMLResponse)
+def profile_page(request: Request, message: str = "", error: str = "",
+                 first: str = ""):
+    cfg = load_config()
+    auth_cfg = cfg.get("auth", {})
+    user = getattr(request.state, "user", None)
+    if auth.enabled(auth_cfg) and not user:
+        return RedirectResponse("/login?next=/profile", status_code=303)
+    return templates.TemplateResponse("profile.html", {
+        "request": request, "cfg": cfg, "user": user or "(local mode)",
+        "alias": auth.get_alias(auth_cfg, user) if user else "",
+        "is_admin": getattr(request.state, "is_admin", True),
+        "must_change": auth.needs_password_change(auth_cfg, user),
+        "first": bool(first), "message": message, "error": error,
+        "min_len": auth.MIN_PASSWORD_LEN,
+    })
+
+
+@app.post("/profile/password")
+async def profile_password(request: Request):
+    cfg = load_config()
+    auth_cfg = cfg.get("auth", {})
+    user = getattr(request.state, "user", None)
+    if not auth.enabled(auth_cfg) or not user:
+        return redirect_msg("/profile", error="Staff login is not enabled — "
+                                              "there is no password to "
+                                              "change.")
+    form = await request.form()
+    current = form.get("current") or ""
+    new = form.get("new") or ""
+    confirm = form.get("confirm") or ""
+    stored = auth_cfg.get("users", {}).get(user)
+    if not stored or not auth.verify_password(current, stored):
+        return redirect_msg("/profile",
+                            error="Your current password is not correct.")
+    if new != confirm:
+        return redirect_msg("/profile",
+                            error="The two new passwords don't match — "
+                                  "type them again.")
+    if len(new) < auth.MIN_PASSWORD_LEN:
+        return redirect_msg("/profile",
+                            error=f"The new password needs at least "
+                                  f"{auth.MIN_PASSWORD_LEN} characters.")
+    if new == current:
+        return redirect_msg("/profile",
+                            error="Choose a password different from the "
+                                  "current one.")
+    auth.set_password(user, new)
+    return redirect_msg("/profile",
+                        message="Password changed — your session stays "
+                                "open; use the new password from your next "
+                                "sign-in.")
+
 
 ALLOWED_EXT = {".xlsx", ".xlsm", ".xls"}
 BANK_EXT = ALLOWED_EXT | {".pdf"}   # bank statements also arrive as PDFs

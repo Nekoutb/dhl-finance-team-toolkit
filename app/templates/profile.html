@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}My profile · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / My profile</nav>
+
+  <section class="panel">
+    <h1>👤 My profile</h1>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if must_change %}
+    <div class="alert alert-warn"><strong>Please set your own password
+      now.</strong> The one you signed in with was issued by an
+      administrator — choose a personal password below before continuing
+      to work.</div>
+    {% elif first %}
+    <div class="alert alert-info">Welcome! You can change your password
+      here any time.</div>
+    {% endif %}
+
+    <p class="lead">Signed in as <strong>{{ user }}</strong>
+      {% if alias %} · alias <strong>{{ alias }}</strong>{% endif %}
+      · role: {{ 'administrator' if is_admin else 'staff' }}</p>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">🔑 Change my password</h2>
+    <form action="/profile/password" method="post" class="upload-form-stack"
+          style="max-width:420px;">
+      <label class="field">
+        <span>Current password</span>
+        <input type="password" name="current" required
+               autocomplete="current-password">
+      </label>
+      <label class="field">
+        <span>New password (at least {{ min_len }} characters)</span>
+        <input type="password" name="new" required minlength="{{ min_len }}"
+               autocomplete="new-password">
+      </label>
+      <label class="field">
+        <span>New password again</span>
+        <input type="password" name="confirm" required
+               minlength="{{ min_len }}" autocomplete="new-password">
+      </label>
+      <button class="btn btn-primary" type="submit">Change password</button>
+    </form>
+    <p class="note-small">A long phrase beats a complicated word — three or
+      four random words are strong and easy to remember. Your current
+      session stays open after the change.</p>
+  </section>
+{% endblock %}

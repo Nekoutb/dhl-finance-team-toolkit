@@ -5,10 +5,11 @@ secrets). Anything missing falls back to ``DEFAULT_CONFIG`` below, so the app
 runs out of the box and you only override what you need.
 """
 import json
+import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.0 — 20 Jul 2026 · Cash AR Ageing panel on BIT & Cash AR (per-account buckets 0–30 / 30–60 / above 60 days as of today, item dates captured from the Cash AR file); deleting a reconciliation sandbox now RELEASES its deposit slips from the history so the IRO can submit them again (orphaned claims from earlier deletions swept automatically)"
+APP_VERSION = "v11.1 — 20 Jul 2026 · My profile page: every user changes their own password (new users prompted to set a personal one on first login); sessions now RENEW while you work (no more mid-task logouts — the cheque2 incident) and an expired session explains itself; config writes made atomic + locked (the root cause of random logouts); cheque scans start automatically the moment files are picked or dropped"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -118,20 +119,71 @@ def ensure_dirs():
         directory.mkdir(parents=True, exist_ok=True)
 
 
+def _config_write_lock():
+    """Cross-process lock for config writes — several gunicorn workers (and
+    admin actions) must never interleave a read-modify-write on the file
+    that holds users, access maps and the session signing key."""
+    import time
+    import uuid as _uuid
+
+    class _Lock:
+        lockfile = CONFIG_PATH.with_suffix(".lock")
+
+        def __enter__(self):
+            deadline = time.time() + 3.0
+            while True:
+                try:
+                    self.fd = os.open(self.lockfile,
+                                      os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    return self
+                except FileExistsError:
+                    try:
+                        if time.time() - self.lockfile.stat().st_mtime > 10:
+                            self.lockfile.unlink(missing_ok=True)
+                            continue
+                    except OSError:
+                        pass
+                    if time.time() > deadline:
+                        self.fd = None
+                        return self
+                    time.sleep(0.03)
+
+        def __exit__(self, *_exc):
+            if self.fd is not None:
+                os.close(self.fd)
+                self.lockfile.unlink(missing_ok=True)
+            return False
+    _Lock.uuid = _uuid       # keep the import referenced
+    return _Lock()
+
+
+def write_config_file(payload):
+    """ATOMIC config write: unique temp file + os.replace, so a reader can
+    never see a half-written file (a torn read silently reverts the app to
+    defaults — including the auth signing key — logging everyone out)."""
+    tmp = CONFIG_PATH.with_name(
+        f"{CONFIG_PATH.name}.{os.getpid()}.{os.urandom(3).hex()}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False),
+                   encoding="utf-8")
+    os.replace(tmp, CONFIG_PATH)
+
+
 def save_user_config(updates):
     """Deep-merge ``updates`` into config.json (the git-ignored user config).
 
     Used by the in-app Settings page (e.g. SMTP credentials) so configuration
     is locked into the SaaS without hand-editing files. Takes effect on the
-    next request — every sender calls load_config() per request.
+    next request — every sender calls load_config() per request. The whole
+    read-modify-write runs under a cross-process lock and the write is
+    atomic.
     """
-    current = {}
-    if CONFIG_PATH.exists():
-        try:
-            current = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            current = {}
-    merged = _deep_merge(current, updates)
-    CONFIG_PATH.write_text(json.dumps(merged, indent=2, ensure_ascii=False),
-                           encoding="utf-8")
+    with _config_write_lock():
+        current = {}
+        if CONFIG_PATH.exists():
+            try:
+                current = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                current = {}
+        merged = _deep_merge(current, updates)
+        write_config_file(merged)
     return load_config()

@@ -1711,4 +1711,104 @@ check("orphan placeholder claims pruned",
       iro.prune_orphan_deposits() >= 1
       and iro.find_prior_deposit(sha="deadsha001") is None)
 
-print("\nALL v9.4—v11.0 TESTS PASSED")
+# === 22. v11.1 — password self-service, sliding sessions, config safety ====
+import threading as _thr  # noqa: E402
+
+from app.config import save_user_config  # noqa: E402
+
+# Config writes are atomic + locked: concurrent writers lose nothing and a
+# reader can never see a half-written file.
+_errs = []
+
+
+def _w(i):
+    try:
+        save_user_config({f"probe_{i % 4}": {"n": i}})
+    except Exception as exc:  # noqa: BLE001
+        _errs.append(exc)
+
+
+_threads = [_thr.Thread(target=_w, args=(i,)) for i in range(16)]
+for t_ in _threads:
+    t_.start()
+for t_ in _threads:
+    t_.join()
+from app.config import load_config as _lc  # noqa: E402
+
+_cfg22 = _lc()
+check("concurrent config writes: no crash, all keys present, valid JSON",
+      not _errs and all(f"probe_{k}" in _cfg22 for k in range(4)))
+
+tok22 = auth.issue("s3cret", "t.user")
+u22, age22 = auth.read_token_with_age("s3cret", tok22)
+check("token age readable for sliding renewal",
+      u22 == "t.user" and age22 is not None and age22 < 5
+      and auth.RENEW_AFTER == 1800)
+check("garbage token -> no user", auth.read_token_with_age("s3cret",
+                                                           "junk")
+      == (None, None))
+
+# Full HTTP flow with staff login enabled (last section — config restored
+# by the test guard afterwards).
+auth.add_user("t.user", "y" * 12, secure_cookies=False, admin=False)
+auth.set_access("t.user", {"dashboard": "read",
+                           "cheque-processing": "modify"})
+check("new users are flagged to change their password",
+      auth.needs_password_change(_lc().get("auth", {}), "t.user"))
+
+c22 = TestClient(main.app, follow_redirects=False)
+r = c22.post("/login", data={"username": "t.user", "password": "y" * 12,
+                             "next": "/"})
+check("first login lands on the profile to set a personal password",
+      r.status_code == 303 and "/profile?first=1" in r.headers["location"])
+r = c22.get("/profile")
+check("profile page prompts for the new password",
+      r.status_code == 200 and "set your own password" in
+      " ".join(r.text.split()).lower())
+check("sidebar carries My profile", 'href="/profile"' in r.text)
+
+r = c22.post("/profile/password", data={"current": "WRONG" * 3,
+                                        "new": "Z" * 14,
+                                        "confirm": "Z" * 14})
+check("wrong current password refused", "error=" in r.headers["location"])
+r = c22.post("/profile/password", data={"current": "y" * 12,
+                                        "new": "short",
+                                        "confirm": "short"})
+check("too-short new password refused", "error=" in r.headers["location"])
+r = c22.post("/profile/password", data={"current": "y" * 12,
+                                        "new": "Z" * 14,
+                                        "confirm": "Z" * 14})
+check("password change accepted", "message=" in r.headers["location"])
+check("must-change flag cleared after the change",
+      not auth.needs_password_change(_lc().get("auth", {}), "t.user"))
+
+c23 = TestClient(main.app, follow_redirects=False)
+r = c23.post("/login", data={"username": "t.user", "password": "Z" * 14,
+                             "next": "/"})
+check("the NEW password signs in and goes straight to work",
+      r.status_code == 303 and "welcome=1" in r.headers["location"]
+      and "/profile" not in r.headers["location"])
+r = c23.post("/login", data={"username": "t.user", "password": "y" * 12,
+                             "next": "/"})
+check("the old password is dead", r.status_code == 401)
+
+c24 = TestClient(main.app, follow_redirects=False)
+c24.cookies.set(auth.COOKIE, "garbage-token")
+r = c24.get("/")
+check("an invalid/expired session explains itself on the login page",
+      r.status_code == 303 and "expired=1" in r.headers["location"])
+r = c24.get("/login?expired=1")
+check("login page shows the session-ended notice",
+      "Your session ended" in " ".join(r.text.split()))
+
+_oc22 = ai_ocr.is_configured
+ai_ocr.is_configured = lambda cfg: True
+try:
+    r = c23.get("/tools/cheque-processing")
+finally:
+    ai_ocr.is_configured = _oc22
+check("cheque upload auto-starts the scan on file selection",
+      "autoScan" in r.text and "reading them into the register now"
+      in r.text)
+
+print("\nALL v9.4—v11.1 TESTS PASSED")

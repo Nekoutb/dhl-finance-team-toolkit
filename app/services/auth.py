@@ -21,7 +21,8 @@ from threading import Lock
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from ..config import CONFIG_PATH, DATA_DIR
+from ..config import (CONFIG_PATH, DATA_DIR, _config_write_lock,
+                      write_config_file)
 
 COOKIE = "ft_session"
 MAX_AGE = 60 * 60 * 12          # 12 hours
@@ -74,6 +75,56 @@ def read_token(secret, token, max_age=MAX_AGE):
         return _serializer(secret).loads(token, max_age=max_age).get("u")
     except (BadSignature, SignatureExpired):
         return None
+
+
+RENEW_AFTER = 30 * 60           # refresh the cookie once it is >30 min old
+
+
+def read_token_with_age(secret, token, max_age=MAX_AGE):
+    """(username, age_seconds) — (None, None) when missing/invalid/expired.
+    The age lets the middleware RENEW active sessions (sliding expiry), so
+    nobody is thrown out mid-work at a hard 12-hour mark."""
+    if not token:
+        return None, None
+    try:
+        payload, ts = _serializer(secret).loads(token, max_age=max_age,
+                                                return_timestamp=True)
+        return payload.get("u"), max(0, time.time() - ts.timestamp())
+    except (BadSignature, SignatureExpired):
+        return None, None
+
+
+def needs_password_change(auth_cfg, user):
+    return bool(user) and user in (auth_cfg.get("must_change") or [])
+
+
+def mark_must_change(username, on=True):
+    with _config_write_lock():
+        cfg = _load_raw()
+        lst = cfg.setdefault("auth", {}).setdefault("must_change", [])
+        if on and username not in lst:
+            lst.append(username)
+        if not on and username in lst:
+            lst.remove(username)
+        _save_raw(cfg)
+
+
+def set_password(username, new_password):
+    """A user changes their OWN password. Clears the must-change flag."""
+    username = (username or "").strip()
+    if not username or len(new_password or "") < MIN_PASSWORD_LEN:
+        return False
+    with _config_write_lock():
+        cfg = _load_raw()
+        a = cfg.setdefault("auth", {})
+        if username not in a.get("users", {}):
+            return False
+        a["users"][username] = hash_password(new_password)
+        lst = a.setdefault("must_change", [])
+        if username in lst:
+            lst.remove(username)
+        _save_raw(cfg)
+    return True
 
 
 def is_public(path):
@@ -209,6 +260,11 @@ def set_access(username, access_map):
     username = (username or "").strip()
     if not username:
         return False
+    with _config_write_lock():
+        return _set_access_locked(username, access_map)
+
+
+def _set_access_locked(username, access_map):
     cfg = _load_raw()
     a = cfg.setdefault("auth", {})
     a.setdefault("access", {})[username] = {
@@ -229,8 +285,9 @@ def _load_raw():
 
 
 def _save_raw(cfg):
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
-                           encoding="utf-8")
+    # Atomic replace — a torn config read reverts the app to defaults
+    # (including the session signing key) and logs everyone out.
+    write_config_file(cfg)
 
 
 def list_users():
@@ -246,12 +303,22 @@ def add_user(username, password, secure_cookies=None, admin=False):
     username = (username or "").strip()
     if not username or not password:
         return False
+    with _config_write_lock():
+        return _add_user_locked(username, password, secure_cookies, admin)
+
+
+def _add_user_locked(username, password, secure_cookies, admin):
     cfg = _load_raw()
     a = cfg.setdefault("auth", {})
     if "admins" not in a:
         # Legacy users were all implicitly admins — keep them that way.
         a["admins"] = sorted(a.get("users", {}).keys())
     a.setdefault("users", {})[username] = hash_password(password)
+    # A fresh (or reset) password came from an admin — the user must set
+    # their own on first login.
+    mc = a.setdefault("must_change", [])
+    if username not in mc:
+        mc.append(username)
     if admin and username not in a["admins"]:
         a["admins"].append(username)
     if not admin and username in a["admins"] and len(a["admins"]) > 1:
@@ -299,6 +366,11 @@ def set_alias(username, alias):
     username = (username or "").strip()
     if not username:
         return False
+    with _config_write_lock():
+        return _set_alias_locked(username, alias)
+
+
+def _set_alias_locked(username, alias):
     cfg = _load_raw()
     aliases = cfg.setdefault("auth", {}).setdefault("aliases", {})
     alias = (alias or "").strip()
