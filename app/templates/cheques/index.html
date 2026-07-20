@@ -142,7 +142,9 @@
 
   <section class="panel">
     <h2 class="section-title">Cheque register
-      <span class="note-inline">({{ register|length }} cheque(s) on file — permanent, no deletion)</span></h2>
+      <span class="note-inline">({{ register|length }} cheque(s) on file —
+        permanent; only the administrator can remove flagged
+        duplicates)</span></h2>
     {% set reading = register | selectattr('status', 'in', ['pending', 'running']) | list %}
     {% if reading %}
     <script>setTimeout(function () { location.reload(); }, 5000);</script>
@@ -163,8 +165,19 @@
       <a class="btn" href="/tools/cheque-processing/register/export">⬇ Download the register (Excel)</a>
     </div>
     {% if register %}
+    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;
+                margin-bottom:10px;">
+      <label class="field" style="margin:0;flex:1 1 320px;max-width:520px;">
+        <span>🔎 Filter the register (cheque N°, client, bank, amount, date,
+          reference — any part)</span>
+        <input type="text" id="chq-filter" autocomplete="off"
+               placeholder="e.g. 5550001, ACME or 150,000">
+      </label>
+      <span class="note-inline" id="chq-filter-count"
+            style="padding-bottom:8px;">{{ register|length }} row(s)</span>
+    </div>
     <div class="table-wrap" style="max-height:none;">
-      <table class="tx-table">
+      <table class="tx-table" id="chq-table">
         <thead>
         <tr>
           <th rowspan="2">Uploaded</th><th rowspan="2">Uploaded by</th>
@@ -199,7 +212,19 @@
                 <div class="note-inline" style="max-width:180px;white-space:normal;">
                   Same cheque uploaded {{ r.duplicate_of.uploaded }} by
                   {{ aliases.get(r.duplicate_of.uploaded_by, r.duplicate_of.uploaded_by) or 'unknown' }}</div>
-              {% elif r.new %}<br><span class="pill pill-watch">NEW MATCH</span>{% endif %}</td>
+                {% if is_admin %}
+                <form action="/tools/cheque-processing/register/delete"
+                      method="post" class="row-form" style="margin-top:4px;"
+                      onsubmit="return confirm('Delete this DUPLICATE cheque from the register? The original upload stays on file.');">
+                  <input type="hidden" name="batch" value="{{ r.batch }}">
+                  <input type="hidden" name="idx" value="{{ r.idx }}">
+                  <button class="btn btn-small" type="submit"
+                          title="Administrator only — removes this duplicate upload; the original cheque stays on the register">🗑 Delete duplicate</button>
+                </form>
+                {% endif %}
+              {% endif %}
+              {% if r.matched_label %}<br><span class="pill pill-watch"
+                title="Seen on a bank statement on this date — the match date is stamped once and never changes">Matched {{ r.matched_label }}</span>{% endif %}</td>
             <td>{{ r.issuing_bank or '—' }}</td>
             <td>{{ r.customer or '—' }}</td>
             {% if r.ar %}
@@ -264,10 +289,40 @@
         </tbody>
       </table>
     </div>
+    <script>
+      // Live register filter — matches ANY part of the row (cheque number,
+      // client, bank, amounts, dates, references). Spaces and thousands
+      // separators are ignored so "150,000", "150 000" and "150000" all hit.
+      (function () {
+        var box = document.getElementById("chq-filter");
+        var rows = Array.prototype.slice.call(
+          document.querySelectorAll("#chq-table tbody tr"));
+        var count = document.getElementById("chq-filter-count");
+        if (!box || !rows.length) return;
+        function norm(s) {
+          return (s || "").toLowerCase().replace(/[\s,]/g, "");
+        }
+        box.addEventListener("input", function () {
+          var q = norm(box.value);
+          var shown = 0;
+          rows.forEach(function (tr) {
+            var hit = !q || norm(tr.textContent).indexOf(q) !== -1;
+            tr.style.display = hit ? "" : "none";
+            if (hit) shown++;
+          });
+          if (count) count.textContent = q
+            ? shown + " of " + rows.length + " row(s)"
+            : rows.length + " row(s)";
+        });
+      })();
+    </script>
     <p class="note-small">Each cheque's clearing is disclosed <strong>once</strong> —
       the latest date its number appears on the statements (overlapping
       statement extracts repeating the same transaction are not shown twice).
-      Rows highlighted in <strong>blue</strong> are newly matched cheques awaiting
+      Matched cheques carry a <strong>Matched date</strong> under the cheque
+      number — stamped the day the match was first seen and
+      <strong>fixed in time</strong> (it never moves on later refreshes).
+      Rows highlighted in <strong>blue</strong> are matched cheques awaiting
       accounting treatment — they stay at the top until the
       <strong>finance profile</strong> marks them treated (the cheque-register
       profile cannot). ✗ = the statements on file were read and the cheque

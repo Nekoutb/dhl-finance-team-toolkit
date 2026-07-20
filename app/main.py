@@ -1984,6 +1984,8 @@ def _cheque_ctx(request, **extra):
            "register": register, "stats": stats, "stats_chart": stats_chart,
            "ar_meta": ar_meta, "bit_meta": bit_meta,
            "can_treat": _can_treat(request),
+           # Duplicate deletion is reserved for administrators (super user).
+           "is_admin": getattr(request.state, "is_admin", True),
            # username -> display alias (set by an admin) for "Uploaded by".
            "aliases": auth.alias_map(cfg.get("auth", {})),
            "bank_lines": len(_rows), "bank_banks": bank_banks}
@@ -2135,6 +2137,41 @@ async def cheque_register_treat(request: Request):
     return redirect_msg("/tools/cheque-processing",
                         message="Cheque marked as treated in the accounting "
                                 "records." if on else "Treated mark removed.")
+
+
+@app.post("/tools/cheque-processing/register/delete")
+async def cheque_register_delete(request: Request):
+    # ADMINISTRATOR-only removal of a cheque flagged DUPLICATE — the register
+    # stays permanent for every original cheque.
+    if not getattr(request.state, "is_admin", True):
+        return redirect_msg("/tools/cheque-processing",
+                            error="Only an administrator can delete a "
+                                  "duplicate cheque.")
+    form = await request.form()
+    token = (form.get("batch") or "").strip()
+    try:
+        idx = int(form.get("idx") or "")
+    except ValueError:
+        idx = -1
+    b = cheques.load_batch(token) if re.fullmatch(r"[0-9a-f]+", token) else None
+    chq = next((c for c in (b or {}).get("cheques", [])
+                if c.get("idx") == idx), None)
+    if not chq:
+        return redirect_msg("/tools/cheque-processing",
+                            error="That cheque was not found — nothing was "
+                                  "deleted.")
+    if not chq.get("duplicate_of"):
+        return redirect_msg("/tools/cheque-processing",
+                            error="Only cheques flagged DUPLICATE can be "
+                                  "deleted — the register is permanent for "
+                                  "every original cheque.")
+    removed = cheques.delete_cheque(token, idx)
+    num = ((removed or {}).get("result") or {}).get("cheque_number") \
+        or (removed or {}).get("filename") or "—"
+    return redirect_msg("/tools/cheque-processing",
+                        message=f"Duplicate cheque {num} deleted from the "
+                                "register — the original upload stays on "
+                                "file.")
 
 
 # --------------------------------------------------------------------------- #

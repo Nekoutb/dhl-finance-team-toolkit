@@ -1724,8 +1724,9 @@ _errs = []
 def _w(i):
     try:
         save_user_config({f"probe_{i % 4}": {"n": i}})
-    except Exception as exc:  # noqa: BLE001
-        _errs.append(exc)
+    except Exception:  # noqa: BLE001
+        import traceback as _tb
+        _errs.append(_tb.format_exc())
 
 
 _threads = [_thr.Thread(target=_w, args=(i,)) for i in range(16)]
@@ -1736,6 +1737,9 @@ for t_ in _threads:
 from app.config import load_config as _lc  # noqa: E402
 
 _cfg22 = _lc()
+if _errs or not all(f"probe_{k}" in _cfg22 for k in range(4)):
+    print("DBG config-write errors:", [repr(e) for e in _errs],
+          "| probes:", [k for k in _cfg22 if k.startswith("probe_")])
 check("concurrent config writes: no crash, all keys present, valid JSON",
       not _errs and all(f"probe_{k}" in _cfg22 for k in range(4)))
 
@@ -1811,4 +1815,179 @@ check("cheque upload auto-starts the scan on file selection",
       "autoScan" in r.text and "reading them into the register now"
       in r.text)
 
-print("\nALL v9.4—v11.1 TESTS PASSED")
+# === 23. v11.2 — register filter, matched date fixed in time, admin
+# deletion of duplicates ======================================================
+check("matched date formatting (ordinals)",
+      cheques.matched_label("2026-07-20 09:15") == "July 20th 2026"
+      and cheques.matched_label("2026-07-01 00:00") == "July 1st 2026"
+      and cheques.matched_label("2026-07-02") == "July 2nd 2026"
+      and cheques.matched_label("2026-07-03") == "July 3rd 2026"
+      and cheques.matched_label("2026-07-11") == "July 11th 2026"
+      and cheques.matched_label("2026-07-21") == "July 21st 2026")
+check("pre-stamp matches fall back to the credited date (fixed too)",
+      cheques.matched_label("", {"date": "2026-07-10"}) == "July 10th 2026"
+      and cheques.matched_label("", None) == ""
+      and cheques.matched_label("odd-value") == "odd-value")
+
+# Fixture: an original upload (one matched w/ stamp, one unpresented) and a
+# later DUPLICATE upload of the matched cheque.
+_b23a = cheques.BATCH_DIR / "23aabb23aabb"
+_b23a.mkdir(parents=True, exist_ok=True)
+(_b23a / "results.json").write_text(json.dumps({
+    "status": "done", "uploaded_by": "tester",
+    "created_at": "2026-07-19 10:00", "banks": [], "bank_line_count": 0,
+    "cheques": [
+        {"idx": 0, "filename": "orig.png", "stored": "000.png",
+         "media": "image/png", "status": "done",
+         "result": {"cheque_number": "7770001", "customer_name": "GAMMA SARL",
+                    "amount": 99000.0, "amount_currency": "XAF",
+                    "cheque_date": "2026-07-15", "drawee_bank": "SCB"},
+         "appearances": [{"bank": "SGBC", "amount": 99000.0,
+                          "date": "2026-07-18", "text": "CHQ 7770001 GAMMA"}],
+         "matched_at": "2026-07-20 09:00", "error": ""},
+        {"idx": 1, "filename": "open.png", "stored": "001.png",
+         "media": "image/png", "status": "done",
+         "result": {"cheque_number": "7770002", "customer_name": "DELTA SA",
+                    "amount": 41000.0, "amount_currency": "XAF",
+                    "cheque_date": "2026-07-16", "drawee_bank": "UBA"},
+         "appearances": [], "error": ""},
+    ]}, ensure_ascii=False), encoding="utf-8")
+_b23b = cheques.BATCH_DIR / "23ccdd23ccdd"
+_b23b.mkdir(parents=True, exist_ok=True)
+(_b23b / "000.png").write_bytes(b"dupscan")
+(_b23b / "results.json").write_text(json.dumps({
+    "status": "done", "uploaded_by": "cheque2",
+    "created_at": "2026-07-20 08:00", "banks": [], "bank_line_count": 0,
+    "cheques": [
+        {"idx": 0, "filename": "again.png", "stored": "000.png",
+         "media": "image/png", "status": "done",
+         "result": {"cheque_number": "7770001", "customer_name": "GAMMA SARL",
+                    "amount": 99000.0, "amount_currency": "XAF",
+                    "cheque_date": "2026-07-15", "drawee_bank": "SCB"},
+         "appearances": [{"bank": "SGBC", "amount": 99000.0,
+                          "date": "2026-07-18", "text": "CHQ 7770001 GAMMA"}],
+         "duplicate_of": {"batch": "23aabb23aabb",
+                          "uploaded": "2026-07-19 10:00",
+                          "uploaded_by": "tester"}, "error": ""},
+    ]}, ensure_ascii=False), encoding="utf-8")
+
+_rows23 = cheques.register_rows()
+_orig23 = next(r_ for r_ in _rows23 if r_["batch"] == "23aabb23aabb"
+               and r_["idx"] == 0)
+_dup23 = next(r_ for r_ in _rows23 if r_["batch"] == "23ccdd23ccdd")
+check("register rows carry the fixed matched label",
+      _orig23["matched_label"] == "July 20th 2026"
+      and _dup23["matched_label"] == "July 18th 2026")
+
+r = c23.get("/tools/cheque-processing")
+check("register filter is on the page",
+      'id="chq-filter"' in r.text and 'id="chq-table"' in r.text
+      and "of \" + rows.length" in r.text)
+check("matched date replaces the NEW MATCH pill",
+      "Matched July 20th 2026" in r.text and "NEW MATCH" not in r.text)
+
+# A genuine NON-admin (t.user was auto-promoted as the first-ever account):
+# sees no delete button, and the delete route refuses.
+auth.add_user("t.admin", "w" * 12, secure_cookies=False, admin=True)
+auth.add_user("t.clerk", "v" * 12, secure_cookies=False, admin=False)
+auth.set_access("t.clerk", {"cheque-processing": "modify"})
+c26 = TestClient(main.app, follow_redirects=False)
+r = c26.post("/login", data={"username": "t.clerk", "password": "v" * 12,
+                             "next": "/"})
+check("clerk signed in", r.status_code == 303)
+r = c26.get("/tools/cheque-processing")
+check("non-admin gets no delete button",
+      r.status_code == 200 and "Delete duplicate" not in r.text)
+r = c26.post("/tools/cheque-processing/register/delete",
+             data={"batch": "23ccdd23ccdd", "idx": "0"})
+check("non-admin delete refused",
+      r.status_code == 303 and "error=" in r.headers["location"]
+      and cheques.load_batch("23ccdd23ccdd") is not None)
+
+# The administrator: sees the button, cannot delete an ORIGINAL cheque, can
+# delete the flagged DUPLICATE (scan file + empty batch removed with it).
+c25 = TestClient(main.app, follow_redirects=False)
+r = c25.post("/login", data={"username": "t.admin", "password": "w" * 12,
+                             "next": "/"})
+check("admin signed in", r.status_code == 303)
+r = c25.get("/tools/cheque-processing")
+check("admin sees the delete-duplicate button", "Delete duplicate" in r.text)
+r = c25.post("/tools/cheque-processing/register/delete",
+             data={"batch": "23aabb23aabb", "idx": "0"})
+check("original cheques stay permanent even for the admin",
+      r.status_code == 303 and "error=" in r.headers["location"]
+      and cheques.load_batch("23aabb23aabb") is not None)
+r = c25.post("/tools/cheque-processing/register/delete",
+             data={"batch": "23ccdd23ccdd", "idx": "0"})
+check("admin deletes the duplicate",
+      r.status_code == 303 and "message=" in r.headers["location"])
+check("duplicate gone, original intact, empty upload swept",
+      not any(r_["batch"] == "23ccdd23ccdd" for r_ in cheques.register_rows())
+      and any(r_["batch"] == "23aabb23aabb" and r_["cheque_number"] == "7770001"
+              for r_ in cheques.register_rows())
+      and not _b23b.exists())
+r = c25.post("/tools/cheque-processing/register/delete",
+             data={"batch": "23ccdd23ccdd", "idx": "0"})
+check("deleting a missing cheque reports not-found",
+      r.status_code == 303 and "error=" in r.headers["location"])
+
+# The register Excel now discloses the fixed matched date.
+rx23 = c25.get("/tools/cheque-processing/register/export")
+wsx23 = openpyxl.load_workbook(io.BytesIO(rx23.content)).active
+head23 = [c.value for c in wsx23[1]]
+check("Excel carries the Matched on column",
+      head23[-1] == "Matched on")
+gamma23 = next(row for row in wsx23.iter_rows(min_row=2, values_only=True)
+               if row[2] == "7770001")
+check("Excel matched date fixed in time", gamma23[22] == "July 20th 2026")
+
+# Review fixes: refresh is a locked MERGE (deleted batches never crash it or
+# resurrect), and pre-stamp matches backfill the CREDITED date, not today.
+from datetime import datetime as _dt23  # noqa: E402
+
+_b23c = cheques.BATCH_DIR / "23eeff23eeff"
+_b23c.mkdir(parents=True, exist_ok=True)
+(_b23c / "results.json").write_text(json.dumps({
+    "status": "done", "uploaded_by": "tester",
+    "created_at": "2026-03-01 09:00", "banks": [], "bank_line_count": 0,
+    "cheques": [
+        {"idx": 0, "filename": "old.png", "stored": "000.png",
+         "media": "image/png", "status": "done",
+         "result": {"cheque_number": "8880001", "customer_name": "OMEGA",
+                    "amount": 5000.0, "amount_currency": "XAF",
+                    "cheque_date": "2026-02-25", "drawee_bank": "SCB"},
+         "appearances": [{"bank": "SCB", "amount": 5000.0,
+                          "date": "2026-03-03", "text": "CHQ 8880001"}],
+         "error": ""},
+        {"idx": 1, "filename": "new.png", "stored": "001.png",
+         "media": "image/png", "status": "done",
+         "result": {"cheque_number": "8880002", "customer_name": "SIGMA",
+                    "amount": 7000.0, "amount_currency": "XAF",
+                    "cheque_date": "2026-07-19", "drawee_bank": "UBA"},
+         "appearances": [], "error": ""},
+    ]}, ensure_ascii=False), encoding="utf-8")
+_rows_bank23 = [
+    {"bank": "SCB", "amount": 5000.0, "date": "2026-03-03",
+     "text": "CHQ 8880001 OMEGA"},
+    {"bank": "UBA", "amount": 7000.0, "date": "2026-07-19",
+     "text": "CHQ 8880002 SIGMA"},
+]
+cheques.refresh_matches("23eeff23eeff", _rows_bank23, [])
+_b23cp = cheques.load_batch("23eeff23eeff")
+_old23 = next(c for c in _b23cp["cheques"] if c["idx"] == 0)
+_new23 = next(c for c in _b23cp["cheques"] if c["idx"] == 1)
+check("pre-stamp match backfills the CREDITED date (never today)",
+      _old23.get("matched_at") == "2026-03-03")
+check("a genuinely new match stamps the refresh moment",
+      str(_new23.get("matched_at", "")).startswith(
+          _dt23.now().strftime("%Y-%m-%d")))
+check("register shows the backfilled fixed date",
+      any(r_["batch"] == "23eeff23eeff"
+          and r_["matched_label"] == "March 3rd 2026"
+          for r_ in cheques.register_rows()))
+check("refreshing a deleted batch is a quiet no-op",
+      cheques.refresh_matches("23ccdd23ccdd", _rows_bank23, []) is None)
+check("register-wide refresh survives every batch",
+      cheques.refresh_all(_rows_bank23, []) >= 1)
+
+print("\nALL v9.4—v11.2 TESTS PASSED")

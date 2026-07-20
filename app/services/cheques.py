@@ -15,6 +15,7 @@ import json
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime
 
 from ..config import DATA_DIR, load_config
@@ -88,6 +89,37 @@ def ref_snippet(appearance, cheque_no, window=24):
             + ("…" if end < len(text) else ""))
 
 
+_ORD = {1: "st", 2: "nd", 3: "rd"}
+
+
+def _ordinal(n):
+    if 11 <= n % 100 <= 13:
+        return f"{n}th"
+    return f"{n}{_ORD.get(n % 10, 'th')}"
+
+
+def matched_label(matched_at, cleared=None):
+    """Human match date — e.g. ``July 20th 2026`` — FIXED IN TIME: built from
+    the ``matched_at`` stamp written the first time the cheque was seen on a
+    statement (a later refresh never overwrites it). Cheques matched before
+    the stamp existed fall back to the statement's credited date, equally
+    fixed."""
+    raw = str(matched_at or "").strip()
+    if not raw and cleared:
+        raw = str(cleared.get("date") or "").strip()
+    if not raw:
+        return ""
+    day = raw.split(" ")[0]
+    for cand, fmt in ((raw, "%Y-%m-%d %H:%M"), (day, "%Y-%m-%d"),
+                      (day, "%d/%m/%Y"), (day, "%d-%m-%Y"), (day, "%d.%m.%Y")):
+        try:
+            d = datetime.strptime(cand, fmt)
+            return f"{d.strftime('%B')} {_ordinal(d.day)} {d.year}"
+        except ValueError:
+            continue
+    return raw
+
+
 # --------------------------------------------------------------------------- #
 # Batch processing (background thread; bank rows kept separate from results)
 # --------------------------------------------------------------------------- #
@@ -104,6 +136,46 @@ def _banks_file(token):
 
 
 _write_lock = threading.Lock()
+
+
+@contextmanager
+def _register_lock():
+    """CROSS-PROCESS lock for register writes. Production runs several
+    gunicorn workers sharing the same results.json files, and a
+    threading.Lock cannot serialise processes — same O_EXCL lockfile
+    pattern as the config lock (short timeout, stale-break, best-effort
+    fallback). Windows raises PermissionError instead of FileExistsError
+    when the lockfile is mid-delete — both mean "contended"."""
+    import os
+    import time
+    BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    lockfile = BATCH_DIR / ".register.lock"
+    fd = None
+    deadline = time.time() + 3.0
+    while True:
+        try:
+            fd = os.open(lockfile, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except (FileExistsError, PermissionError):
+            try:
+                if time.time() - lockfile.stat().st_mtime > 10:
+                    lockfile.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.time() > deadline:
+                break                       # proceed unlocked (best effort)
+            time.sleep(0.03)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            import os as _os
+            _os.close(fd)
+            try:
+                lockfile.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _atomic_write(path, text):
@@ -124,17 +196,24 @@ def _save(token, payload):
 
 
 def _update_cheque(token, idx, updates):
-    """Atomic read-modify-write so parallel workers never lose updates."""
-    with _write_lock:
-        payload = json.loads(_results_file(token).read_text(encoding="utf-8"))
-        for c in payload["cheques"]:
-            if c["idx"] == idx:
-                c.update(updates)
-                break
-        if all(c["status"] != "pending" for c in payload["cheques"]):
-            payload["status"] = "done"
-        _atomic_write(_results_file(token),
-                      json.dumps(payload, ensure_ascii=False))
+    """Atomic read-modify-write so parallel workers (and other gunicorn
+    processes) never lose updates. A batch deleted mid-read is a no-op."""
+    with _register_lock():
+        with _write_lock:
+            p = _results_file(token)
+            if not p.exists():
+                return
+            payload = json.loads(p.read_text(encoding="utf-8"))
+            for c in payload["cheques"]:
+                if c["idx"] == idx:
+                    c.update(updates)
+                    break
+            if all(c["status"] != "pending" for c in payload["cheques"]):
+                payload["status"] = "done"
+            try:
+                _atomic_write(p, json.dumps(payload, ensure_ascii=False))
+            except FileNotFoundError:
+                return
 
 
 def load_batch(token):
@@ -231,6 +310,10 @@ def register_rows():
                 # number — instead of the full haphazard statement text.
                 "ref_snippet": ref_snippet(cleared, res.get("cheque_number", "")),
                 "matched_at": c.get("matched_at", ""),
+                # "Matched July 20th 2026" — the fixed-in-time match date
+                # shown on the register (empty while unpresented).
+                "matched_label": (matched_label(c.get("matched_at", ""),
+                                                cleared) if found else ""),
                 "treated": treated,
                 "duplicate_of": c.get("duplicate_of"),
                 # Newly matched = seen on a statement but not yet treated in the
@@ -338,40 +421,82 @@ def set_treated(token, idx, by, on=True):
 
 def refresh_all(bank_rows, bank_summary):
     """Re-match EVERY batch's cheques against the current bank statement lines
-    (register-wide refresh; no AI re-read). Returns the batch count refreshed."""
+    (register-wide refresh; no AI re-read). Returns the batch count refreshed.
+    One vanished/broken batch (e.g. deleted mid-refresh) never aborts the
+    rest."""
     if not BATCH_DIR.exists():
         return 0
     n = 0
     for d in BATCH_DIR.iterdir():
-        if d.is_dir() and refresh_matches(d.name, bank_rows, bank_summary):
-            n += 1
+        if not d.is_dir():
+            continue
+        try:
+            if refresh_matches(d.name, bank_rows, bank_summary):
+                n += 1
+        except OSError:
+            continue
     return n
 
 
 def refresh_matches(token, bank_rows, bank_summary):
     """Re-match every already-read cheque in a batch against the CURRENT bank
     statement lines — no AI re-read, so it just picks up changed/added bank
-    statements. Returns the updated batch, or None."""
-    payload = load_batch(token)
-    if not payload:
+    statements. Returns the updated batch, or None.
+
+    The slow part (scanning every statement line) runs on a snapshot; the
+    result is then MERGED per-cheque into a freshly loaded payload under the
+    register lock, so a concurrent admin deletion is never clobbered (a
+    whole-payload save here used to resurrect deleted cheques) and a batch
+    removed mid-refresh is simply skipped instead of crashing the refresh."""
+    snapshot = load_batch(token)
+    if not snapshot:
         return None
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    for c in payload["cheques"]:
+    updates = {}
+    for c in snapshot["cheques"]:
         res = c.get("result")
         if res and res.get("cheque_number"):
-            c["appearances"] = find_appearances(res["cheque_number"], bank_rows)
-            # First-match timestamp: set once, kept across later refreshes so a
-            # cheque is flagged "newly matched" only the first time it clears.
-            if c["appearances"] and not c.get("matched_at"):
-                c["matched_at"] = now
-            elif not c["appearances"]:
-                c.pop("matched_at", None)
-    payload["banks"] = bank_summary
-    payload["bank_line_count"] = len(bank_rows)
-    payload["refreshed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-    _save(token, payload)
-    _atomic_write(_banks_file(token),
-                  json.dumps({"rows": bank_rows}, ensure_ascii=False))
+            updates[c["idx"]] = {
+                "apps": find_appearances(res["cheque_number"], bank_rows),
+                # Was it already matched before this refresh? Decides the
+                # matched_at stamp below (fixed in time).
+                "had": bool(c.get("appearances")),
+            }
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _register_lock():
+        with _write_lock:
+            payload = load_batch(token)
+            if not payload:
+                return None                 # batch deleted meanwhile
+            for c in payload["cheques"]:
+                upd = updates.get(c["idx"])
+                if upd is None:
+                    continue
+                c["appearances"] = upd["apps"]
+                # First-match timestamp: set once, kept across later
+                # refreshes. A cheque matched BEFORE the stamp existed is
+                # backfilled with its statement credited date — never with
+                # "now" — so the disclosed Matched date stays fixed in time.
+                if c["appearances"] and not c.get("matched_at"):
+                    if upd["had"]:
+                        old_date = str((primary_appearance(c["appearances"])
+                                        or {}).get("date") or "")
+                        if old_date:
+                            c["matched_at"] = old_date
+                    else:
+                        c["matched_at"] = now
+                elif not c["appearances"]:
+                    c.pop("matched_at", None)
+            payload["banks"] = bank_summary
+            payload["bank_line_count"] = len(bank_rows)
+            payload["refreshed_at"] = now
+            try:
+                _atomic_write(_results_file(token),
+                              json.dumps(payload, ensure_ascii=False))
+                _atomic_write(_banks_file(token),
+                              json.dumps({"rows": bank_rows},
+                                         ensure_ascii=False))
+            except FileNotFoundError:
+                return None                 # directory removed meanwhile
     return payload
 
 
@@ -432,10 +557,19 @@ def run_batch_async(token):
             for c in payload["cheques"]:
                 if c["status"] == "pending":
                     _process_one(token, c["idx"], ai_cfg, bank_rows)
-        payload = load_batch(token)
-        if payload and all(c["status"] != "pending" for c in payload["cheques"]):
-            payload["status"] = "done"
-            _save(token, payload)
+        # Done-marking is a locked merge on fresh data — never a whole-payload
+        # save over someone else's concurrent write (or a deleted batch).
+        with _register_lock():
+            with _write_lock:
+                payload = load_batch(token)
+                if payload and all(c["status"] != "pending"
+                                   for c in payload["cheques"]):
+                    payload["status"] = "done"
+                    try:
+                        _atomic_write(_results_file(token),
+                                      json.dumps(payload, ensure_ascii=False))
+                    except FileNotFoundError:
+                        pass
 
     threading.Thread(target=_runner, daemon=True).start()
 
@@ -468,6 +602,45 @@ def delete_batch(token):
     shutil.rmtree(_batch_path(token), ignore_errors=True)
 
 
+def delete_cheque(token, idx):
+    """Remove ONE cheque from its upload — reserved by the route for the
+    ADMINISTRATOR deleting a flagged DUPLICATE (the register stays permanent
+    for every original cheque). The stored scan file goes with it, and an
+    upload left empty disappears entirely. Returns the removed cheque dict,
+    or None when it does not exist."""
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return None
+    removed, keep = None, []
+    with _register_lock():
+        with _write_lock:
+            p = _results_file(token)
+            if not p.exists():
+                return None
+            try:
+                payload = json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return None
+            for c in payload.get("cheques", []):
+                if removed is None and c.get("idx") == idx:
+                    removed = c
+                else:
+                    keep.append(c)
+            if removed is None:
+                return None
+            payload["cheques"] = keep
+            _atomic_write(p, json.dumps(payload, ensure_ascii=False))
+        stored = str(removed.get("stored") or "")
+        if stored and "/" not in stored and "\\" not in stored \
+                and ".." not in stored:
+            try:
+                (_batch_path(token) / stored).unlink()
+            except OSError:
+                pass
+        if not keep:
+            delete_batch(token)
+    return removed
+
+
 def build_register_excel(out_path, rows, aliases=None):
     """The full ELECTRONIC CHEQUE REGISTER as one Excel sheet — every cheque
     ever uploaded, its single disclosed clearing line, and the treated mark.
@@ -486,7 +659,7 @@ def build_register_excel(out_path, rows, aliases=None):
 
     ws = wb.add_worksheet("Cheque register")
     widths = [17, 13, 14, 22, 28, 28, 14, 15, 15, 14, 12, 22, 18, 22, 13, 16,
-              46, 22, 26, 16, 13, 15]
+              46, 22, 26, 16, 13, 15, 18]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     headers = ["Uploaded", "Uploaded by", "Cheque N°", "Issuing bank",
@@ -497,7 +670,7 @@ def build_register_excel(out_path, rows, aliases=None):
                "Amount credited/debited", "Reference seen on statement",
                "Treated in accounting", "Duplicate",
                "BIT transaction reference", "BIT transaction date",
-               "BIT amount"]
+               "BIT amount", "Matched on"]
     for c, h in enumerate(headers):
         ws.write(0, c, h, head)
     r = 1
@@ -553,6 +726,7 @@ def build_register_excel(out_path, rows, aliases=None):
         ba = (bit or {}).get("amount")
         ws.write_number(r, 21, ba, num) if isinstance(ba, (int, float)) \
             else ws.write(r, 21, "", cell)
+        ws.write(r, 22, row.get("matched_label", ""), cell)
         r += 1
     wb.close()
     return out_path

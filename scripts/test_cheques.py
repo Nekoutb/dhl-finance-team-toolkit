@@ -162,7 +162,8 @@ try:
     assert rows[0]["new"] is True and rows[0]["cheque_number"] == "0012345", \
         "newly matched cheque must be first on the register"
     home = client.get("/tools/cheque-processing")
-    assert "new-match" in home.text and "NEW MATCH" in home.text
+    assert "new-match" in home.text and "Matched " in home.text, \
+        "matched cheques must show the fixed-in-time Matched date"
     assert "Treated in accounting" in home.text and "Mark treated" in home.text
     assert 'id="chqdrop"' in home.text, "drag-and-drop upload zone missing"
 

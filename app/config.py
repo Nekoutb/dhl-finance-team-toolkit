@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.1 — 20 Jul 2026 · My profile page: every user changes their own password (new users prompted to set a personal one on first login); sessions now RENEW while you work (no more mid-task logouts — the cheque2 incident) and an expired session explains itself; config writes made atomic + locked (the root cause of random logouts); cheque scans start automatically the moment files are picked or dropped"
+APP_VERSION = "v11.2 — 20 Jul 2026 · Cheque register: live filter over every column (cheque N°, client, bank, amount, date, reference — spaces/commas ignored); the match icon replaced by a fixed-in-time Matched date (stamped once the day the cheque first clears, never moves — also in the Excel export); administrators can delete cheques flagged DUPLICATE (originals stay permanent)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -136,7 +136,10 @@ def _config_write_lock():
                     self.fd = os.open(self.lockfile,
                                       os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                     return self
-                except FileExistsError:
+                # Windows raises PermissionError (not FileExistsError) when
+                # the lockfile is mid-delete by the releasing thread — both
+                # simply mean "contended, try again".
+                except (FileExistsError, PermissionError):
                     try:
                         if time.time() - self.lockfile.stat().st_mtime > 10:
                             self.lockfile.unlink(missing_ok=True)
@@ -160,11 +163,21 @@ def _config_write_lock():
 def write_config_file(payload):
     """ATOMIC config write: unique temp file + os.replace, so a reader can
     never see a half-written file (a torn read silently reverts the app to
-    defaults — including the auth signing key — logging everyone out)."""
+    defaults — including the auth signing key — logging everyone out).
+    On Windows a concurrent reader (or antivirus scan) can hold the target
+    open for a moment and make os.replace throw PermissionError — retried
+    briefly; the final attempt surfaces the error."""
+    import time
     tmp = CONFIG_PATH.with_name(
         f"{CONFIG_PATH.name}.{os.getpid()}.{os.urandom(3).hex()}.tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False),
                    encoding="utf-8")
+    for attempt in range(20):
+        try:
+            os.replace(tmp, CONFIG_PATH)
+            return
+        except PermissionError:
+            time.sleep(0.01 * (attempt + 1))
     os.replace(tmp, CONFIG_PATH)
 
 
