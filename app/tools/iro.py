@@ -427,6 +427,56 @@ def claim_deposit(sha, account, total, slip_date, reference, recon_token):
     return None
 
 
+def stamp_deposits(shas, recon_token):
+    """Tie freshly-claimed deposits to their sandbox — deleting the sandbox
+    then releases them."""
+    if not shas:
+        return
+    with _FileLock(DEPOSITS_PATH):
+        entries = _deposits()
+        for e in entries:
+            if e.get("sha") in shas:
+                e["recon_token"] = recon_token
+        with _lock:
+            _atomic(DEPOSITS_PATH, entries[-1000:])
+
+
+def release_deposits(recon_token):
+    """When finance deletes a reconciliation sandbox, its deposit slips
+    leave the history too — the IRO can submit them again. Returns the
+    number released."""
+    if not recon_token:
+        return 0
+    with _FileLock(DEPOSITS_PATH):
+        entries = _deposits()
+        keep = [e for e in entries
+                if e.get("recon_token") != str(recon_token)]
+        released = len(entries) - len(keep)
+        if released:
+            with _lock:
+                _atomic(DEPOSITS_PATH, keep)
+    return released
+
+
+def prune_orphan_deposits():
+    """Drop deposit claims whose sandbox no longer exists (including the
+    pre-v11 placeholder claims that were never stamped with a token).
+    Returns the number pruned."""
+    with _FileLock(DEPOSITS_PATH):
+        entries = _deposits()
+        keep = []
+        for e in entries:
+            tok = str(e.get("recon_token") or "")
+            if re.fullmatch(r"[0-9a-f]{12}", tok) \
+                    and bitcash.load_recon(tok) is not None:
+                keep.append(e)
+        pruned = len(entries) - len(keep)
+        if pruned:
+            with _lock:
+                _atomic(DEPOSITS_PATH, keep)
+    return pruned
+
+
 def duplicate_message(prior, account=None):
     # The prior reference is disclosed only to the SAME account — a hash
     # collision across operators must not leak another party's details.
@@ -827,6 +877,7 @@ def process_message(raw_bytes):
         account, lines=lines, evidence_path=evidence_path,
         slip_paths=slips, references=all_refs,
         channel="email", label=f"IRO {account} — email")
+    stamp_deposits(set(slip_shas), token)
     _save_mail_log(log)
     return {"status": "created", "recon_token": token, "account": account}
 

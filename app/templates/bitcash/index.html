@@ -89,6 +89,56 @@
     {% endif %}
   </section>
 
+  <!-- Cash AR Ageing: per-account buckets as of today -->
+  {% if ageing.rows %}
+  <style>.diff-bad { color: #bd3727; }</style>
+  <section class="panel">
+    <h2 class="section-title">⏳ Cash AR Ageing — as of {{ ageing.as_of }}</h2>
+    {% if not ageing.has_dates %}
+    <div class="alert alert-info">The Cash AR on record was uploaded before
+      item dates were captured — <strong>re-upload the Cash AR file</strong>
+      and the buckets fill in (everything shows as “no date” until
+      then).</div>
+    {% endif %}
+    <div class="table-wrap" style="max-height:420px;">
+      <table class="tx-table">
+        <thead><tr><th>Account</th><th>Customer</th>
+          <th>0–30 days</th><th>30–60 days</th><th>Above 60 days</th>
+          {% if ageing.totals.undated %}<th>No date</th>{% endif %}
+          <th>Total (XAF)</th></tr></thead>
+        <tbody>
+          {% for g in ageing.rows %}
+          <tr>
+            <td><strong>{{ g.account }}</strong></td>
+            <td>{{ g.customer or '—' }}</td>
+            <td>{% if g.b0 %}{{ "{:,.0f}".format(g.b0) }}{% else %}—{% endif %}</td>
+            <td>{% if g.b31 %}{{ "{:,.0f}".format(g.b31) }}{% else %}—{% endif %}</td>
+            <td>{% if g.b61 %}<strong class="diff-bad">{{ "{:,.0f}".format(g.b61) }}</strong>{% else %}—{% endif %}</td>
+            {% if ageing.totals.undated %}
+            <td>{% if g.undated %}{{ "{:,.0f}".format(g.undated) }}{% else %}—{% endif %}</td>
+            {% endif %}
+            <td><strong>{{ "{:,.0f}".format(g.total) }}</strong></td>
+          </tr>
+          {% endfor %}
+          <tr>
+            <td><strong>TOTAL</strong></td><td></td>
+            <td><strong>{{ "{:,.0f}".format(ageing.totals.b0) }}</strong></td>
+            <td><strong>{{ "{:,.0f}".format(ageing.totals.b31) }}</strong></td>
+            <td><strong>{{ "{:,.0f}".format(ageing.totals.b61) }}</strong></td>
+            {% if ageing.totals.undated %}
+            <td><strong>{{ "{:,.0f}".format(ageing.totals.undated) }}</strong></td>
+            {% endif %}
+            <td><strong>{{ "{:,.0f}".format(ageing.totals.total) }}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">Each open Cash AR item is aged from its posting
+      date to today and grouped per account — amounts above 60 days show in
+      red.</p>
+  </section>
+  {% endif %}
+
   <section class="panel">
     <h2 class="section-title">Upload the BIT &amp; Cash AR files</h2>
     <form action="/tools/bit-cash-ar/upload" method="post"

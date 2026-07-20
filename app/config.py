@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v10.9 — 19 Jul 2026 · Dedicated deposit-slip reader: the slip is the ONLY evidence an IRO uploads — bank (e.g. BICEC), depositor, beneficiary (proper DHL check), account credited, slip reference, date (French included) and amount all read automatically into locked boxes; slip reference + account hunted in the BIT (with amount-agreement safeguards); optional Excel deposit-slips list with tickable rows; finance sees the full slip reading on every sandbox"
+APP_VERSION = "v11.0 — 20 Jul 2026 · Cash AR Ageing panel on BIT & Cash AR (per-account buckets 0–30 / 30–60 / above 60 days as of today, item dates captured from the Cash AR file); deleting a reconciliation sandbox now RELEASES its deposit slips from the history so the IRO can submit them again (orphaned claims from earlier deletions swept automatically)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

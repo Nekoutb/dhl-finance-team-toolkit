@@ -2352,6 +2352,7 @@ def _bitcash_home(request, error="", message="", status_code=200,
         "processing": st.get("processing"),
         "processing_error": st.get("processing_error"),
         "recons": recons, "op_pending": op_pending,
+        "ageing": bitcash.cash_ageing(),
         "journal": Path(journal).name if journal else "",
         "jname": Path(jname).name if jname else "",
         "pack": Path(pack).name if pack else "",
@@ -3038,6 +3039,8 @@ async def operator_submit(request: Request, token: str):
         slip_paths=slip_paths, references=refs, channel="portal",
         label=f"IRO {rec['account']} — {refs[0] if refs else 'return'}",
         slip_total=slip_total, slip_info=slip_info)
+    iro.stamp_deposits({m.get("sha") for m in slip_metas if m.get("sha")},
+                       recon_token)
     cfg = load_config()
     # A copy of the submission lands in the operator mailbox as EMAIL
     # EVIDENCE (slip attached), and finance gets a heads-up.
@@ -3146,7 +3149,14 @@ async def bitcash_recon_delete(token: str):
         return redirect_msg("/tools/bit-cash-ar",
                             error="Approved reconciliations can't be deleted — "
                                   "unapprove first.")
-    return redirect_msg("/tools/bit-cash-ar", message="Reconciliation removed.")
+    # The sandbox is gone — its deposit slips leave the history too, so
+    # the IRO can submit them again. Orphaned claims from earlier
+    # deletions are swept in the same pass.
+    released = iro.release_deposits(token) + iro.prune_orphan_deposits()
+    note = f" {released} deposit slip(s) released for resubmission." \
+        if released else ""
+    return redirect_msg("/tools/bit-cash-ar",
+                        message="Reconciliation removed." + note)
 
 
 @app.post("/tools/bit-cash-ar/journal")

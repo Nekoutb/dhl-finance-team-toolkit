@@ -343,6 +343,8 @@ def _persist_rows(kind, path, parsed=None, progress=None):
             c_amt = col("amount")
             c_name = col("customer account: name", "customer name", "name")
             c_doc = col("doc. no.", "doc no")
+            c_date = col("posting date", "pstng date", "doc. date",
+                         "doc date", "document date")
             rows = []
             for i, r in enumerate(parsed["rows"]):
                 d = r["data"]
@@ -355,6 +357,7 @@ def _persist_rows(kind, path, parsed=None, progress=None):
                     "amount": _to_float(d.get(c_amt)),
                     "customer": _cellstr(d.get(c_name))[:40],
                     "doc_no": _cellstr(d.get(c_doc)),
+                    "date": _cellstr(d.get(c_date))[:10] if c_date else "",
                 })
                 _row_tick(i + 1)
             store["cash"] = rows
@@ -383,6 +386,56 @@ def rows_generation(store=None):
     """The generation stamp of the files currently on record."""
     store = store or rows_store()
     return {"bit": store.get("gen_bit", ""), "cash": store.get("gen_cash", "")}
+
+
+def _row_date(value):
+    """'15.07.2026', '15/07/2026' or '2026-07-15…' -> date, else None."""
+    s = str(value or "").strip()[:10]
+    m = re.fullmatch(r"(\d{1,2})[./](\d{1,2})[./](\d{4})", s)
+    try:
+        if m:
+            return datetime(int(m.group(3)), int(m.group(2)),
+                            int(m.group(1))).date()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return None
+
+
+def cash_ageing(today=None):
+    """The Cash AR classified per ACCOUNT into ageing buckets as of today:
+    0-30 days, 30-60 days, above 60 days (item posting date vs today).
+    Items whose date could not be read land in 'undated'."""
+    today = today or datetime.now().date()
+    accounts = {}
+    dated = False
+    for r in rows_store()["cash"]:
+        acct = (r.get("sap_acct") or "").strip() or "—"
+        g = accounts.setdefault(acct, {
+            "account": acct, "customer": "", "b0": 0.0, "b31": 0.0,
+            "b61": 0.0, "undated": 0.0, "total": 0.0})
+        if not g["customer"] and (r.get("customer") or "").strip():
+            g["customer"] = r["customer"].strip()
+        amt = r.get("amount") or 0
+        d = _row_date(r.get("date"))
+        if d is None:
+            g["undated"] = round(g["undated"] + amt, 2)
+        else:
+            dated = True
+            age = (today - d).days
+            if age <= 30:
+                g["b0"] = round(g["b0"] + amt, 2)
+            elif age <= 60:
+                g["b31"] = round(g["b31"] + amt, 2)
+            else:
+                g["b61"] = round(g["b61"] + amt, 2)
+        g["total"] = round(g["total"] + amt, 2)
+    rows = sorted(accounts.values(), key=lambda g: -g["total"])
+    totals = {k: round(sum(g[k] for g in rows), 2)
+              for k in ("b0", "b31", "b61", "undated", "total")}
+    return {"as_of": today.strftime("%d/%m/%Y"), "rows": rows,
+            "totals": totals, "has_dates": dated}
 
 
 def search_cash(query, limit=20):

@@ -1618,4 +1618,97 @@ check("portal defines its own error surface (deposit list is alive)",
       'id="iro-error"' in r.text and "function showError" in r.text
       and "textContent = v" in r.text)
 
-print("\nALL v9.4—v10.9 TESTS PASSED")
+# === 21. v11.0 — Cash AR Ageing + deposit release on sandbox delete ========
+from datetime import date as _date, timedelta as _td  # noqa: E402
+
+_t = _date.today()
+
+
+def _dstr(days_ago):
+    d = _t - _td(days=days_ago)
+    return f"{d.day:02d}.{d.month:02d}.{d.year}"
+
+
+FAKE8 = {"bit_header": [], "gen_bit": "g8", "gen_cash": "g8", "bit": [],
+         "cash": [
+             {"id": 0, "sap_acct": "415774002", "awb": "1111111111",
+              "assignment": "1111111111", "reference": "1111111111",
+              "amount": 10000.0, "customer": "ETS NEW SERVICE TJR",
+              "doc_no": "1", "date": _dstr(5)},
+             {"id": 1, "sap_acct": "415774002", "awb": "2222222222",
+              "assignment": "2222222222", "reference": "2222222222",
+              "amount": 20000.0, "customer": "ETS NEW SERVICE TJR",
+              "doc_no": "2", "date": _dstr(45)},
+             {"id": 2, "sap_acct": "4003025929", "awb": "3333333333",
+              "assignment": "3333333333", "reference": "3333333333",
+              "amount": 30000.0, "customer": "DHL SERVICE POINT BUEA",
+              "doc_no": "3", "date": _dstr(100)},
+             {"id": 3, "sap_acct": "4003025929", "awb": "4444444444",
+              "assignment": "4444444444", "reference": "4444444444",
+              "amount": 5000.0, "customer": "DHL SERVICE POINT BUEA",
+              "doc_no": "4", "date": ""}]}
+bitcash.rows_store = lambda: FAKE8
+ag = bitcash.cash_ageing()
+by_acct8 = {g["account"]: g for g in ag["rows"]}
+check("ageing buckets per account as of today",
+      by_acct8["415774002"]["b0"] == 10000.0
+      and by_acct8["415774002"]["b31"] == 20000.0
+      and by_acct8["4003025929"]["b61"] == 30000.0
+      and by_acct8["4003025929"]["undated"] == 5000.0
+      and ag["totals"]["total"] == 65000.0 and ag["has_dates"])
+r = client.get("/tools/bit-cash-ar")
+flat21 = " ".join(r.text.split())
+check("Cash AR Ageing panel renders next to the graphs",
+      "Cash AR Ageing" in flat21 and "0–30 days" in flat21
+      and "Above 60 days" in flat21 and "30,000" in flat21
+      and "65,000" in flat21)
+
+wb21 = openpyxl.Workbook()
+wb21.active.append(["SAP Acct", "Assignment", "Reference", "Amount",
+                    "Customer Name", "Doc. No.", "Posting Date"])
+wb21.active.append(["415774002", "5555555555", "5555555555", 7000,
+                    "X", "9", "01.06.2026"])
+p21 = _tmp / "cash_dated.xlsx"
+wb21.save(p21)
+bitcash.ROWS_PATH = _tmp / "rows21.json"
+bitcash._persist_rows("cash", p21)
+stored21 = json.loads(bitcash.ROWS_PATH.read_text(encoding="utf-8"))
+check("Cash AR date column captured for ageing",
+      stored21["cash"][0]["date"] == "01.06.2026")
+
+# Deposit release: delete the sandbox -> the slips leave the record.
+prior21 = iro.find_prior_deposit(account="415774002", total=523500.0,
+                                 slip_date="2026-07-07")
+check("the BICEC deposit is on the history (stamped to its sandbox)",
+      prior21 is not None
+      and prior21.get("recon_token") == sub20["recon_token"])
+r = client.post(
+    f"/tools/bit-cash-ar/recon/{sub20['recon_token']}/delete",
+    follow_redirects=False)
+check("sandbox delete releases the deposit slips",
+      r.status_code == 303
+      and "released" in r.headers["location"]
+      and iro.find_prior_deposit(account="415774002", total=523500.0,
+                                 slip_date="2026-07-07") is None)
+_orig_slipx2 = ai_ocr.extract_deposit_slip
+ai_ocr.extract_deposit_slip = lambda blob, media, cfg: {
+    "bank": "BICEC", "depositor": "FONTEM FONKI A",
+    "beneficiary": "Societe DHL International Cameroun (STE)",
+    "account_credited": "00123101000-83", "slip_reference": "012372",
+    "date": "07 Juillet 2026 à 13:50", "amount_xaf": 523500.0}
+try:
+    side21 = iro.preread_slip(b"SLIP" + b"B" * 25000, "bicec.jpg",
+                              {"api_key": "x"}, account="415774002")
+    check("the SAME slip can be submitted again after the delete",
+          "duplicate" not in side21 and side21.get("total") == 523500.0)
+finally:
+    ai_ocr.extract_deposit_slip = _orig_slipx2
+
+# Orphan claims (pre-v11 placeholders) are swept too.
+iro.claim_deposit("deadsha001", "415774002", 1000.0, "2026-07-01",
+                  "X", "portal")
+check("orphan placeholder claims pruned",
+      iro.prune_orphan_deposits() >= 1
+      and iro.find_prior_deposit(sha="deadsha001") is None)
+
+print("\nALL v9.4—v11.0 TESTS PASSED")
