@@ -148,7 +148,17 @@ def build_statements_from_gl(path, source_name):
             inv["id"] = n
         for n, pay in enumerate(bucket["payments"]):
             pay["id"] = n
-        token = remittance_store.new_token()
+        # Stable link: reuse the customer's existing token so the link they
+        # already hold refreshes in place (never orphaned). A still-confirmed
+        # statement is archived first so its allocation audit survives.
+        token = remittance_store.link_token(key)
+        if token:
+            prior = remittance_store.load_statement(token)
+            if prior and prior.get("status") == "allocated":
+                remittance_store.archive_statement(prior)
+        else:
+            token = remittance_store.new_token()
+            remittance_store.set_link_token(key, token)
         currency = next((i["currency"] for i in bucket["invoices"] + bucket["payments"]
                          if i["currency"]), "")
         statement = {
@@ -214,6 +224,38 @@ def _flag_untreated_allocations(batch):
                 "amount": prior["total_payments"],
                 "confirmed_by": prior["confirmed_by"],
             }
+
+
+def auto_allocation(statement):
+    """Offset ALL of the customer's payments against their OLDEST invoices,
+    whole invoices only — the single source of truth for both the read-only
+    portal view and the confirm handler (they can never diverge).
+
+    Invoices are walked oldest→newest (document date; undated last). Each whole
+    invoice is settled while the running invoice total stays within the total
+    payments; the FIRST invoice that would overshoot STOPS the run (oldest-first
+    — we never skip an unaffordable old invoice to settle a cheaper newer one).
+    Any remaining payment is held as a deposit.
+
+    Returns (payment_ids, invoice_ids, covered, payments_total, leftover).
+    """
+    statement = statement or {}
+    payments = statement.get("payments", []) or []
+    invoices = sorted(statement.get("invoices", []) or [],
+                      key=lambda i: (i.get("date", "") == "",
+                                     i.get("date", ""), i.get("id", 0)))
+    payments_total = round(sum(p.get("amount", 0) or 0 for p in payments), 2)
+    payment_ids = [p["id"] for p in payments if "id" in p]
+    invoice_ids, covered = [], 0.0
+    for inv in invoices:
+        amt = inv.get("amount", 0) or 0
+        if round(covered + amt, 2) <= payments_total + 0.005:
+            invoice_ids.append(inv["id"])
+            covered = round(covered + amt, 2)
+        else:
+            break            # whole invoices only, oldest-first — stop here
+    leftover = round(payments_total - covered, 2)
+    return payment_ids, invoice_ids, covered, payments_total, leftover
 
 
 def selection_totals(statement, payment_ids, invoice_ids):

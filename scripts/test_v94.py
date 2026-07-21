@@ -1676,6 +1676,52 @@ stored21 = json.loads(bitcash.ROWS_PATH.read_text(encoding="utf-8"))
 check("Cash AR date column captured for ageing",
       stored21["cash"][0]["date"] == "01.06.2026")
 
+# v11.3 — robust date-column detection, broader parsing + legible diagnostic.
+# (a) an ALTERNATIVE header ("Document Date") with a DASH date is captured, and
+#     the detected column is remembered for the panel.
+wb_alt = openpyxl.Workbook()
+wb_alt.active.append(["SAP Acct", "Assignment", "Amount", "Customer Name",
+                      "Document Date"])
+wb_alt.active.append(["415774002", "6666666666", 8000, "X", "15-06-2026"])
+p_alt = _tmp / "cash_altdate.xlsx"
+wb_alt.save(p_alt)
+bitcash.ROWS_PATH = _tmp / "rows_alt.json"
+bitcash._persist_rows("cash", p_alt)
+stored_alt = json.loads(bitcash.ROWS_PATH.read_text(encoding="utf-8"))
+check("alt date column 'Document Date' (dash date) detected + remembered",
+      stored_alt["cash"][0]["date"] == "15-06-2026"
+      and stored_alt.get("cash_date_col", "").lower() == "document date")
+
+# (b) _row_date now parses dash / year-first / Excel serial (dot & slash stay).
+check("date parsing broadened (dash, year-first, serial)",
+      bitcash._row_date("15-07-2026") == date(2026, 7, 15)
+      and bitcash._row_date("2026/07/15") == date(2026, 7, 15)
+      and bitcash._row_date("15.07.2026") == date(2026, 7, 15)
+      and bitcash._row_date("45566") == date(2024, 10, 1)
+      and bitcash._row_date("nonsense") is None)
+
+# (c) a file whose only date is a NET DUE DATE leaves the ageing date
+#     unrecognised (basis = document/posting date) → all undated, legible.
+wb_nod = openpyxl.Workbook()
+wb_nod.active.append(["SAP Acct", "Assignment", "Amount", "Customer Name",
+                      "Net Due Date"])
+wb_nod.active.append(["415774002", "7777777777", 9000, "X", "2026-06-15"])
+p_nod = _tmp / "cash_nodate.xlsx"
+wb_nod.save(p_nod)
+bitcash.ROWS_PATH = _tmp / "rows_nod.json"
+bitcash._persist_rows("cash", p_nod)
+stored_nod = json.loads(bitcash.ROWS_PATH.read_text(encoding="utf-8"))
+check("net-due-date-only file leaves the ageing date unrecognised",
+      stored_nod["cash"][0]["date"] == ""
+      and stored_nod.get("cash_date_col", "") == "")
+_saved_rows_store = bitcash.rows_store
+bitcash.rows_store = lambda: stored_nod
+ag_nod = bitcash.cash_ageing()
+bitcash.rows_store = _saved_rows_store
+check("ageing surfaces the all-undated diagnostic (empty date_col)",
+      ag_nod["has_dates"] is False and ag_nod["date_col"] == ""
+      and ag_nod["totals"]["undated"] == 9000.0)
+
 # Deposit release: delete the sandbox -> the slips leave the record.
 prior21 = iro.find_prior_deposit(account="415774002", total=523500.0,
                                  slip_date="2026-07-07")

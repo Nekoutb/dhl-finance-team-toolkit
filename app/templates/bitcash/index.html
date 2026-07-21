@@ -74,11 +74,11 @@
     <p class="note-small">
       {% if current.bit %}BIT: <strong>{{ current.bit.source }}</strong>
         uploaded {{ current.bit.uploaded }} — {{ current.bit.open_items }} open
-        of {{ current.bit.items }} item(s)
+        of {{ current.bit['items'] }} item(s)
         {%- if current.bit.status_col %} (status column: {{ current.bit.status_col }}){% endif %}.{% endif %}
       {% if current.cash %} Cash AR: <strong>{{ current.cash.source }}</strong>
         uploaded {{ current.cash.uploaded }} — {{ current.cash.open_items }} open
-        of {{ current.cash.items }} item(s)
+        of {{ current.cash['items'] }} item(s)
         {%- if current.cash.status_col %} (status column: {{ current.cash.status_col }}){% endif %}.{% endif %}
     </p>
     {% endif %}
@@ -93,12 +93,21 @@
   {% if ageing.rows %}
   <style>.diff-bad { color: #bd3727; }</style>
   <section class="panel">
-    <h2 class="section-title">⏳ Cash AR Ageing — as of {{ ageing.as_of }}</h2>
+    <h2 class="section-title">⏳ Cash AR Ageing — as of {{ ageing.as_of }}
+      {% if ageing.date_col %}<span class="note-inline">(aged from the
+        “{{ ageing.date_col }}” column)</span>{% endif %}</h2>
     {% if not ageing.has_dates %}
-    <div class="alert alert-info">The Cash AR on record was uploaded before
-      item dates were captured — <strong>re-upload the Cash AR file</strong>
-      and the buckets fill in (everything shows as “no date” until
-      then).</div>
+    <div class="alert alert-error">No item date could be read from the Cash AR,
+      so every item shows as “no date”.
+      {% if ageing.date_col %}A “{{ ageing.date_col }}” column was found but its
+        values weren’t in a recognised date format.{% else %}No document/posting
+        date column was recognised in the file.{% endif %}
+      <strong>Re-upload the Cash AR</strong>; if it still shows “no date”, send
+      us the exact header of your date column and we’ll add it.</div>
+    {% elif ageing.totals.undated %}
+    <div class="alert alert-info">{{ "{:,.0f}".format(ageing.totals.undated) }}
+      XAF of items have no readable date (shown under “No date”) — the rest are
+      aged normally.</div>
     {% endif %}
     <div class="table-wrap" style="max-height:420px;">
       <table class="tx-table">

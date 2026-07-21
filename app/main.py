@@ -953,6 +953,12 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
         ctp.record_daily_stats(result)
     except Exception:  # noqa: BLE001 — stats must never fail an upload
         pass
+    # The same AR transaction file also refreshes the remittance portal so its
+    # customer links always show the latest position (stable links are reused).
+    try:
+        remittance.build_statements_from_gl(dest, result.get("source", "AR file"))
+    except Exception:  # noqa: BLE001 — remittance refresh must never break CtP analysis
+        pass
     return RedirectResponse(
         f"/tools/ongoing-ctp-monitoring/results/{token[:12]}/dashboard",
         status_code=303)
@@ -1446,9 +1452,15 @@ def portal_statement(request: Request, token: str, error: str = ""):
         })
     # Prefill the contact block from what this customer confirmed before.
     contact = remittance_store.get_contact(stmt.get("customer_key")) or {}
+    # Auto-allocation: the customer no longer ticks — their payments are applied
+    # to their oldest invoices (whole invoices) and shown read-only to confirm.
+    _pids, settled_ids, covered, payments_total, leftover = \
+        remittance.auto_allocation(stmt)
     return templates.TemplateResponse("portal/statement.html", {
         "request": request, "cfg": cfg, "stmt": stmt, "contact": contact,
-        "error": error,
+        "error": error, "settled_ids": settled_ids, "covered": covered,
+        "payments_total": payments_total, "leftover": leftover,
+        "settled_count": len(settled_ids),
     })
 
 
@@ -1456,34 +1468,44 @@ def portal_statement(request: Request, token: str, error: str = ""):
 async def portal_allocate(request: Request, token: str):
     cfg = load_config()
     form = await request.form()
-    payment_ids = [int(x) for x in form.getlist("payment") if x.isdigit()]
-    invoice_ids = [int(x) for x in form.getlist("invoice") if x.isdigit()]
     confirmed_by = (form.get("confirmed_by") or "").strip()
     role = (form.get("role") or "").strip()
     email = (form.get("email") or "").strip()
     phone = (form.get("phone") or "").strip()
     note = (form.get("note") or "").strip()
 
+    # RECOMPUTE the allocation server-side — the customer no longer ticks; their
+    # payments are applied to their oldest invoices deterministically, so any
+    # client-supplied ids are ignored (they cannot alter the offset).
+    stmt0 = remittance_store.load_statement(token)
+    if stmt0 is None:
+        return HTMLResponse("This link is invalid or has expired.", status_code=404)
+    payment_ids, invoice_ids, covered, payments_total, leftover = \
+        remittance.auto_allocation(stmt0)
+
+    def _rerender(reason, code=400):
+        return templates.TemplateResponse("portal/statement.html", {
+            "request": request, "cfg": cfg, "stmt": stmt0,
+            "contact": {"name": confirmed_by, "role": role,
+                        "email": email, "phone": phone},
+            "error": reason, "settled_ids": invoice_ids, "covered": covered,
+            "payments_total": payments_total, "leftover": leftover,
+            "settled_count": len(invoice_ids),
+        }, status_code=code)
+
+    # Nothing to confirm until a payment lands on the statement.
+    if not payment_ids:
+        return _rerender("There are no payments on this statement to "
+                         "allocate yet.")
     # Name, role, email and phone are obligatory for a valid confirmation. Any
     # excess payment is classified as a deposit AUTOMATICALLY (see
     # apply_allocation) — the customer is informed, not asked to opt in.
     missing = [label for label, value in
                (("name", confirmed_by), ("role", role),
                 ("email", email), ("phone", phone)) if not value]
-    reason = ""
     if missing or "@" not in email:
-        reason = ("Please provide your " + ", ".join(missing) + "."
-                  if missing else "Please provide a valid email address.")
-    if reason:
-        stmt = remittance_store.load_statement(token)
-        if stmt is None:
-            return HTMLResponse("This link is invalid or has expired.", status_code=404)
-        return templates.TemplateResponse("portal/statement.html", {
-            "request": request, "cfg": cfg, "stmt": stmt,
-            "contact": {"name": confirmed_by, "role": role,
-                        "email": email, "phone": phone},
-            "error": reason,
-        }, status_code=400)
+        return _rerender("Please provide your " + ", ".join(missing) + "."
+                         if missing else "Please provide a valid email address.")
 
     stmt = remittance.apply_allocation(
         token, payment_ids, invoice_ids, confirmed_by, note,

@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.2 — 20 Jul 2026 · Cheque register: live filter over every column (cheque N°, client, bank, amount, date, reference — spaces/commas ignored); the match icon replaced by a fixed-in-time Matched date (stamped once the day the cheque first clears, never moves — also in the Excel export); administrators can delete cheques flagged DUPLICATE (originals stay permanent)"
+APP_VERSION = "v11.3 — 21 Jul 2026 · Remittance portal: each customer keeps ONE permanent link that always shows their latest position (uploading the AR transaction file — in the remittance portal or the CtP portal — refreshes it in place instead of minting new links); customers no longer tick — the tool auto-applies their payments to their oldest invoices (whole invoices first) and they only Confirm; Cash AR ageing now reads far more date-column names and formats (dash dates, Excel serials) and says which column it aged from, so the buckets stop looking frozen"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

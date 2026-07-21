@@ -30,7 +30,7 @@ import time
 import unicodedata
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Lock
 
@@ -343,8 +343,15 @@ def _persist_rows(kind, path, parsed=None, progress=None):
             c_amt = col("amount")
             c_name = col("customer account: name", "customer name", "name")
             c_doc = col("doc. no.", "doc no")
-            c_date = col("posting date", "pstng date", "doc. date",
-                         "doc date", "document date")
+            # Ageing is aged from the DOCUMENT / POSTING date — those candidates
+            # come first so col() (first match wins) never falls back onto a
+            # due/baseline date. Net-due/due date is deliberately excluded.
+            c_date = col("posting date", "pstng date", "pstng dt",
+                         "posting dt", "document date", "doc. date",
+                         "doc date", "doc dt", "invoice date", "billing date",
+                         "bill date", "baseline date", "bline date",
+                         "value date", "entry date", "date piece",
+                         "date de piece", "date document", "date comptable")
             rows = []
             for i, r in enumerate(parsed["rows"]):
                 d = r["data"]
@@ -357,10 +364,14 @@ def _persist_rows(kind, path, parsed=None, progress=None):
                     "amount": _to_float(d.get(c_amt)),
                     "customer": _cellstr(d.get(c_name))[:40],
                     "doc_no": _cellstr(d.get(c_doc)),
-                    "date": _cellstr(d.get(c_date))[:10] if c_date else "",
+                    "date": _date_cell_to_str(d.get(c_date)) if c_date else "",
                 })
                 _row_tick(i + 1)
             store["cash"] = rows
+            # Remember which header fed the ageing date (or "" when none was
+            # recognised) so the panel can show it — turns a silent
+            # everything-undated into a legible diagnostic.
+            store["cash_date_col"] = _cellstr(c_date) if c_date else ""
         # Every (re)upload gets a fresh generation stamp: sandboxes remember
         # the generation they matched against, so replaced files can never
         # silently re-point their selected row ids at different invoices.
@@ -370,7 +381,7 @@ def _persist_rows(kind, path, parsed=None, progress=None):
 
 def rows_store():
     empty = {"bit_header": [], "bit": [], "cash": [],
-             "gen_bit": "", "gen_cash": ""}
+             "gen_bit": "", "gen_cash": "", "cash_date_col": ""}
     if not ROWS_PATH.exists():
         return empty
     try:
@@ -388,16 +399,52 @@ def rows_generation(store=None):
     return {"bit": store.get("gen_bit", ""), "cash": store.get("gen_cash", "")}
 
 
+def _date_cell_to_str(v):
+    """Normalise a raw date cell to a stable string for storage so ageing works
+    regardless of how the workbook presented it: a real date/datetime cell ->
+    ISO; an Excel serial number -> ISO; otherwise the trimmed text. _row_date()
+    then parses the stored string when the buckets are computed."""
+    if v is None or v == "":
+        return ""
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    # A bare Excel serial date (days since 1899-12-30) in a plausible range.
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        try:
+            n = float(v)
+            if 20000 <= n <= 80000:            # ~1954-08 … 2119
+                return (datetime(1899, 12, 30)
+                        + timedelta(days=int(n))).date().isoformat()
+        except (ValueError, OverflowError):
+            pass
+    return _cellstr(v)[:10]
+
+
 def _row_date(value):
-    """'15.07.2026', '15/07/2026' or '2026-07-15…' -> date, else None."""
+    """A stored date string -> date, else None. Accepts day-first dot/slash/dash
+    ('15.07.2026', '15/07/2026', '15-07-2026'), ISO/year-first with any of
+    -./ ('2026-07-15', '2026/07/15', '2026.07.15'), and a bare Excel serial."""
     s = str(value or "").strip()[:10]
-    m = re.fullmatch(r"(\d{1,2})[./](\d{1,2})[./](\d{4})", s)
+    if not s:
+        return None
+    # Bare Excel serial that reached storage as a number-string.
+    if re.fullmatch(r"\d{5}", s):
+        try:
+            return (datetime(1899, 12, 30)
+                    + timedelta(days=int(s))).date()
+        except (ValueError, OverflowError):
+            return None
+    m = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})", s)   # day-first
+    y = re.fullmatch(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", s)   # year-first
     try:
         if m:
             return datetime(int(m.group(3)), int(m.group(2)),
                             int(m.group(1))).date()
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-            return datetime.strptime(s, "%Y-%m-%d").date()
+        if y:
+            return datetime(int(y.group(1)), int(y.group(2)),
+                            int(y.group(3))).date()
     except ValueError:
         return None
     return None
@@ -408,9 +455,10 @@ def cash_ageing(today=None):
     0-30 days, 30-60 days, above 60 days (item posting date vs today).
     Items whose date could not be read land in 'undated'."""
     today = today or datetime.now().date()
+    store = rows_store()
     accounts = {}
     dated = False
-    for r in rows_store()["cash"]:
+    for r in store["cash"]:
         acct = (r.get("sap_acct") or "").strip() or "—"
         g = accounts.setdefault(acct, {
             "account": acct, "customer": "", "b0": 0.0, "b31": 0.0,
@@ -435,7 +483,10 @@ def cash_ageing(today=None):
     totals = {k: round(sum(g[k] for g in rows), 2)
               for k in ("b0", "b31", "b61", "undated", "total")}
     return {"as_of": today.strftime("%d/%m/%Y"), "rows": rows,
-            "totals": totals, "has_dates": dated}
+            "totals": totals, "has_dates": dated,
+            # Which header fed the ageing date ("" = none recognised) — shown on
+            # the panel so an all-undated result is explained, not silent.
+            "date_col": store.get("cash_date_col", "")}
 
 
 def search_cash(query, limit=20):

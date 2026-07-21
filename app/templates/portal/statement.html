@@ -4,33 +4,61 @@
   <section class="panel">
     <h1>Statement for {{ stmt.customer_name }}</h1>
     <p class="lead">Account {{ stmt.customer_key }} · as at {{ stmt.created_at }}{% if stmt.currency %} · {{ stmt.currency }}{% endif %}</p>
-    <p class="lead">Please select the <strong>payment(s)</strong> you have made and
-      tick the <strong>invoice(s)</strong> they settle, then confirm. Kindly
-      settle your <strong>oldest outstanding invoices first</strong>. We'll
-      produce a reconciliation for your records and send it to our finance team
-      as your remittance confirmation.</p>
+    <p class="lead">We have applied your <strong>payment(s)</strong> to your
+      <strong>oldest outstanding invoices first</strong>. Please review the
+      allocation below and <strong>confirm</strong> — there is nothing to tick.
+      We'll produce a reconciliation for your records and send it to our finance
+      team as your remittance confirmation.</p>
 
     {% if not stmt.payments and not stmt.invoices %}
       <div class="alert alert-info">No open items found on this statement.</div>
-    {% else %}
-    <form action="/portal/{{ stmt.token }}/allocate" method="post" id="allocform">
-      <p class="select-hint">
-        <button type="button" class="btn btn-small" id="selectAll">✓ Select
-          everything</button>
-        <span class="note-inline" style="margin-left:8px;">or use the tick in
-          each table's header — totals update live below.</span>
-      </p>
-
-      <h2 class="section-title">Your payments / receipts</h2>
-      {% if stmt.payments %}
+    {% elif not stmt.payments %}
+      <div class="alert alert-info">No payments have been received on your
+        account yet, so there is nothing to allocate. Your open invoices are
+        listed below.</div>
+      <h2 class="section-title">Open invoices</h2>
       <div class="table-wrap">
         <table class="tx-table">
-          <thead><tr><th class="col-pick"><input type="checkbox" id="allpay"
-            title="Select all payments"></th><th>Date</th><th>Reference</th><th>Type</th><th>Amount</th></tr></thead>
+          <thead><tr><th>Invoice</th><th>Date</th><th>Due date</th><th>Amount</th></tr></thead>
+          <tbody>
+            {% for i in stmt.invoices %}
+            <tr><td>{{ i.reference or i.doc_no or '—' }}</td><td>{{ i.date or '—' }}</td>
+              <td>{{ i.due_date or '—' }}</td><td>{{ "{:,.2f}".format(i.amount) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+    <style>
+      tr.settled td { background: rgba(27, 127, 75, .10); }
+      .pill-settled { background: #1b7f4b; color: #fff; border-radius: 999px;
+        padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+      .pill-open { background: rgba(100, 116, 139, .18); color: #475569;
+        border-radius: 999px; padding: 1px 9px; font-size: 12px; white-space: nowrap; }
+      .alloc-summary { display: flex; flex-wrap: wrap; gap: 18px; margin: 4px 0 14px;
+        padding: 12px 16px; border: 1px solid rgba(100,116,139,.28);
+        border-radius: 10px; background: rgba(100,116,139,.06); }
+      .alloc-summary .amt { font-weight: 700; }
+    </style>
+
+    <div class="alloc-summary">
+      <span>Total payment(s): <span class="amt">{{ "{:,.2f}".format(payments_total) }}{% if stmt.currency %} {{ stmt.currency }}{% endif %}</span></span>
+      <span>Applied to the {{ settled_count }} oldest invoice(s):
+        <span class="amt" style="color:#1b7f4b;">{{ "{:,.2f}".format(covered) }}</span></span>
+      {% if leftover > 0.005 %}
+      <span>Remaining held as a deposit:
+        <span class="amt" style="color:#b06f00;">{{ "{:,.2f}".format(leftover) }}</span></span>
+      {% endif %}
+    </div>
+
+    <form action="/portal/{{ stmt.token }}/allocate" method="post" id="allocform">
+      <h2 class="section-title">Your payments / receipts</h2>
+      <div class="table-wrap">
+        <table class="tx-table">
+          <thead><tr><th>Date</th><th>Reference</th><th>Type</th><th>Amount</th></tr></thead>
           <tbody>
             {% for p in stmt.payments %}
             <tr>
-              <td class="col-pick"><input type="checkbox" name="payment" value="{{ p.id }}" class="pay-cb" data-amt="{{ p.amount }}"></td>
               <td>{{ p.date or '—' }}</td><td>{{ p.reference or p.doc_no or '—' }}</td>
               <td>{{ p.doc_type or '—' }}</td><td>{{ "{:,.2f}".format(p.amount) }}</td>
             </tr>
@@ -38,18 +66,16 @@
           </tbody>
         </table>
       </div>
-      {% else %}<p class="note-small">No unallocated payments on this statement.</p>{% endif %}
 
-      <h2 class="section-title">Open invoices</h2>
+      <h2 class="section-title">Your invoices — oldest first</h2>
       {% if stmt.invoices %}
       <div class="table-wrap">
         <table class="tx-table">
-          <thead><tr><th class="col-pick"><input type="checkbox" id="allinv"
-            title="Select all invoices"></th><th>Invoice</th><th>Date</th><th>Due date</th><th>Amount</th></tr></thead>
+          <thead><tr><th>Status</th><th>Invoice</th><th>Date</th><th>Due date</th><th>Amount</th></tr></thead>
           <tbody>
             {% for i in stmt.invoices %}
-            <tr>
-              <td class="col-pick"><input type="checkbox" name="invoice" value="{{ i.id }}" class="inv-cb" data-amt="{{ i.amount }}"></td>
+            <tr{% if i.id in settled_ids %} class="settled"{% endif %}>
+              <td>{% if i.id in settled_ids %}<span class="pill-settled">✓ Settled</span>{% else %}<span class="pill-open">Still open</span>{% endif %}</td>
               <td>{{ i.reference or i.doc_no or '—' }}</td><td>{{ i.date or '—' }}</td>
               <td>{{ i.due_date or '—' }}</td><td>{{ "{:,.2f}".format(i.amount) }}</td>
             </tr>
@@ -57,7 +83,18 @@
           </tbody>
         </table>
       </div>
-      {% else %}<p class="note-small">No open invoices on this statement.</p>{% endif %}
+      {% else %}<p class="note-small">No open invoices on this statement — your
+        payment{% if payments_total %} of {{ "{:,.2f}".format(payments_total) }}{% endif %}
+        will be held as a deposit on your account.</p>{% endif %}
+
+      {% if leftover > 0.005 %}
+      <div class="alert alert-info">
+        ℹ️ Your payment(s) exceed your settled invoices by
+        <strong>{{ "{:,.2f}".format(leftover) }}</strong>. The excess is
+        <strong>automatically held as a deposit on your account</strong> and
+        offset against your future invoices — no action needed.
+      </div>
+      {% endif %}
 
       <h2 class="section-title">Your details (required for the confirmation)</h2>
       {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
@@ -78,71 +115,14 @@
           <input type="text" name="note" placeholder="e.g. May invoices"></label>
       </div>
 
-      <div class="alert alert-info" id="depositBox" style="display:none;">
-        <span>ℹ️ Your selected payments exceed the selected invoices by
-          <strong id="depositAmt">0.00</strong>. The remaining excess will be
-          <strong>automatically classified as a deposit on your account</strong>
-          and offset against your future invoices — no action needed.</span>
-      </div>
-
       <div class="alert alert-info">
-        By confirming, you approve that {{ cfg.organization }} applies the
-        selected payment(s) against the selected invoice(s). Your confirmation
-        is kept on record and will serve as the reconciliation reference
-        whenever required.
+        By confirming, you approve that {{ cfg.organization }} applies your
+        payment(s) against your oldest invoice(s) as shown above. Your
+        confirmation is kept on record and will serve as the reconciliation
+        reference whenever required.
       </div>
       <button class="btn btn-primary" type="submit">Confirm allocation</button>
     </form>
     {% endif %}
   </section>
-
-  <div class="totals-bar" id="totalsbar">
-    <span>Payments: <strong id="tp">0.00</strong></span>
-    <span>Invoices: <strong id="ti">0.00</strong></span>
-    <span>Difference: <strong id="td">0.00</strong></span>
-  </div>
-
-  <script>
-    const sum = (sel) => Array.from(document.querySelectorAll(sel))
-      .filter(c => c.checked).reduce((a, c) => a + parseFloat(c.dataset.amt || 0), 0);
-    const fmt = (n) => n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    function recompute() {
-      const p = sum('.pay-cb'), i = sum('.inv-cb'), d = p - i;
-      document.getElementById('tp').textContent = fmt(p);
-      document.getElementById('ti').textContent = fmt(i);
-      const td = document.getElementById('td');
-      td.textContent = fmt(d);
-      td.style.color = Math.abs(d) < 0.005 ? '#1b7f4b' : '#b06f00';
-      // Excess payment → inform the customer it becomes a deposit (no opt-in).
-      const box = document.getElementById('depositBox');
-      if (box) {
-        box.style.display = d > 0.005 ? '' : 'none';
-        document.getElementById('depositAmt').textContent = fmt(d);
-      }
-    }
-    document.addEventListener('change', (e) => {
-      if (e.target.matches('.pay-cb, .inv-cb')) recompute();
-    });
-    const setAll = (sel, on) => {
-      document.querySelectorAll(sel).forEach(cb => { cb.checked = on; });
-      recompute();
-    };
-    const allPay = document.getElementById('allpay');
-    const allInv = document.getElementById('allinv');
-    if (allPay) allPay.addEventListener('change', () => setAll('.pay-cb', allPay.checked));
-    if (allInv) allInv.addEventListener('change', () => setAll('.inv-cb', allInv.checked));
-    document.getElementById('selectAll')?.addEventListener('click', () => {
-      if (allPay) allPay.checked = true;
-      if (allInv) allInv.checked = true;
-      setAll('.pay-cb', true);
-      setAll('.inv-cb', true);
-    });
-    document.getElementById('allocform')?.addEventListener('submit', (e) => {
-      if (sum('.pay-cb') === 0 && sum('.inv-cb') === 0) {
-        e.preventDefault();
-        alert('Please select at least one payment and the invoice(s) it settles.');
-      }
-    });
-    recompute();
-  </script>
 {% endblock %}
