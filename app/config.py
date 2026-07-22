@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.3 — 21 Jul 2026 · Remittance portal: each customer keeps ONE permanent link that always shows their latest position (uploading the AR transaction file — in the remittance portal or the CtP portal — refreshes it in place instead of minting new links); customers no longer tick — the tool auto-applies their payments to their oldest invoices (whole invoices first) and they only Confirm; Cash AR ageing now reads far more date-column names and formats (dash dates, Excel serials) and says which column it aged from, so the buckets stop looking frozen"
+APP_VERSION = "v11.4 — 22 Jul 2026 · Cheque register: a 👁 View button opens the scanned cheque, and 📎 Evidence downloads a bundle (the cheque scan + a clean snapshot of the matched bank-statement line + the matched BIT line). Bank Statements: a Bank balances panel shows each bank's closing balance (from the statement's Solde/Balance column, latest-dated row), last upload date and the total across banks, with a daily running-balance graph. Cash AR ageing is calculated from the DOCUMENT DATE — and a one-click “Age the file on record” re-reads the file already stored so its ageing appears without a re-upload"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

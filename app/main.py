@@ -15,7 +15,7 @@ from urllib.parse import quote, urlencode, urlparse
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse)
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -24,8 +24,8 @@ from .config import (APP_VERSION, BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_dirs,
                      load_config, save_user_config)
 from .services import (ai_ocr, ar_master, auth, bank_statement,
                        charts, cheques, ctp_dashboard, ctp_rules, customers,
-                       emailer, eno_allocation, holds, remittance_pdf,
-                       remittance_store, turnstile, variance,
+                       emailer, eno_allocation, evidence_img, holds,
+                       remittance_pdf, remittance_store, turnstile, variance,
                        xlsx_report)
 from .tools import account_stop, bank, bitcash, iro, mydhlpay, quickstmt
 from .tools import ongoing_ctp as ctp
@@ -2196,6 +2196,91 @@ async def cheque_register_delete(request: Request):
                                 "file.")
 
 
+@app.get("/tools/cheque-processing/register/scan")
+def cheque_register_scan(request: Request, batch: str = "", idx: int = -1):
+    """Show the scanned cheque as uploaded (inline in the browser)."""
+    info = cheques.scan_path(batch, idx)
+    if not info:
+        return HTMLResponse("Cheque scan not found.", status_code=404)
+    path, media, filename = info
+    safe = Path(filename).name.replace('"', "")
+    return FileResponse(path, media_type=media, headers={
+        "Content-Disposition": f'inline; filename="{safe}"'})
+
+
+def _evidence_row(batch, idx):
+    """The one augmented register row (with matched bank line + BIT line)."""
+    register, _ar = _register_with_ar(cheques.register_rows())
+    register, _bm = _register_with_bit(register)
+    return next((r for r in register
+                 if r["batch"] == batch and r["idx"] == idx), None)
+
+
+@app.get("/tools/cheque-processing/register/evidence")
+def cheque_register_evidence(request: Request, batch: str = "", idx: int = -1):
+    """Download an evidence bundle (ZIP) for one cheque: the scanned cheque, a
+    clean legible snapshot of the matched bank-statement line, and a snapshot of
+    the matched BIT line."""
+    row = _evidence_row(batch, idx)
+    if row is None or row.get("status") != "done":
+        return redirect_msg("/tools/cheque-processing",
+                            error="That cheque was not found on the register.")
+    num = str(row.get("cheque_number") or f"{batch}_{idx}")
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", num) or "cheque"
+    cur = row.get("currency") or "XAF"
+    # Built ENTIRELY in memory: OUTPUT_DIR is served by the public /download
+    # route, so an evidence bundle (cheque scan + bank data) must never persist
+    # on disk — and concurrent requests can never tear each other's file.
+    import zipfile
+    from io import BytesIO
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        info = cheques.scan_path(batch, idx)
+        if info:
+            path, _media, filename = info
+            ext = Path(filename).suffix or Path(path).suffix or ".bin"
+            z.writestr(f"cheque_{safe}{ext}", path.read_bytes())
+        cleared = row.get("cleared")
+        if cleared:
+            amt = cleared.get("amount")
+            z.writestr(f"bank_statement_line_{safe}.png",
+                       evidence_img.line_card_png(
+                           "Bank statement — matched line",
+                           [("Cheque N°", num),
+                            ("Bank credited", cleared.get("bank") or "—"),
+                            ("Date credited", cleared.get("date") or "—"),
+                            ("Amount",
+                             f"{amt:,.0f} {cur}" if isinstance(amt, (int, float))
+                             else "—"),
+                            ("Reference on statement",
+                             row.get("ref_snippet") or cleared.get("text")
+                             or "—")],
+                           subtitle="The transaction line where this cheque "
+                                    "cleared"))
+        bit = row.get("bit")
+        if bit:
+            bamt = bit.get("amount")
+            z.writestr(f"bit_line_{safe}.png",
+                       evidence_img.line_card_png(
+                           "BIT file — matched line",
+                           [("Cheque N°", num),
+                            ("BIT reference",
+                             bit.get("reference") or bit.get("doc_no") or "—"),
+                            ("Document N°", bit.get("doc_no") or "—"),
+                            ("Date in BIT", bit.get("date") or "—"),
+                            ("Amount in BIT",
+                             f"{bamt:,.0f}" if isinstance(bamt, (int, float))
+                             else "—"),
+                            ("Agrees with cheque amount",
+                             "Yes" if bit.get("aligned") else "No")],
+                           subtitle="The cheque number located in the BIT "
+                                    "file"))
+    return Response(
+        content=buf.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="Cheque_evidence_{safe}.zip"'})
+
+
 # --------------------------------------------------------------------------- #
 # Bank Statements — collection activity
 # --------------------------------------------------------------------------- #
@@ -2216,10 +2301,22 @@ def _bank_home(request, error="", message="", status_code=200):
     # surfaced so they can be cleared.
     legacy = [r for r in bank.list_reports(limit=50)
               if r["token"] not in slot_tokens]
+    # Bank balances: each bank's latest closing balance + upload date, totalled,
+    # plus a daily running-balance graph (today's point tracks the latest total).
+    balances, balance_total, balance_missing = bank.bank_balances(banks)
+    if balance_total is not None:
+        bank.record_daily_balance(balance_total)
+    bhist = bank.balance_history()
+    balance_chart = charts.line_svg(
+        [d[5:] for d, _v in bhist],
+        [{"name": "Total bank balance", "color": "#0b7a4b",
+          "values": [v for _d, v in bhist]}]) if len(bhist) >= 2 else ""
     return templates.TemplateResponse("bank/upload.html", {
         "request": request, "cfg": cfg, "tool": _BANK_TOOL,
         "error": error, "message": message,
         "slots": slots, "legacy": legacy,
+        "balances": balances, "balance_total": balance_total,
+        "balance_missing": balance_missing, "balance_chart": balance_chart,
         "this_month": datetime.now().strftime("%Y-%m"),
         "has_ar": bool(ctp.list_results(limit=1)),
         "max_files": bank.MAX_FILES,
@@ -2481,6 +2578,10 @@ def _bitcash_home(request, error="", message="", status_code=200,
     op_pending = sum(1 for r in recons
                      if str(r.get("uploaded_by", "")).startswith("operator:")
                      and r.get("status") in ("reading", "open"))
+    # Ageing (document-date basis). When the file already on record was parsed
+    # before dates were captured, the panel offers a one-click re-read (below) —
+    # the parse never runs on this hot GET path.
+    ageing = bitcash.cash_ageing()
     return templates.TemplateResponse("bitcash/index.html", {
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "error": error, "message": message,
@@ -2488,7 +2589,7 @@ def _bitcash_home(request, error="", message="", status_code=200,
         "processing": st.get("processing"),
         "processing_error": st.get("processing_error"),
         "recons": recons, "op_pending": op_pending,
-        "ageing": bitcash.cash_ageing(),
+        "ageing": ageing,
         "journal": Path(journal).name if journal else "",
         "jname": Path(jname).name if jname else "",
         "pack": Path(pack).name if pack else "",
@@ -2529,6 +2630,26 @@ async def bitcash_upload(request: Request,
                         message=f"{names} received — counting the open items "
                                 "now; this page refreshes itself until the "
                                 "new position is on record.")
+
+
+@app.post("/tools/bit-cash-ar/age-current")
+async def bitcash_age_current(request: Request):
+    """Re-read the Cash AR file already on record so its ageing shows without a
+    re-upload (a file parsed before dates were captured). Off the hot GET path —
+    the re-read is safe against a concurrent upload (it aborts rather than race)."""
+    if bitcash.status().get("processing"):
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="A file is still being read — try again once "
+                                  "the current upload finishes.")
+    bitcash.reparse_current("cash")
+    if bitcash.cash_ageing().get("has_dates"):
+        return redirect_msg("/tools/bit-cash-ar",
+                            message="Re-read the Cash AR on record — the ageing "
+                                    "now reflects each item's document date.")
+    return redirect_msg("/tools/bit-cash-ar",
+                        error="No document-date column could be read from the "
+                              "Cash AR on record — re-upload the file, or send "
+                              "us the exact header of its date column.")
 
 
 _STMT_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif",

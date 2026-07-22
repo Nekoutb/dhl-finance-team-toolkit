@@ -19,6 +19,12 @@ AMOUNT_CANDIDATES = ["credit amount", "credit", "amount", "montant", "value",
                      "deposit"]
 DATE_CANDIDATES = ["value date", "posting date", "operation date",
                    "date operation", "date valeur", "transaction date", "date"]
+# Running-balance / closing-balance column. Kept distinct from amount columns
+# so the last row's value can be read as the statement's closing balance.
+BALANCE_CANDIDATES = ["running balance", "closing balance", "ending balance",
+                      "new balance", "account balance", "balance c/f",
+                      "solde courant", "solde du compte", "solde apres",
+                      "solde final", "nouveau solde", "solde", "balance"]
 
 
 def _strip_accents(s):
@@ -149,6 +155,9 @@ def read_bank(path):
                      exclude={credit_col})
     amt_col = credit_col or pick(AMOUNT_CANDIDATES)
     date_col = pick(DATE_CANDIDATES)
+    # Balance column — never re-use an amount/credit/debit column for it.
+    bal_col = pick(BALANCE_CANDIDATES,
+                   exclude={c for c in (credit_col, debit_col, amt_col) if c})
 
     lines = []
     for row in parsed["rows"]:
@@ -168,20 +177,42 @@ def read_bank(path):
         # Full row text (every cell) so callers can search for references such
         # as a cheque number that may live in a column other than the narration.
         row_text = " ".join(str(v) for v in data.values() if v not in (None, ""))
+        # Running balance for this row — None (not 0.0) when the cell is blank,
+        # so the closing balance is the last row that actually carries one.
+        balance = None
+        if bal_col:
+            raw_bal = data.get(bal_col)
+            if str(raw_bal or "").strip():
+                balance = parse_amount(raw_bal)
         lines.append({
             "description": desc,
             "amount": data.get(amt_col) if amt_col else "",
             "credit": credit,
             "debit": debit,
             "date": date_str,
+            "balance": balance,
             "text": row_text,
             # Payer/originator (after "Donneur d'ordre") — prefer the narration
             # (clean), fall back to the whole row if the label sits elsewhere.
             "payer": extract_payer(desc) or extract_payer(row_text),
         })
+    # Closing balance = the balance on the LATEST-DATED row (statements can be
+    # exported newest-first, where the last file row is the OPENING balance —
+    # file order alone would pick the wrong end). Ties on the same day keep the
+    # later file row; rows without parseable dates fall back to file order.
+    dated = [(ln["date"], i) for i, ln in enumerate(lines)
+             if ln.get("balance") is not None
+             and re.fullmatch(r"\d{4}-\d{2}-\d{2}", ln.get("date") or "")]
+    if dated:
+        closing_balance = lines[max(dated)[1]]["balance"]
+    else:
+        closing_balance = next(
+            (ln["balance"] for ln in reversed(lines)
+             if ln.get("balance") is not None), None)
     return {"lines": lines, "metadata": parsed.get("metadata", []),
             "desc_col": desc_col, "amount_col": amt_col,
-            "credit_col": credit_col, "date_col": date_col}
+            "credit_col": credit_col, "date_col": date_col,
+            "balance_col": bal_col, "closing_balance": closing_balance}
 
 
 def best_customer_for(description, customers, min_ratio=0.86):

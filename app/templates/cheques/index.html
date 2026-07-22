@@ -224,7 +224,16 @@
                 {% endif %}
               {% endif %}
               {% if r.matched_label %}<br><span class="pill pill-watch"
-                title="Seen on a bank statement on this date — the match date is stamped once and never changes">Matched {{ r.matched_label }}</span>{% endif %}</td>
+                title="Seen on a bank statement on this date — the match date is stamped once and never changes">Matched {{ r.matched_label }}</span>{% endif %}
+              <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;">
+                <a class="btn btn-small"
+                   href="/tools/cheque-processing/register/scan?batch={{ r.batch }}&idx={{ r.idx }}"
+                   target="_blank" rel="noopener"
+                   title="View the scanned cheque as uploaded">👁 View cheque</a>
+                <a class="btn btn-small"
+                   href="/tools/cheque-processing/register/evidence?batch={{ r.batch }}&idx={{ r.idx }}"
+                   title="Download an evidence bundle: the cheque scan, the matched bank-statement line and the matched BIT line">📎 Evidence</a>
+              </div></td>
             <td>{{ r.issuing_bank or '—' }}</td>
             <td>{{ r.customer or '—' }}</td>
             {% if r.ar %}

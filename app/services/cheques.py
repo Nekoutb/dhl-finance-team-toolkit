@@ -602,6 +602,27 @@ def delete_batch(token):
     shutil.rmtree(_batch_path(token), ignore_errors=True)
 
 
+def scan_path(token, idx):
+    """Locate a cheque's uploaded SCAN file: returns (Path, media, filename) or
+    None. Used to view the scan inline and to bundle it as evidence. The stored
+    name is validated so a crafted token/idx can never escape the batch dir."""
+    if not re.fullmatch(r"[0-9a-f]+", token or ""):
+        return None
+    b = load_batch(token)
+    if not b:
+        return None
+    c = next((c for c in b["cheques"] if c.get("idx") == idx), None)
+    stored = str((c or {}).get("stored") or "")
+    if not c or not stored or "/" in stored or "\\" in stored or ".." in stored:
+        return None
+    p = _batch_path(token) / stored
+    if not p.exists():
+        return None
+    media = c.get("media") or ai_ocr.media_type_for(stored) \
+        or "application/octet-stream"
+    return p, media, c.get("filename") or stored
+
+
 def delete_cheque(token, idx):
     """Remove ONE cheque from its upload — reserved by the route for the
     ADMINISTRATOR deleting a flagged DUPLICATE (the register stays permanent

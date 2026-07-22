@@ -30,6 +30,7 @@ import time
 import unicodedata
 import uuid
 import zipfile
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Lock
@@ -275,11 +276,84 @@ def _to_float(v):
         return 0.0
 
 
-def _persist_rows(kind, path, parsed=None, progress=None):
+def _cash_rows_from(parsed, row_tick=None):
+    """Build the Cash AR row-store rows from a parsed workbook, returning
+    (rows, date_col_header). Shared by the upload path and the in-place re-read
+    so both detect the ageing DOCUMENT DATE identically. ``row_tick(done)`` is
+    an optional per-row progress callback."""
+    header = parsed["header"]
+    low = {h: _norm(h) for h in header}
+
+    def col(*cands):
+        for cand in cands:
+            for h in header:
+                if low[h] == cand:
+                    return h
+        for cand in cands:
+            for h in header:
+                if cand in low[h]:
+                    return h
+        return None
+
+    c_acct = col("sap acct", "sap account")
+    c_asg = col("assignment")
+    c_ref = col("reference")
+    c_amt = col("amount")
+    c_name = col("customer account: name", "customer name", "name")
+    c_doc = col("doc. no.", "doc no")
+    # Ageing is calculated from the DOCUMENT DATE — those candidates come first
+    # (posting date & co. as fallbacks). Net-due/due date is excluded.
+    _date_cands = ("document date", "doc. date", "doc date", "doc dt",
+                   "date document", "date piece", "date de piece",
+                   "posting date", "pstng date", "pstng dt", "posting dt",
+                   "invoice date", "billing date", "bill date",
+                   "baseline date", "bline date", "value date", "entry date",
+                   "date comptable")
+    _matches = []
+    for cand in _date_cands:
+        for h in header:
+            if low[h] == cand and h not in _matches:
+                _matches.append(h)
+    for cand in _date_cands:
+        for h in header:
+            if cand in low[h] and h not in _matches:
+                _matches.append(h)
+    # …then the first column that actually HOLDS parseable dates wins: an empty
+    # "Pstng Date" next to a filled "Doc. Date" must never capture the ageing
+    # basis just by existing.
+    c_date = _matches[0] if _matches else None
+    for h in _matches:
+        if any(_row_date(_date_cell_to_str(r["data"].get(h)))
+               for r in parsed["rows"][:200]):
+            c_date = h
+            break
+    rows = []
+    for i, r in enumerate(parsed["rows"]):
+        d = r["data"]
+        rows.append({
+            "id": i,
+            "sap_acct": _cellstr(d.get(c_acct)),
+            "awb": _digits(d.get(c_asg)),
+            "assignment": _cellstr(d.get(c_asg)),
+            "reference": _cellstr(d.get(c_ref)),
+            "amount": _to_float(d.get(c_amt)),
+            "customer": _cellstr(d.get(c_name))[:40],
+            "doc_no": _cellstr(d.get(c_doc)),
+            "date": _date_cell_to_str(d.get(c_date)) if c_date else "",
+        })
+        if row_tick:
+            row_tick(i + 1)
+    return rows, (_cellstr(c_date) if c_date else "")
+
+
+def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
     """Parse an uploaded BIT / Cash AR file into the row store used by the
     reconciliation sandboxes and the journal entry. ``parsed`` lets the
     caller reuse an already-read workbook (single parse); ``progress``
-    receives rows_done/rows_total/pct ticks every few hundred rows."""
+    receives rows_done/rows_total/pct ticks every few hundred rows.
+    ``new_gen=False`` keeps the current generation stamp — used when the SAME
+    file is re-read in place (identical rows/ids), so open sandboxes are not
+    flagged stale by a re-parse."""
     parsed = parsed or excel_reader.read_transactions(path)
     tick = progress or (lambda **kw: None)
     total_rows = max(len(parsed["rows"]), 1)
@@ -337,45 +411,18 @@ def _persist_rows(kind, path, parsed=None, progress=None):
             store["bit_header"] = list(header)
             store["bit"] = rows
         else:
-            c_acct = col("sap acct", "sap account")
-            c_asg = col("assignment")
-            c_ref = col("reference")
-            c_amt = col("amount")
-            c_name = col("customer account: name", "customer name", "name")
-            c_doc = col("doc. no.", "doc no")
-            # Ageing is aged from the DOCUMENT / POSTING date — those candidates
-            # come first so col() (first match wins) never falls back onto a
-            # due/baseline date. Net-due/due date is deliberately excluded.
-            c_date = col("posting date", "pstng date", "pstng dt",
-                         "posting dt", "document date", "doc. date",
-                         "doc date", "doc dt", "invoice date", "billing date",
-                         "bill date", "baseline date", "bline date",
-                         "value date", "entry date", "date piece",
-                         "date de piece", "date document", "date comptable")
-            rows = []
-            for i, r in enumerate(parsed["rows"]):
-                d = r["data"]
-                rows.append({
-                    "id": i,
-                    "sap_acct": _cellstr(d.get(c_acct)),
-                    "awb": _digits(d.get(c_asg)),
-                    "assignment": _cellstr(d.get(c_asg)),
-                    "reference": _cellstr(d.get(c_ref)),
-                    "amount": _to_float(d.get(c_amt)),
-                    "customer": _cellstr(d.get(c_name))[:40],
-                    "doc_no": _cellstr(d.get(c_doc)),
-                    "date": _date_cell_to_str(d.get(c_date)) if c_date else "",
-                })
-                _row_tick(i + 1)
+            rows, date_col = _cash_rows_from(parsed, row_tick=_row_tick)
             store["cash"] = rows
             # Remember which header fed the ageing date (or "" when none was
             # recognised) so the panel can show it — turns a silent
             # everything-undated into a legible diagnostic.
-            store["cash_date_col"] = _cellstr(c_date) if c_date else ""
+            store["cash_date_col"] = date_col
         # Every (re)upload gets a fresh generation stamp: sandboxes remember
         # the generation they matched against, so replaced files can never
         # silently re-point their selected row ids at different invoices.
-        store[f"gen_{kind}"] = uuid.uuid4().hex[:12]
+        # (An in-place re-read of the SAME file keeps the stamp.)
+        if new_gen or not store.get(f"gen_{kind}"):
+            store[f"gen_{kind}"] = uuid.uuid4().hex[:12]
         _atomic(ROWS_PATH, json.dumps(store, ensure_ascii=False))
 
 
@@ -397,6 +444,114 @@ def rows_generation(store=None):
     """The generation stamp of the files currently on record."""
     store = store or rows_store()
     return {"bit": store.get("gen_bit", ""), "cash": store.get("gen_cash", "")}
+
+
+@contextmanager
+def _reparse_guard():
+    """Cross-process lock (O_EXCL lockfile) around the re-read's verify+write so
+    two workers can't re-read at once. Prod runs gunicorn -w 3; a threading.Lock
+    would not serialise processes."""
+    lockfile = ROWS_PATH.with_suffix(".reparse.lock")
+    fd = None
+    deadline = time.time() + 3.0
+    while True:
+        try:
+            fd = os.open(lockfile, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except (FileExistsError, PermissionError):
+            try:
+                if time.time() - lockfile.stat().st_mtime > 10:
+                    lockfile.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.time() > deadline:
+                break                      # proceed unlocked (best effort)
+            time.sleep(0.03)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+            try:
+                lockfile.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _mark_reparsed(kind, stored):
+    with _reparse_guard():
+        store = {}
+        if ROWS_PATH.exists():
+            try:
+                store = json.loads(ROWS_PATH.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                store = {}
+        store[f"reparsed_{kind}"] = stored
+        _atomic(ROWS_PATH, json.dumps(store, ensure_ascii=False))
+
+
+def reparse_current(kind="cash"):
+    """Re-read the CURRENT stored Cash AR file into the row store IN PLACE — no
+    re-upload — so a file parsed before dates were captured gains its ageing
+    dates. Same file ⇒ same rows/ids, so the generation stamp is KEPT and open
+    reconciliation sandboxes stay valid.
+
+    SAFE BY CONSTRUCTION — this can never race the upload parser or resurrect a
+    replaced file's rows:
+      * it does nothing while an upload is being processed;
+      * the slow parse happens OUTSIDE the lock, then under a cross-process lock
+        it commits ONLY if the store is still exactly as snapshotted (same
+        generation, same current file, marker unset) — otherwise it aborts and
+        the upload's data stands.
+    Attempted at most once per stored file (marker ``reparsed_<kind>``). NOT
+    called from any GET render — it is invoked explicitly (a button / a one-off
+    backfill) so its parse never blocks a page load. Returns True when a re-read
+    committed."""
+    if kind != "cash":
+        return False
+    data = _load()
+    if data.get("processing"):
+        return False                        # never fight an in-flight upload
+    stored = ((data.get("current") or {}).get(kind) or {}).get("stored", "")
+    store0 = rows_store()
+    gen0 = store0.get(f"gen_{kind}", "")
+    if not stored or store0.get(f"reparsed_{kind}") == stored:
+        return False
+    path = UPLOAD_DIR / Path(stored).name
+    if not path.exists():
+        _mark_reparsed(kind, stored)        # missing file — don't retry forever
+        return False
+    try:
+        parsed = excel_reader.read_transactions(path)
+        rows, date_col = _cash_rows_from(parsed)
+    except Exception:  # noqa: BLE001 — a broken file must never crash the caller
+        _mark_reparsed(kind, stored)
+        return False
+    committed = False
+    with _reparse_guard():
+        data = _load()
+        if data.get("processing"):
+            return False                    # an upload started — it owns the store
+        if ((data.get("current") or {}).get(kind) or {}).get("stored", "") \
+                != stored:
+            return False                    # the file was replaced meanwhile
+        store = {}
+        if ROWS_PATH.exists():
+            try:
+                store = json.loads(ROWS_PATH.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                store = {}
+        if store.get(f"gen_{kind}", "") != gen0:
+            return False                    # rows changed since snapshot — abort
+        if store.get(f"reparsed_{kind}") == stored:
+            return False
+        store["cash"] = rows
+        store["cash_date_col"] = date_col
+        store[f"reparsed_{kind}"] = stored   # keep gen_cash — same file, same ids
+        _atomic(ROWS_PATH, json.dumps(store, ensure_ascii=False))
+        committed = True
+    return committed
 
 
 def _date_cell_to_str(v):

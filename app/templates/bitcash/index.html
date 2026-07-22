@@ -102,8 +102,13 @@
       {% if ageing.date_col %}A “{{ ageing.date_col }}” column was found but its
         values weren’t in a recognised date format.{% else %}No document/posting
         date column was recognised in the file.{% endif %}
-      <strong>Re-upload the Cash AR</strong>; if it still shows “no date”, send
-      us the exact header of your date column and we’ll add it.</div>
+      <form action="/tools/bit-cash-ar/age-current" method="post"
+            style="display:inline;margin-left:6px;">
+        <button class="btn btn-small" type="submit"
+                title="Re-read the Cash AR already on record for its document dates — no re-upload needed">📅 Age the file on record</button>
+      </form>
+      <span class="note-small">(re-reads the file on record; or re-upload it if
+        it still shows “no date”).</span></div>
     {% elif ageing.totals.undated %}
     <div class="alert alert-info">{{ "{:,.0f}".format(ageing.totals.undated) }}
       XAF of items have no readable date (shown under “No date”) — the rest are
@@ -142,9 +147,9 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">Each open Cash AR item is aged from its posting
-      date to today and grouped per account — amounts above 60 days show in
-      red.</p>
+    <p class="note-small">Each open Cash AR item is aged from its
+      <strong>document date</strong> to today and grouped per account —
+      amounts above 60 days show in red.</p>
   </section>
   {% endif %}
 

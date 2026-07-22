@@ -27,6 +27,56 @@
     {% endif %}
   </section>
 
+  {% if balances %}
+  <section class="panel">
+    <h2 class="section-title">💰 Bank balances</h2>
+    <p class="note-small">The closing balance of the latest statement on file for
+      each bank, totalled to your overall bank position. The balance is read from
+      the statement's running-balance (“Solde” / “Balance”) column.</p>
+    <div class="table-wrap" style="max-height:none;">
+      <table class="tx-table">
+        <thead><tr><th>Bank</th><th style="text-align:right;">Closing balance</th>
+          <th>Last upload</th><th>Statement month</th></tr></thead>
+        <tbody>
+          {% for b in balances %}
+          <tr>
+            <td><strong>{{ b.bank }}</strong></td>
+            <td style="text-align:right;">
+              {% if b.has_balance %}{{ "{:,.0f}".format(b.balance) }}
+              {% elif b.has_report %}<span class="note-inline"
+                 title="No running-balance column was found in the latest statement">— no balance in file</span>
+              {% else %}<span class="note-inline">— no statement yet</span>{% endif %}
+            </td>
+            <td>{{ b.last_upload or "—" }}</td>
+            <td>{{ b.period or "—" }}</td>
+          </tr>
+          {% endfor %}
+          <tr style="border-top:2px solid var(--line, #cbd5e1);">
+            <td><strong>TOTAL bank balance</strong></td>
+            <td style="text-align:right;"><strong>
+              {% if balance_total is not none %}{{ "{:,.0f}".format(balance_total) }}{% else %}—{% endif %}
+            </strong></td>
+            <td colspan="2"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% if balance_missing %}
+    <div class="alert alert-info" style="margin-top:8px;">Some banks show
+      “no balance in file” — their latest statement had no running-balance
+      column the reader recognised. Re-upload that statement (a photo/PDF is read
+      in full when the document-reading key is set), or tell us the column’s
+      exact header and we’ll add it.</div>
+    {% endif %}
+    {% if balance_chart %}
+    <h3 class="section-title" style="margin-top:14px;">Running balance — daily</h3>
+    <div style="overflow-x:auto;">{{ balance_chart|safe }}</div>
+    <p class="note-small">Total bank balance across all banks, captured daily as
+      statements are uploaded.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
   {% for s in slots %}
   <section class="panel">
     <h2 class="section-title">🏦 {{ s.name }}

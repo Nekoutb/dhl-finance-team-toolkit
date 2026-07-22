@@ -354,6 +354,14 @@ _BANK_SCHEMA = {
             "description": "The bank's name from the statement letterhead. "
                            "Empty string if not visible.",
         },
+        "closing_balance": {
+            "type": ["number", "null"],
+            "description": "The CLOSING / ending balance of the account on this "
+                           "statement — the final running-balance figure (the "
+                           "'Solde' / 'Nouveau solde' / 'Closing balance' at the "
+                           "end). Plain number. null if the statement shows no "
+                           "balance figure.",
+        },
         "lines": {
             "type": "array",
             "description": "One entry per transaction line on the statement.",
@@ -394,7 +402,7 @@ _BANK_SCHEMA = {
             },
         },
     },
-    "required": ["bank_name", "lines"],
+    "required": ["bank_name", "closing_balance", "lines"],
     "additionalProperties": False,
 }
 
@@ -417,7 +425,10 @@ _BANK_PROMPT = (
     "Amounts may use spaces or commas as thousand separators (e.g. "
     "'1 250 000' = 1250000) — report plain numbers. Also report the bank's "
     "name from the letterhead. Do NOT include opening/closing balance summary "
-    "rows as transactions."
+    "rows as transactions — but DO report the account's CLOSING balance (the "
+    "final running-balance / 'Solde' / 'Nouveau solde' figure at the end of the "
+    "statement) separately in the top-level 'closing_balance' field (null if no "
+    "balance figure is shown)."
 )
 
 

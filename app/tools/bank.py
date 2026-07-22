@@ -64,8 +64,8 @@ def _read_statement(path, source, ai_cfg):
     by the document reader (when a key is set); spreadsheets — and any
     file it can't read — use the column-based table reader.
 
-    Returns (lines, bank_name, method, note). Each line has description, payer,
-    credit, debit, date, amount, text.
+    Returns (lines, bank_name, method, note, closing_balance). Each line has
+    description, payer, credit, debit, date, amount, text.
     """
     ext = Path(path).suffix.lower()
     # ai_cfg is the "ai" sub-config ({api_key, model}); check the key directly
@@ -82,21 +82,23 @@ def _read_statement(path, source, ai_cfg):
                 "amount": ln["credit"] or -ln["debit"] or "",
                 "text": (ln.get("payer", "") + " " + ln["description"]).strip(),
             } for ln in data["lines"]]
+            cb = data.get("closing_balance")
+            cb = cb if isinstance(cb, (int, float)) else None
             return lines, (data.get("bank_name") or detect_bank([], source)), \
-                "scan reader", ""
+                "scan reader", "", cb
         except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
             note = f"Scan read failed ({exc}); used the table reader."
         except Exception as exc:  # noqa: BLE001
             note = f"Scan read error ({type(exc).__name__}); used the table reader."
         parsed = bank_statement.read_bank(path)
         return parsed["lines"], detect_bank(parsed["metadata"], source), \
-            "table reader", note
+            "table reader", note, parsed.get("closing_balance")
     parsed = bank_statement.read_bank(path)
     note = ("" if ext not in _AI_EXT
             else "Add the document-reading key in Settings so scanned PDF "
                  "statements can be read in full.")
     return parsed["lines"], detect_bank(parsed["metadata"], source), \
-        "table reader", note
+        "table reader", note, parsed.get("closing_balance")
 
 
 def bank_token(bank_name, period=""):
@@ -134,6 +136,80 @@ def slot_reports(bank_name):
     return out
 
 
+BALANCE_STATS_PATH = DATA_DIR / "bank_daily_balance.json"
+
+
+def bank_balances(bank_names):
+    """Per configured bank: the LATEST statement's closing balance + upload
+    date. Returns (rows, total, missing): ``total`` sums the known balances (or
+    None when none is known); ``missing`` is True when a bank has no closing
+    balance yet (so the page can nudge the user to re-upload)."""
+    rows, total, any_balance, missing = [], 0.0, False, False
+    for name in bank_names:
+        months = slot_reports(name)
+        latest = months[0] if months else None
+        bal = (latest or {}).get("summary", {}).get("closing_balance")
+        has = isinstance(bal, (int, float))
+        if has:
+            total += bal
+            any_balance = True
+        elif latest is not None:
+            missing = True
+        rows.append({
+            "bank": name,
+            "balance": bal if has else None,
+            "has_balance": has,
+            "last_upload": (latest or {}).get("created_at", ""),
+            "period": (latest or {}).get("period", ""),
+            "has_report": latest is not None,
+        })
+    return rows, (round(total, 2) if any_balance else None), missing
+
+
+def record_daily_balance(total):
+    """Snapshot today's TOTAL bank balance for the running-balance graph
+    (~180 days kept). A None total (no bank has a balance yet) is skipped so the
+    graph never shows a misleading zero."""
+    if not isinstance(total, (int, float)):
+        return
+    import os
+    STORE_DIR.mkdir(parents=True, exist_ok=True)
+    hist = {}
+    if BALANCE_STATS_PATH.exists():
+        try:
+            hist = json.loads(BALANCE_STATS_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            hist = {}
+    hist[datetime.now().strftime("%Y-%m-%d")] = round(total, 2)
+    for key in sorted(hist)[:-180]:
+        del hist[key]
+    # UNIQUE temp name + atomic replace: several gunicorn workers render this
+    # page concurrently — a shared .tmp path would collide (FileNotFoundError /
+    # torn file). Windows PermissionError (reader holding the target) retried.
+    import time as _time
+    tmp = BALANCE_STATS_PATH.with_name(
+        f"{BALANCE_STATS_PATH.name}.{os.getpid()}.{os.urandom(3).hex()}.tmp")
+    tmp.write_text(json.dumps(hist, ensure_ascii=False), encoding="utf-8")
+    for attempt in range(20):
+        try:
+            os.replace(tmp, BALANCE_STATS_PATH)
+            return
+        except PermissionError:
+            _time.sleep(0.01 * (attempt + 1))
+    os.replace(tmp, BALANCE_STATS_PATH)
+
+
+def balance_history():
+    """[(date, total), …] oldest first — feeds the running-balance line graph."""
+    if not BALANCE_STATS_PATH.exists():
+        return []
+    try:
+        hist = json.loads(BALANCE_STATS_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return sorted(hist.items())
+
+
 def build_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     """``files`` = list of (path, source_name) — up to MAX_FILES statements,
     combined into one collection report. PDF/scanned statements are read automatically
@@ -148,8 +224,12 @@ def build_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
 
     credits, debits_total, banks = [], 0.0, []
     statement_lines = []        # every line (credit + debit) for cross-tool search
+    closing_balance = None      # last file's closing balance wins
     for path, source in files:
-        lines, bank_name, method, note = _read_statement(path, source, ai_cfg)
+        lines, bank_name, method, note, file_balance = \
+            _read_statement(path, source, ai_cfg)
+        if file_balance is not None:
+            closing_balance = file_balance
         if bank_slot:           # the configured slot name is the bank of record
             bank_name = bank_slot
         file_credits = [dict(ln, bank=bank_name)
@@ -174,12 +254,12 @@ def build_report(files, ai_cfg=None, token=None, bank_slot="", period=""):
     return _assemble_report(
         credits, statement_lines, banks, debits_total,
         token=token or uuid.uuid4().hex[:12], bank_slot=bank_slot,
-        period=period,
+        period=period, closing_balance=closing_balance,
         source=" + ".join(s for _p, s in files if s) or "statement")
 
 
 def _assemble_report(credits, statement_lines, banks, debits_total, *,
-                     token, bank_slot, source, period=""):
+                     token, bank_slot, source, period="", closing_balance=None):
     """Build the report dict from already-read lines, running the AR matching
     and grouping against the CURRENT latest CtP analysis. Shared by build_report
     (fresh upload) and refresh_report (re-link to the latest AR)."""
@@ -265,6 +345,9 @@ def _assemble_report(credits, statement_lines, banks, debits_total, *,
             "last_date": daily_rows[-1]["date"] if daily_rows else "",
             "payer_count": len(payments_by_payer),
             "ai_used": any(b.get("method") == "scan reader" for b in banks),
+            # Closing balance read from the statement's running-balance column
+            # (last row), or None when no balance column was present.
+            "closing_balance": closing_balance,
         },
         "matched": matched,
         "unmatched": sorted(unmatched, key=lambda l: -l["credit"]),
@@ -290,7 +373,9 @@ def refresh_report(token):
         credits, rep.get("statement_lines", []), rep.get("banks", []),
         rep.get("summary", {}).get("debits_total", 0.0),
         token=token, bank_slot=rep.get("bank_slot", ""),
-        source=rep.get("source", "statement"), period=rep.get("period", ""))
+        source=rep.get("source", "statement"), period=rep.get("period", ""),
+        # Preserve the balance read at upload (refresh doesn't re-read the file).
+        closing_balance=rep.get("summary", {}).get("closing_balance"))
     save_report(refreshed)
     return refreshed
 
