@@ -318,15 +318,43 @@ def _cash_rows_from(parsed, row_tick=None):
         for h in header:
             if cand in low[h] and h not in _matches:
                 _matches.append(h)
-    # …then the first column that actually HOLDS parseable dates wins: an empty
-    # "Pstng Date" next to a filled "Doc. Date" must never capture the ageing
-    # basis just by existing.
-    c_date = _matches[0] if _matches else None
+    # …then the first NAMED column that actually HOLDS parseable dates wins: an
+    # empty "Pstng Date" next to a filled "Doc. Date" must never capture the
+    # ageing basis just by existing.
+    sample = parsed["rows"][:200]
+    seen = max(len(sample), 1)
+
+    def _date_hits(h):
+        return sum(1 for r in sample
+                   if _row_date(_date_cell_to_str(r["data"].get(h))))
+
+    c_date = None
     for h in _matches:
-        if any(_row_date(_date_cell_to_str(r["data"].get(h)))
-               for r in parsed["rows"][:200]):
+        if _date_hits(h):
             c_date = h
             break
+    # CONTENT fallback: some SAP exports ship the document-date header as a
+    # broken formula cell (e.g. "#VALUE!"), so no name matches even though the
+    # column holds real dates. Pick the left-most column whose VALUES are mostly
+    # dates and that is NOT a clearing/due/value/payment date — i.e. the
+    # document date, found by its content.
+    date_label = _cellstr(c_date) if c_date else ""
+    if c_date is None:
+        _exclude = ("clearing date", "clearing dt", "due date", "net due",
+                    "value date", "payment date", "compensat", "mnth", "aged")
+        best_h, best_hits = None, 0
+        for h in header:
+            if any(x in low[h] for x in _exclude):
+                continue
+            hits = _date_hits(h)
+            if hits > best_hits and hits / seen >= 0.5:
+                best_h, best_hits = h, hits
+        if best_h is not None:
+            c_date = best_h
+            # A broken/blank header gets a readable label for the panel.
+            nice = _cellstr(best_h)
+            date_label = nice if (nice and "#value" not in nice.lower()) \
+                else "document date (auto-detected)"
     rows = []
     for i, r in enumerate(parsed["rows"]):
         d = r["data"]
@@ -343,7 +371,7 @@ def _cash_rows_from(parsed, row_tick=None):
         })
         if row_tick:
             row_tick(i + 1)
-    return rows, (_cellstr(c_date) if c_date else "")
+    return rows, (date_label if c_date else "")
 
 
 def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):

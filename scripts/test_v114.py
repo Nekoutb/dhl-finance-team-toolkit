@@ -243,6 +243,28 @@ check("Doc. Date wins over an empty posting column (document-date basis)",
       _st5.get("cash_date_col") == "Doc. Date"
       and _st5["cash"][0]["date"] == "15.03.2026")
 
+# 5a2. Real SAP export: the document-date header is a BROKEN formula cell
+# (#VALUE!) with genuine datetime values; a named "Clearing Date" also holds
+# dates but must NOT be used. Detect the doc date by CONTENT.
+cash_v = _tmp / "cash_valueerr.xlsx"
+wbv = openpyxl.Workbook()
+wsv = wbv.active
+wsv.append(["SAP Acct", "Assignment", "Amount", "Customer Account: Name",
+            "#VALUE!", "Clearing Date", "Aged Days"])
+wsv.append([4003026257, 2414645273, -20847, "ETS ALINE",
+            datetime(2026, 6, 19), datetime(2026, 7, 20), 42])
+wsv.append([4003026258, 2414645274, 500000, "OMEGA",
+            datetime(2026, 3, 1), datetime(2026, 7, 21), 140])
+wbv.save(cash_v)
+bitcash._persist_rows("cash", cash_v)
+_stv = bitcash.rows_store()
+agv = bitcash.cash_ageing()
+check("broken #VALUE! header: document date found by content (not Clearing)",
+      _stv["cash"][0]["date"] == "2026-06-19"
+      and _stv.get("cash_date_col") == "document date (auto-detected)")
+check("content-detected ageing fills buckets (as-of-today from doc date)",
+      agv["has_dates"] and agv["totals"]["b61"] == 500000.0)
+
 # 5b. The EXISTING file on record gains its ageing via in-place re-read: fake
 # a pre-v11.4 store (rows without dates) + the current stored file on disk.
 import shutil  # noqa: E402
