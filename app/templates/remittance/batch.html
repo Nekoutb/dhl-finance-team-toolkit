@@ -8,10 +8,8 @@
 
   <section class="panel">
     <h1>Customer links</h1>
-    <p class="lead">Batch {{ batch.id }} · uploaded {{ batch.created_at }} ·
-      {{ batch.customers|length }} customers, sorted by <strong>highest open
-      payments first</strong>. Share each customer's private link — anyone with
-      the link can view and allocate that statement.</p>
+    <p class="lead">Batch {{ batch.id }} · {{ batch.created_at }} ·
+      {{ batch.customers|length }} customers — share each private link.</p>
 
     {% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
 
@@ -29,8 +27,6 @@
     </div>
     {% endif %}
 
-    <p class="note-small" style="margin:6px 0;">{{ batch.customers|length }} customer
-      link(s) — scroll within the list below; the header stays in view.</p>
     <div class="table-wrap links-scroll">
       <table class="tx-table">
         <thead><tr>
@@ -81,14 +77,10 @@
       </table>
     </div>
     <p class="note-small">
-      <strong>Copy</strong> puts the link on your clipboard.
-      {% if smtp_enabled %}<strong>Send</strong> emails it to the customer
-      directly (address prefills from saved contacts).{% else %}
-      <strong>Make email</strong> creates a ready-to-send .eml (SMTP not
-      configured — set recipients &amp; SMTP under
-      <a href="/tools/remittance-portal/settings">Settings</a>).{% endif %}
-      Customer emails prefill automatically once a customer has confirmed an
-      allocation (<a href="/tools/remittance-portal/contacts">saved contacts</a>).
+      {% if smtp_enabled %}Addresses prefill from
+      <a href="/tools/remittance-portal/contacts">saved contacts</a>.{% else %}
+      SMTP off — Send builds an .eml. Set it up in
+      <a href="/tools/remittance-portal/settings">Settings</a>.{% endif %}
     </p>
   </section>
 

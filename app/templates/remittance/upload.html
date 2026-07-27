@@ -5,10 +5,8 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Upload the daily customer general ledger (invoices + payments).
-      The app builds a statement per customer and a unique link each customer
-      uses to allocate their payments. The confirmed reconciliation is emailed to
-      finance and kept on file.</p>
+    <p class="lead">Upload the daily customer general ledger to build a
+      statement and link per customer.</p>
 
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}

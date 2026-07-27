@@ -9,15 +9,13 @@
   <section class="panel">
     <h1>💵 Cash Reconciliation — MyDHLPay sessions</h1>
     <p class="lead">Scan-to-pay sessions from <strong>MyDHLPay</strong>
-      (<code>/pay</code>) — one click turns a session into a reconciliation
-      sandbox.</p>
+      (<code>/pay</code>) — reconcile one in a click.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     {% if not sessions %}
-      <div class="alert alert-info">No MyDHLPay sessions yet — the page is
-        live at <code>/pay</code>; sessions appear here the moment a
-        customer scans an airwaybill.</div>
+      <div class="alert alert-info">No sessions yet — they appear here as
+        customers scan at <code>/pay</code>.</div>
     {% else %}
     <div class="table-wrap" style="max-height:none;">
       <table class="tx-table">

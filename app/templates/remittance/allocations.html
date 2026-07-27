@@ -8,9 +8,8 @@
 
   <section class="panel">
     <h1>Confirmed allocations on file</h1>
-    <p class="lead">{{ allocations|length }} customer allocation(s) kept for future
-      reference. Each is evidence the customer matched their payments to invoices —
-      forward any response by email straight from here.</p>
+    <p class="lead">{{ allocations|length }} confirmed allocation(s) on file —
+      forward any of them by email below.</p>
 
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
@@ -59,11 +58,8 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">The forward email contains the full response (who
-      confirmed, totals, deposit confirmation, note) with the reconciliation
-      PDF attached. Set a default forward address under
-      <a href="/tools/remittance-portal/settings">Settings</a> — it prefills
-      the box on every row.</p>
+    <p class="note-small">Forwards the customer's response with the PDF. Set the
+      default address in <a href="/tools/remittance-portal/settings">Settings</a>.</p>
     {% endif %}
   </section>
 {% endblock %}

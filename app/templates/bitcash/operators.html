@@ -8,8 +8,8 @@
 
   <section class="panel">
     <h1>👥 Operator statements — IRO returns</h1>
-    <p class="lead">Each reseller gets a statement of open airwaybills and a
-      secure link; their return opens a reconciliation sandbox automatically.</p>
+    <p class="lead">Email each reseller their open airwaybills and a secure
+      link; returns open a sandbox.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
@@ -70,18 +70,18 @@
         <button class="btn" type="submit">📥 Fetch mail now</button>
       </form>
     </div>
-    <p class="note-small">Email subject format:
+    <p class="note-small">Email subject:
       <code>PAYREF &lt;account&gt;</code>.
-      {% if not imap_on %}Email returns are off until the IMAP details are set
-      in <a href="/settings">Settings → Operator mailbox</a>; portal links work
-      regardless.{% endif %}</p>
+      {% if not imap_on %}Email returns need IMAP in
+      <a href="/settings">Settings → Operator mailbox</a>; portal links still
+      work.{% endif %}</p>
     {% endif %}
   </section>
 
   <section class="panel">
     <h2 class="section-title">💳 Reported deposits — remove to allow re-submission</h2>
-    <p class="note-small">Delete a deposit here so the operator can report that
-      payment reference / slip again (it stops being flagged a duplicate).</p>
+    <p class="note-small">Delete a deposit so the operator can report that
+      reference again.</p>
     {% if deposits %}
     <div class="table-wrap" style="max-height:420px;">
       <table class="tx-table">
@@ -133,8 +133,8 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">Register the sender's email above (or ask them to
-      resend with the right subject), then “Fetch mail now”.</p>
+    <p class="note-small">Register the sender's email above, then “Fetch mail
+      now”.</p>
   </section>
   {% endif %}
 {% endblock %}

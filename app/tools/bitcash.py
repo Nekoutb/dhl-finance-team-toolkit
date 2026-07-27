@@ -1447,20 +1447,33 @@ def _add_evidence_sheets(wb, recs):
     return wb
 
 
-def build_journal(out_path, now=None):
-    """Write every APPROVED sandbox into the CM01 template as one document
+def journalable_recons():
+    """Approved, complete sandboxes that CAN go into a journal entry — with
+    ``generated_at`` set on those already journalled once, so finance can pick
+    only the ones they still need."""
+    return [r for r in list_recons() if r.get("status") == "approved"
+            and r.get("bit_selected") is not None and r.get("ar_selected")]
+
+
+def build_journal(out_path, now=None, tokens=None):
+    """Write the APPROVED sandboxes into the CM01 template as one document
     each (LI. 1..N), mirroring the AWB detail on BOTH sides: per selected
     Cash AR invoice a posting-key-40 bank line AND a posting-key-15 customer
     line with the SAME individual amount, the AWB in the Ref/Doc.Nr column
-    of both. A manual plug adds a balanced pair (BIT G/L ↔ plug G/L) that
-    returns the BIT G/L to the actually banked amount. Returns
+    of both. A manual plug adds a balanced pair on the SAME two posting keys
+    (40 / 15) that returns the BIT G/L to the actually banked amount.
+
+    ``tokens`` — only journal these sandboxes (finance picks them, so the same
+    journal is never generated twice); None = every approved sandbox. Returns
     {count, lines, name, tokens} or None when nothing is approved/complete."""
     import openpyxl
 
     from openpyxl.styles import Font
 
-    approved = [r for r in list_recons() if r.get("status") == "approved"
-                and r.get("bit_selected") is not None and r.get("ar_selected")]
+    approved = journalable_recons()
+    if tokens is not None:
+        wanted = {str(t) for t in tokens}
+        approved = [r for r in approved if r.get("token") in wanted]
     if not approved:
         return None
     gen_now = rows_generation()
@@ -1519,27 +1532,21 @@ def build_journal(out_path, now=None):
             entries.append((bit["gl_account"], 40, a["amount"],
                             bit["assignment"], awb))
             entries.append((a["sap_acct"], 15, a["amount"], awb, awb))
-        # Manual plug: a balanced PAIR — short payment (plug > 0) credits
-        # the BIT G/L back down to the amount actually banked and debits the
-        # plug account; an excess payment does the reverse.
-        # When the plug account is the reseller's CUSTOMER account (the IRO
-        # default), the customer line must carry a customer posting key —
-        # SAP rejects a customer account posted with a G/L key (40/50). Use
-        # the payment-difference keys: 06 (debit customer) / 16 (credit).
+        # Manual plug: a balanced PAIR on the SAME two posting keys used by
+        # every other line — 40 on the bank G/L, 15 on the customer/plug
+        # account (these are the only two keys this journal uses). The
+        # DIRECTION rides on the amount's SIGN: a short payment (plug > 0)
+        # posts -plug on both sides, which walks the bank debit down to the
+        # amount actually banked and leaves the shortfall owed on the
+        # account; an excess payment posts +plug on both sides.
         plug = rec.get("plug") or {}
         plug_amt = _to_float(plug.get("amount"))
         if plug_amt and plug.get("account"):
             note = plug.get("note") or "DIFFERENCE PLUG"
-            plug_is_customer = (str(plug["account"]).strip()
-                                == recon_account(rec))
-            if plug_is_customer:
-                plug_key = 6 if plug_amt > 0 else 16       # customer diff keys
-            else:
-                plug_key = 40 if plug_amt > 0 else 50      # G/L keys
-            entries.append((bit["gl_account"], 50 if plug_amt > 0 else 40,
-                            abs(plug_amt), bit["assignment"], _MANUAL))
-            entries.append((plug["account"], plug_key,
-                            abs(plug_amt), note, _MANUAL))
+            signed = round(-plug_amt, 2)
+            entries.append((bit["gl_account"], 40, signed,
+                            bit["assignment"], _MANUAL))
+            entries.append((plug["account"], 15, signed, note, _MANUAL))
         for account, key, amount, assignment, doc_nr in entries:
             ws.cell(row=r, column=1, value=li)                       # LI.
             ws.cell(row=r, column=2, value="CM01")                   # Comp code

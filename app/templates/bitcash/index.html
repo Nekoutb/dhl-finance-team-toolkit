@@ -47,9 +47,8 @@
           <strong>{{ label }} on record:</strong> {{ cur.source }} — uploaded
           {{ cur.uploaded }}
           {% if age is not none %}
-            {% if age > 7 %} — <strong>upload a fresh {{ label }} file to keep
-              reconciliations current.</strong>
-            {% elif age > 1 %} — consider replacing it with a newer extract.{% endif %}
+            {% if age > 7 %} — <strong>upload a fresher file.</strong>
+            {% elif age > 1 %} — consider a newer extract.{% endif %}
           {% endif %}
         </div>
       {% else %}
@@ -71,14 +70,10 @@
     </div>
     {% if current.bit or current.cash %}
     <p class="note-small">
-      {% if current.bit %}BIT: <strong>{{ current.bit.source }}</strong>
-        uploaded {{ current.bit.uploaded }} — {{ current.bit.open_items }} open
-        of {{ current.bit['items'] }} item(s)
-        {%- if current.bit.status_col %} (status column: {{ current.bit.status_col }}){% endif %}.{% endif %}
-      {% if current.cash %} Cash AR: <strong>{{ current.cash.source }}</strong>
-        uploaded {{ current.cash.uploaded }} — {{ current.cash.open_items }} open
-        of {{ current.cash['items'] }} item(s)
-        {%- if current.cash.status_col %} (status column: {{ current.cash.status_col }}){% endif %}.{% endif %}
+      {% if current.bit %}BIT <strong>{{ current.bit.source }}</strong>:
+        {{ current.bit.open_items }} open of {{ current.bit['items'] }}.{% endif %}
+      {% if current.cash %} Cash AR <strong>{{ current.cash.source }}</strong>:
+        {{ current.cash.open_items }} open of {{ current.cash['items'] }}.{% endif %}
     </p>
     {% endif %}
     {% if chart %}
@@ -109,8 +104,7 @@
         it still shows “no date”).</span></div>
     {% elif ageing.totals.undated %}
     <div class="alert alert-info">{{ "{:,.0f}".format(ageing.totals.undated) }}
-      XAF of items have no readable date (shown under “No date”) — the rest are
-      aged normally.</div>
+      XAF of items have no readable date — shown under “No date”.</div>
     {% endif %}
     <div class="table-wrap" style="max-height:420px;">
       <table class="tx-table">
@@ -173,8 +167,8 @@
   <!-- Reconciliations: customer payment statements vs Cash AR + BIT -->
   <section class="panel">
     <h2 class="section-title">Reconciliations — customer payment statements</h2>
-    <p class="lead">Upload a customer payment statement (PDF, photo or Excel) —
-      a sandbox opens to confirm and approve; approved ones feed the journal.</p>
+    <p class="lead">Upload a customer payment statement — a sandbox opens to
+      confirm and approve it.</p>
     {% if ai_ready %}
     <form action="/tools/bit-cash-ar/recon/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
@@ -194,9 +188,9 @@
       <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
     </form>
     {% else %}
-    <div class="alert alert-info">Scanned statements need the scan reader — paste
-      the document-reading key under <a href="/settings">Settings →
-      Document reading</a>. Excel statements work without it.</div>
+    <div class="alert alert-info">Scanned statements need the key under
+      <a href="/settings">Settings →
+      Document reading</a>; Excel works without it.</div>
     <form action="/tools/bit-cash-ar/recon/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="filedrop">
@@ -213,10 +207,11 @@
     {% endif %}
 
     <div class="download-row" style="margin-top:14px;">
-      <form action="/tools/bit-cash-ar/journal" method="post"
+      <form action="/tools/bit-cash-ar/journal" method="post" id="jeform"
             style="display:inline;">
+        <input type="hidden" name="picker" value="1">
         <button class="btn btn-primary" type="submit" data-busy-keep="1">📒
-          Generate journal entry + pack (approved sandboxes)</button>
+          Generate journal for the ticked reconciliation(s)</button>
       </form>
       <a class="btn" href="/tools/bit-cash-ar/operators">👥 Operator
         statements (IRO){% if op_pending %} —
@@ -238,13 +233,22 @@
     {% endif %}
 
     {% if recons %}
-    <div class="table-wrap" style="margin-top:12px;max-height:none;">
+    <p class="note-small" style="margin-top:12px;">Tick the approved
+      reconciliations to journal — already-journalled ones are unticked.</p>
+    <div class="table-wrap" style="margin-top:4px;max-height:none;">
       <table class="tx-table">
-        <thead><tr><th>Uploaded</th><th>Statement</th><th>Total</th>
-          <th>Invoice lines</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Journal?</th><th>Uploaded</th><th>Statement</th>
+          <th>Total</th><th>Invoice lines</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {% for r in recons %}
           <tr>
+            <td>
+              {% if r.token in journalable %}
+              <input type="checkbox" name="token" value="{{ r.token }}"
+                     form="jeform"{% if not r.generated_at %} checked{% endif %}
+                     title="Include this reconciliation in the journal entry">
+              {% endif %}
+            </td>
             <td>{{ r.uploaded }}</td>
             <td>{{ (r.statement.label if r.statement else '') or r.source }}
               {% if r.uploaded_by and r.uploaded_by.startswith('operator:') %}

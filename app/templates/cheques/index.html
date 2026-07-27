@@ -23,16 +23,8 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Upload the <strong>scanned cheques</strong> you receive from
-      customers — each cheque is read (cheque number, client name, issuing bank,
-      amount, date) and kept permanently in the <strong>register below</strong>
-      (uploads cannot be deleted). Every cheque number is checked against the
-      bank statements held in the
-      <a href="/tools/bank-statements">Bank Statements</a> section:
-      <span class="pill pill-ok">✓</span> when it cleared — disclosed
-      <strong>once</strong>, with the bank, the day, the amount and the
-      statement reference — <span class="pill pill-stop">✗</span> when the
-      statements were read and it was not found.</p>
+    <p class="lead">Upload scanned cheques — each is matched against the
+      <a href="/tools/bank-statements">bank statements</a> on file.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
@@ -55,9 +47,7 @@
     </div>
     {% if stats_chart %}
     <div style="margin-top:10px;overflow-x:auto;">{{ stats_chart|safe }}</div>
-    <p class="note-small">Daily series — total cheques sitting on the platform
-      (blue) vs unpresented cheques (red). The point for today updates as
-      cheques are uploaded and matched.</p>
+    <p class="note-small">On the platform (blue) vs unpresented (red), per day.</p>
     {% endif %}
   </section>
 
@@ -65,16 +55,13 @@
     <h2 class="section-title">Upload scanned cheques</h2>
     {% if bank_lines %}
     <div class="alert alert-ok">Matching against <strong>{{ bank_lines }}</strong>
-      bank-statement line(s) on file{% if bank_banks %} —
+      bank-statement line(s){% if bank_banks %} —
       {% for b in bank_banks %}{{ b.bank }} ({{ b.lines }}){% if not loop.last %} · {% endif %}{% endfor %}{% endif %}.
-      Add or replace statements in the
-      <a href="/tools/bank-statements">Bank Statements</a> section, then
-      <strong>Refresh matches</strong> below.</div>
+      Update them in <a href="/tools/bank-statements">Bank Statements</a>.</div>
     {% else %}
-    <div class="alert alert-info">No bank statements are on file yet — upload them
-      in the <a href="/tools/bank-statements">Bank Statements</a> section to
-      match cheque numbers. You can still read cheques into the register now;
-      the match column will show ✗ until statements are on file.</div>
+    <div class="alert alert-info">No bank statements on file — add them in
+      <a href="/tools/bank-statements">Bank Statements</a>; matches show ✗
+      until then.</div>
     {% endif %}
     {% if ai_ready %}
     <form action="/tools/cheque-processing/upload" method="post"
@@ -134,9 +121,8 @@
       })();
     </script>
     {% else %}
-    <div class="alert alert-info">Document reading is not configured yet — paste your
-      document-reading key under <a href="/settings">Settings →
-      Document reading</a> to enable cheque reading.</div>
+    <div class="alert alert-info">Document reading is not configured — add the key
+      under <a href="/settings">Settings → Document reading</a>.</div>
     {% endif %}
   </section>
 
@@ -148,8 +134,8 @@
     {% set reading = register | selectattr('status', 'in', ['pending', 'running']) | list %}
     {% if reading %}
     <script>setTimeout(function () { location.reload(); }, 5000);</script>
-    <div class="alert alert-info">Reading {{ reading|length }} cheque(s)… this
-      page refreshes itself automatically. Stuck for more than a few minutes?
+    <div class="alert alert-info">Reading {{ reading|length }} cheque(s) — this
+      page refreshes itself.
       <form action="/tools/cheque-processing/register/resume" method="post"
             style="display:inline;">
         <button class="btn btn-small" type="submit">▶ Resume reading</button>
@@ -325,28 +311,10 @@
         });
       })();
     </script>
-    <p class="note-small">Each cheque's clearing is disclosed <strong>once</strong> —
-      the latest date its number appears on the statements (overlapping
-      statement extracts repeating the same transaction are not shown twice).
-      Matched cheques carry a <strong>Matched date</strong> under the cheque
-      number — stamped the day the match was first seen and
-      <strong>fixed in time</strong> (it never moves on later refreshes).
-      Rows highlighted in <strong>blue</strong> are matched cheques awaiting
-      accounting treatment — they stay at the top until the
-      <strong>finance profile</strong> marks them treated (the cheque-register
-      profile cannot). ✗ = the statements on file were read and the cheque
-      number was not found. The <strong>AR columns</strong> come from the
-      latest AR analysis{% if ar_meta and ar_meta.as_of %} (as of
-      {{ ar_meta.as_of }}){% endif %} — the client name on the cheque is
-      matched to the AR trial balance so you can see which account the
-      cheque cleared and how much overdue balance it covers; “—” means no
-      close name match. The <strong>BIT Reference</strong> column scans the
-      BIT file on record{% if bit_meta %} ({{ bit_meta.source }}, uploaded
-      {{ bit_meta.uploaded }}){% endif %} for the cheque number in the
-      transaction description and shows the BIT transaction reference,
-      date and amount — a <span class="diff-ok">green amount</span> is
-      aligned with the cheque, a <span class="diff-bad">red amount ⚠</span>
-      differs, “—” = not on the BIT yet.</p>
+    <p class="note-small">Blue rows await accounting treatment; ✗ = not on the
+      statements{% if ar_meta and ar_meta.as_of %} · AR as of
+      {{ ar_meta.as_of }}{% endif %}{% if bit_meta %} · BIT
+      {{ bit_meta.source }} ({{ bit_meta.uploaded }}){% endif %}.</p>
     {% else %}
     <p class="note-small">No cheques on the register yet — upload the first
       scans above.</p>

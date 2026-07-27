@@ -257,20 +257,17 @@
     <h2 class="section-title">Manual plug — balance a remaining difference</h2>
     {% if view.plug %}
     <div class="alert {{ 'alert-warn' if view.residual else 'alert-ok' }}">
-      Plug on record: <strong>{{ "{:,.0f}".format(view.plug.amount) }} XAF</strong>
+      Plug <strong>{{ "{:,.0f}".format(view.plug.amount) }} XAF</strong>
       on G/L <strong>{{ view.plug.account }}</strong>
-      {%- if view.plug.note %} ({{ view.plug.note }}){% endif %} →
-      remaining difference after plug:
-      <strong>{{ "{:,.0f}".format(view.residual) }}</strong>.
-      The plug is written into the journal entry as its own line
+      {%- if view.plug.note %} ({{ view.plug.note }}){% endif %} — difference
+      left <strong>{{ "{:,.0f}".format(view.residual) }}</strong>
       (posting key {{ 40 if view.plug.amount > 0 else 50 }}).
     </div>
     {% elif view.difference %}
     <div class="alert alert-warn">Difference of
       <strong>{{ "{:,.0f}".format(view.difference) }} XAF</strong> not yet
-      plugged.{% if view.plug_account_default %} It's pre-filled to book onto
-      the reseller's account <strong>{{ view.plug_account_default }}</strong> —
-      just save.{% endif %}</div>
+      plugged.{% if view.plug_account_default %} Pre-filled to
+      <strong>{{ view.plug_account_default }}</strong> — just save.{% endif %}</div>
     {% else %}
     <p class="note-small">Nothing to plug — selected invoices and the BIT agree.</p>
     {% endif %}
@@ -298,10 +295,8 @@
       <button class="btn" type="submit" style="align-self:flex-end;">💾 Save
         plug</button>
     </form>
-    <p class="note-small">A positive plug covers a short BIT, a negative one an
-      over-payment; it books as a balanced pair. Blank/0 removes it.
-      {%- if view.plug_account_default %} The default sends the balance to the
-      reseller's account {{ view.plug_account_default }}.{% endif %}</p>
+    <p class="note-small">Positive covers a short BIT, negative an
+      over-payment; blank or 0 removes it.</p>
     {% endif %}
   </section>
 
@@ -397,28 +392,16 @@
       </div>
       <label class="field">
         <span>Message (edit before sending)</span>
-        <textarea name="body" rows="9">Dear Customer,
-
-We have reconciled your payment advice "{{ s.label or rec.source }}" ({{ s.lines|length }} AWB(s), total {{ "{:,.0f}".format(s.total) }} XAF) against the amount received at the bank ({{ "{:,.0f}".format(view.bit_amount) }} XAF).
-{% if view.difference > 0 %}
-A short payment of {{ "{:,.0f}".format(view.difference|abs) }} XAF remains: your account stands in a DEBIT position and a payment of this amount is expected to clear it.
-{% else %}
-An excess payment of {{ "{:,.0f}".format(view.difference|abs) }} XAF was received: your account stands in a CREDIT position and this amount will be given back or applied to your next invoices.
-{% endif %}
-Please review and confirm at your earliest convenience.
-
-Regards,
-DHL Express Cameroon — Finance</textarea>
+        <textarea name="body" rows="5">Dear Customer, we reconciled "{{ s.label or rec.source }}" ({{ s.lines|length }} AWB(s), {{ "{:,.0f}".format(s.total) }} XAF) against {{ "{:,.0f}".format(view.bit_amount) }} XAF received at the bank.
+{% if view.difference > 0 %}A short payment of {{ "{:,.0f}".format(view.difference|abs) }} XAF remains due on your account — please settle or advise.{% else %}An excess of {{ "{:,.0f}".format(view.difference|abs) }} XAF is held on your account and will be applied to your next invoices.{% endif %}
+Regards, DHL Express Cameroon — Finance</textarea>
       </label>
       <button class="btn btn-primary" type="submit">✉ Send the
         clarification email</button>
     </form>
-    <p class="note-small">The payment advice on file is attached
-      automatically. Without SMTP settings a ready-to-send .eml file is
-      produced instead.</p>
+    <p class="note-small">The payment advice is attached automatically.</p>
     {% elif not view.variance_email %}
-    <p class="note-small">No clarification needed — the difference
-      ({{ "{:,.0f}".format(view.difference) }} XAF) is within the
+    <p class="note-small">No clarification needed — difference is within the
       {{ "{:,.0f}".format(view.email_threshold) }} XAF threshold.</p>
     {% endif %}
   </section>

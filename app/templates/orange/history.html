@@ -55,11 +55,10 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">Each customer's payment amount on this statement,
-      set against their account balance per the latest AR trial balance
+    <p class="note-small">Payments on this statement against the latest AR
+      trial balance
       {%- if ar_meta and ar_meta.as_of %} (as of {{ ar_meta.as_of }})
-      {%- endif %} — joined on the saved AR account number, or on the customer
-      name when no account is saved; “—” = not found in the AR ledger.</p>
+      {%- endif %}; “—” = not found in the AR ledger.</p>
 
     <details class="meta-box" style="margin-top:14px;">
       <summary>All {{ u.collections|length }} collection(s) in this upload</summary>

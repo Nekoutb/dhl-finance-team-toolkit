@@ -11,18 +11,16 @@
     <section class="panel">
       <h1>Reading your bank statement(s)…</h1>
       <p class="lead">Started {{ r.created_at }} · {{ r.file_count }} file(s).
-        PDF statements are read automatically — this can take a minute or two for a
-        multi-page statement. This page refreshes itself automatically.</p>
+        This page refreshes itself.</p>
       <div class="progress"><i style="width:45%"></i></div>
-      <p class="note-small">You can leave this page and reopen the report later
-        from <a href="/tools/bank-statements">Bank statements</a>.</p>
+      <p class="note-small">Reopen this report later from
+        <a href="/tools/bank-statements">Bank statements</a>.</p>
     </section>
   {% elif r.status == 'error' %}
     <section class="panel">
       <h1>Could not read the statement(s)</h1>
       <div class="alert alert-error">{{ r.error }}</div>
-      <p class="note-small">If this is a large PDF, split it into fewer pages and
-        try again. For scanned PDFs, ensure the document-reading key is set under
+      <p class="note-small">Split large PDFs, or set the key under
         <a href="/settings">Settings → Document reading</a>.</p>
       <div class="download-row">
         <a class="btn btn-primary" href="/tools/bank-statements">Try another statement</a>
@@ -35,8 +33,7 @@
       <span class="note-inline">({{ s.statement_count or 1 }} statement(s))</span></h1>
     <p class="lead">Analysed {{ r.created_at }}
       {% if s.first_date %}· period {{ s.first_date }} → {{ s.last_date }}{% endif %}
-      {% if r.ar_link %}· receivables position per analysis as-of
-        {{ r.ar_link.as_of }}{% endif %}</p>
+      {% if r.ar_link %}· AR as of {{ r.ar_link.as_of }}{% endif %}</p>
 
     {% if r.banks %}
     <div class="table-wrap" style="margin-bottom:14px;">
@@ -60,10 +57,9 @@
     </div>
     {% endif %}
     {% if s.credit_count == 0 %}
-    <div class="alert alert-warn">No credit (incoming) transactions were read
-      from the statement(s). If these are PDF statements, set the reading service
-      key under <a href="/settings">Settings → Document reading</a> so they
-      are read automatically; otherwise check the file has a credit/“Crédit” column.</div>
+    <div class="alert alert-warn">No credits read — check the file has a
+      credit/“Crédit” column, or set the key under
+      <a href="/settings">Settings → Document reading</a>.</div>
     {% endif %}
 
     <div class="kpi-strip">
@@ -86,17 +82,15 @@
       <a class="btn btn-primary" href="/tools/bank-statements/results/{{ token }}/export">⬇ Export report to Excel</a>
       <a class="btn" href="/tools/bank-statements">Analyse another statement</a>
     </div>
-    <p class="note-small">Refresh re-links this statement's collections to your
-      <strong>latest AR analysis</strong> — use it after running a new CtP
-      analysis, without re-uploading the statement.</p>
+    <p class="note-small">Refresh re-links this statement to the
+      <strong>latest AR analysis</strong>.</p>
   </section>
 
   <section class="panel">
     <h2 class="section-title">Collections by customer — linked to receivables</h2>
     {% if not r.ar_link %}
       <div class="alert alert-info">No AR analysis on file — run one in
-        <a href="/tools/ongoing-ctp-monitoring">CtP Portal</a> and re-upload
-        to link payments to receivables positions.</div>
+        <a href="/tools/ongoing-ctp-monitoring">CtP Portal</a>, then refresh.</div>
     {% endif %}
     {% if r.matched %}
     <div class="table-wrap">
@@ -133,9 +127,8 @@
 
   <section class="panel">
     <h2 class="section-title">Payments received by payer — all credits</h2>
-    <p class="lead">Every credit (cash collected) grouped by the payer read from
-      the statement (the originator after “Donneur d'ordre”, else the narration)
-      — <strong>independent of whether the payer appears in the AR</strong>.</p>
+    <p class="lead">Every credit grouped by payer, whether or not the payer
+      appears in the AR.</p>
     {% if r.payments_by_payer %}
     <div class="table-wrap">
       <table class="tx-table">

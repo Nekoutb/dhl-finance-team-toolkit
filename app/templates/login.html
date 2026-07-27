@@ -28,10 +28,8 @@
 
       {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
       {% if request.query_params.get('expired') %}
-      <div class="alert alert-info">Your session ended (sessions renew
-        while you work, but pause long enough and they expire for
-        security). Nothing was lost — sign in to continue where you
-        were.</div>
+      <div class="alert alert-info">Your session expired — sign in to carry on
+        where you left off.</div>
       {% endif %}
 
       <form action="/login" method="post">

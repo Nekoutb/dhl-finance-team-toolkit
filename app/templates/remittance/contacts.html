@@ -8,10 +8,8 @@
 
   <section class="panel">
     <h1>Customer contacts on file</h1>
-    <p class="lead">{{ contacts|length }} contact(s), captured when customers
-      confirm an allocation (name, role, email and phone are obligatory there).
-      These prefill the customer's next confirmation and the "email link"
-      buttons.</p>
+    <p class="lead">{{ contacts|length }} contact(s) — used to prefill the
+      email boxes.</p>
 
     {% if contacts %}
     <div class="table-wrap">
@@ -36,8 +34,8 @@
       </table>
     </div>
     {% else %}
-      <p class="note-small">None yet — details are captured automatically the
-        first time each customer confirms an allocation.</p>
+      <p class="note-small">None yet — captured on a customer's first
+        confirmation.</p>
     {% endif %}
   </section>
 {% endblock %}

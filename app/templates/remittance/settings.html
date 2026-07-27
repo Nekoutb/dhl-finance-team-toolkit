@@ -31,13 +31,10 @@
 
     <div class="alert alert-{{ 'ok' if smtp_enabled else 'info' }}" style="margin-top:18px;">
       {% if smtp_enabled %}
-        <strong>SMTP is configured</strong> — reconciliations and customer links
-        are emailed directly.
+        <strong>SMTP is configured</strong> — emails are sent directly.
       {% else %}
-        <strong>SMTP is not configured</strong> — the app produces ready-to-send
-        .eml files instead of sending directly. To enable direct sending, fill
-        the <code>smtp</code> block in <code>config.json</code> (host, port,
-        username, password, from_address) and set <code>"enabled": true</code>.
+        <strong>SMTP is not configured</strong> — the app makes .eml files;
+        fill the <code>smtp</code> block in <code>config.json</code> to send.
       {% endif %}
     </div>
   </section>

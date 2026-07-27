@@ -8,10 +8,8 @@
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if must_change %}
-    <div class="alert alert-warn"><strong>Please set your own password
-      now.</strong> The one you signed in with was issued by an
-      administrator — choose a personal password below before continuing
-      to work.</div>
+    <div class="alert alert-warn"><strong>Set your own password now</strong> —
+      the one you signed in with was issued by an administrator.</div>
     {% elif first %}
     <div class="alert alert-info">Welcome! You can change your password
       here any time.</div>
@@ -43,8 +41,7 @@
       </label>
       <button class="btn btn-primary" type="submit">Change password</button>
     </form>
-    <p class="note-small">A long phrase beats a complicated word — three or
-      four random words are strong and easy to remember. Your current
-      session stays open after the change.</p>
+    <p class="note-small">Three or four random words beat one complicated
+      word. Your session stays open after the change.</p>
   </section>
 {% endblock %}

@@ -71,10 +71,9 @@
       {% endif %}
     </div>
     {% if priority_on %}
-    <div class="alert alert-info" style="margin-top:10px;">⭐ Showing
-      <strong>priority customers only</strong> — every section below is
-      recomputed for the {{ result.summary.customer_count }} priority
-      customer(s) found in this analysis. Manage the list on the
+    <div class="alert alert-info" style="margin-top:10px;">⭐
+      <strong>Priority customers only</strong> —
+      {{ result.summary.customer_count }} customer(s). Manage the list on the
       <a href="/tools/ongoing-ctp-monitoring/master">master page</a>.</div>
     {% endif %}
   </section>
@@ -84,8 +83,7 @@
   <section class="panel">
     <h2 class="section-title">⭐ All priority customers
       ({{ result.customers|length }})</h2>
-    <p class="lead">Every priority customer in this analysis is listed —
-      no further filtering or sorting applied.</p>
+    <p class="lead">Every priority customer, unfiltered and unsorted.</p>
     <div class="table-wrap"><table class="tx-table">
       <thead><tr><th>#</th><th>Customer</th><th>Account</th><th>Segment</th>
         <th>Total AR (net)</th><th>Overdue</th><th>Max days overdue</th>
@@ -128,11 +126,8 @@
     <div class="kpi"><span class="kpi-num">{{ m.upcoming.total }}</span><span class="kpi-lbl">Going on hold ≤14d</span></div>
     <div class="kpi"><span class="kpi-num">{{ m.below.count }}</span><span class="kpi-lbl">Below threshold</span></div>
   </div>
-  <p class="note-small">The month-end line ages every invoice to
-    <strong>{{ month_end }}</strong> instead of to today, so the AR&nbsp;&gt;&nbsp;60/90&nbsp;day
-    shares and the credit-hold projection reflect period close. Unapplied
-    cash, on-hold-negative and below-threshold are balance snapshots and do
-    not change with the date.</p>
+  <p class="note-small">This line ages every invoice to
+    <strong>{{ month_end }}</strong>; balance snapshots do not move with the date.</p>
   {% endif %}
 
   <!-- 1 & 6. Ageing + top offenders -->
@@ -157,11 +152,8 @@
   <section class="panel">
     <h2 class="section-title">Projected top offenders at month-end
       <span class="note-inline">({{ month_end }})</span></h2>
-    <p class="lead">The same over-60/90-day controls with every invoice aged to
-      <strong>{{ month_end }}</strong> instead of today — who the offenders will
-      be at period close if nothing is collected before then. Customers who are
-      not offenders today are flagged
-      <span class="pill pill-watch">new at month-end</span>.</p>
+    <p class="lead">The over-60/90-day controls with every invoice aged to
+      <strong>{{ month_end }}</strong>.</p>
     {% set cur60 = d.over60_customers | map(attribute='key') | list %}
     {% set cur90 = d.over90_customers | map(attribute='key') | list %}
     <details class="drop">
@@ -174,10 +166,8 @@
         <span class="drop-val">{{ "{:.1f}".format(dash_me.aging.over90_pct) }}% · {{ money(dash_me.aging.over90) }} {{ cur }}</span></summary>
       {{ offender_table(dash_me.over90_customers, "over90", 0 if priority_on else 30, cur90) }}
     </details>
-    <p class="note-small">Projection: invoices aged from their document date to
-      {{ month_end }} (percentages of gross receivables,
-      {{ money(dash_me.gross_ar) }} {{ cur }}). Compare with the as-of-today
-      section above to see who newly crosses 60/90 days by period close.</p>
+    <p class="note-small">Aged to {{ month_end }}; % of gross receivables
+      {{ money(dash_me.gross_ar) }} {{ cur }}.</p>
   </section>
   {% endif %}
 
@@ -204,8 +194,8 @@
   <!-- 3. On hold but net negative -->
   <section class="panel">
     <h2 class="section-title">On credit hold but net-negative balance</h2>
-    <p class="lead">Customers who have <strong>overpaid</strong> (payments exceed invoices)
-      yet are still on credit hold — candidates for immediate release.</p>
+    <p class="lead">Customers who have <strong>overpaid</strong> but are still
+      on hold — candidates for release.</p>
     <details class="drop">
       <summary><span class="drop-title">On hold &amp; overpaid</span>
         <span class="drop-val">{{ d.held_negative|length }} customer(s)</span></summary>
@@ -229,8 +219,8 @@
   <!-- 4. Going on hold soon -->
   <section class="panel">
     <h2 class="section-title">Projected to go on credit hold</h2>
-    <p class="lead">Not yet on hold, but an open invoice reaches the segment's
-      stop-credit day within the window (per the treatment plan).</p>
+    <p class="lead">Not on hold yet, but an open invoice reaches the plan's
+      stop-credit day within the window.</p>
     {% for label, rows in d.upcoming.bands.items() %}
     <details class="drop">
       <summary><span class="drop-title">{{ label }}</span>
@@ -286,9 +276,8 @@
   <!-- Legal recovery — customers with third-party legal -->
   <section class="panel">
     <h2 class="section-title">Sent to third-party legal — forced recovery</h2>
-    <p class="lead">Customers handed to external legal for forced recovery —
-      identified by the accounting clerk <strong>Legal</strong> on the
-      transaction file.</p>
+    <p class="lead">Customers with the accounting clerk <strong>Legal</strong>
+      on the transaction file.</p>
     {% if d.legal.customers %}
     <div class="table-wrap"><table class="tx-table">
       <thead><tr><th>Customer</th><th>Account</th><th>Critical</th><th>Current Credit Hold status</th>
@@ -306,16 +295,15 @@
     <p class="note-small">{{ d.legal.count }} customer(s) · total AR {{ money(d.legal.total_ar) }} {{ cur }}
       · over 60d {{ money(d.legal.over60) }} · over 90d {{ money(d.legal.over90) }}
       · {{ d.legal.critical_count }} critical.</p>
-    {% else %}<p class="note-small">No customers are currently with third-party
-      legal (no invoice has the accounting clerk “Legal”).</p>{% endif %}
+    {% else %}<p class="note-small">No customer is with third-party
+      legal.</p>{% endif %}
   </section>
 
   <!-- Critical customer analysis -->
   <section class="panel">
     <h2 class="section-title">Critical customer analysis</h2>
     <p class="lead">Customers flagged <strong>Critical</strong> in the customer
-      trial balance. “Days to stop” is from each customer's CtP treatment plan
-      (sales segment).</p>
+      trial balance; days to stop come from their CtP plan.</p>
     {% if d.critical.customers %}
     <div class="table-wrap"><table class="tx-table">
       <thead><tr><th>Customer</th><th>Account N°</th><th>Current Credit Hold status</th>
@@ -338,15 +326,15 @@
     </table></div>
     <p class="note-small">{{ d.critical.count }} critical customer(s) · total AR
       {{ money(d.critical.total_ar) }} {{ cur }} · {{ d.critical.held }} on credit hold.</p>
-    {% else %}<p class="note-small">No customers are flagged critical — add a
-      “Critical customers” column (value “Yes”) to the customer trial balance.</p>{% endif %}
+    {% else %}<p class="note-small">None flagged — add a “Critical customers”
+      column (“Yes”) to the trial balance.</p>{% endif %}
   </section>
 
   <!-- Duty account analysis -->
   <section class="panel">
     <h2 class="section-title">Duty account analysis</h2>
-    <p class="lead">Duty invoices only — identified by a <strong>D0…</strong>
-      (letter D, then zero) document or reference id.</p>
+    <p class="lead">Duty invoices only — document or reference id starting
+      <strong>D0…</strong> (letter D, then zero).</p>
     {% if d.duty.count %}
     <div class="kpi-strip">
       <div class="kpi"><span class="kpi-num">{{ d.duty.count }}</span><span class="kpi-lbl">Duty invoices</span></div>
@@ -371,24 +359,18 @@
     </details>
     <p class="note-small">Overdue {{ money(d.duty.overdue) }} · over 60d
       {{ money(d.duty.over60) }} · over 90d {{ money(d.duty.over90) }} {{ cur }}.</p>
-    {% else %}<p class="note-small">No duty invoices found (none with a
-      “D0…” document/reference id).</p>{% endif %}
+    {% else %}<p class="note-small">No duty invoices found.</p>{% endif %}
   </section>
 
   <!-- 7. On credit hold but paying — from the central Bank Statements section -->
   <section class="panel">
     <h2 class="section-title">On credit hold — possible payments on the bank
       statement</h2>
-    <p class="lead">Customers currently <strong>on credit hold</strong> whose
-      names appear (or closely match) in the credit narrations of the bank
-      statements held in the
-      <a href="/tools/bank-statements">Bank Statements</a> section — a possible
-      payment has been made, so review the hold before keeping it. Bank
-      statements are uploaded once, in that section.</p>
+    <p class="lead">Held customers matching a credit narration in
+      <a href="/tools/bank-statements">Bank Statements</a> — review the hold.</p>
     {% if not bank_available %}
-    <div class="alert alert-info">No bank statements are on file — upload them in
-      the <a href="/tools/bank-statements">Bank Statements</a> section to surface
-      held customers who may have paid.</div>
+    <div class="alert alert-info">No bank statements on file — upload them in
+      <a href="/tools/bank-statements">Bank Statements</a>.</div>
     {% else %}
     <details class="drop" {% if held_paying %}open{% endif %}>
       <summary><span class="drop-title">Held customers paying</span>
@@ -408,8 +390,7 @@
         </tbody>
       </table></div>
       <p class="note-small" style="padding:8px 16px;">Close matches included —
-        check the % column. A payment received is grounds to review/release the
-        hold once it is applied.</p>
+        check the % column.</p>
       {% else %}<p class="note-small" style="padding:10px 16px;">No customer on
         credit hold matched the credit narrations on file.</p>{% endif %}
     </details>
@@ -420,11 +401,9 @@
   <section class="panel">
     <h2 class="section-title">Payments identification — AR customers seen on
       cheques &amp; bank statements</h2>
-    <p class="lead">Every customer with an open receivable whose name closely
-      matches a payer on the <a href="/tools/bank-statements">bank
-      statements</a> or a client name on the
-      <a href="/tools/cheque-processing">cheque register</a> — to facilitate
-      identifying who has paid.</p>
+    <p class="lead">Open-AR customers matching a payer on the
+      <a href="/tools/bank-statements">bank statements</a> or the
+      <a href="/tools/cheque-processing">cheque register</a>.</p>
     {% if pay_id %}
     <div class="table-wrap"><table class="tx-table">
       <thead><tr><th>Customer</th><th>Account</th><th>Payment terms</th>
@@ -446,9 +425,8 @@
         {% endfor %}
       </tbody>
     </table></div>
-    <p class="note-small">Amounts and dates are as they appear on the bank
-      statement (or the cheque when it has not cleared yet). Payment terms come
-      from the master file — run 🔄 Refresh after updating it.</p>
+    <p class="note-small">Payment terms come from the master file — run
+      🔄 Refresh after updating it.</p>
     {% else %}
     <p class="note-small">No open-AR customer name was recognised on the bank
       statements or the cheque register on file.</p>

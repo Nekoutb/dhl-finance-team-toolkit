@@ -19,16 +19,15 @@
       <div class="alert alert-info">No AR analysis on file yet — run one in
         the CtP Portal and the stopped accounts appear here.</div>
     {% elif not accounts %}
-      <div class="alert alert-ok"><strong>No accounts are currently on credit
-        stop</strong> — per the latest AR analysis ({{ ar.source }}, as of
-        {{ ar.as_of }}).</div>
+      <div class="alert alert-ok"><strong>No accounts on credit stop</strong>
+        ({{ ar.source }}, as of {{ ar.as_of }}).</div>
     {% else %}
       <div class="alert alert-info">
-        <strong>{{ counts.stopped }}</strong> account(s) on credit stop per the
-        latest AR analysis ({{ ar.source }}, as of {{ ar.as_of }}) — checked
-        against <strong>{{ counts.bank_lines }}</strong> bank credit line(s),
-        the cheque register and
-        <strong>{{ counts.orange_uploads }}</strong> Orange Money upload(s).
+        <strong>{{ counts.stopped }}</strong> account(s) on credit stop
+        ({{ ar.source }}, as of {{ ar.as_of }}), checked against
+        <strong>{{ counts.bank_lines }}</strong> bank line(s), the cheque
+        register and <strong>{{ counts.orange_uploads }}</strong> Orange
+        upload(s).
       </div>
 
       <div class="table-wrap" style="max-height:none;">
@@ -86,15 +85,8 @@
           </tbody>
         </table>
       </div>
-      <p class="note-small">Payments are matched on the customer name (bank
-        narrations and cheques) or the AR account number (mobile money) —
-        a name matches only when <strong>every distinctive word</strong> of
-        the customer name appears in the narration, or the two names are
-        near-identical; looser resemblances are not shown. Several payments
-        for one account stack within the row, aligned across each group's
-        columns. “—” = no payment trace found in that source. A payment
-        appearing here is a prompt to verify and release the account, not an
-        automatic release.</p>
+      <p class="note-small">“—” = no payment trace found. A payment here is a
+        prompt to verify and release the account, not an automatic release.</p>
     {% endif %}
   </section>
 {% endblock %}

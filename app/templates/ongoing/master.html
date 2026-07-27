@@ -14,11 +14,8 @@
     <h2 class="section-title" style="margin-top:14px;">⭐ Priority customers
       <span class="note-inline">({{ priority_count }} on the list
         {%- if priority_updated %} · updated {{ priority_updated }}{% endif %})</span></h2>
-    <p class="select-hint">Mark your ~40 key accounts with the star in the
-      master table below (or paste the list at once). Every analysis — past
-      and future — then offers a <strong>⭐ Priority customers</strong> filter
-      that recomputes the whole dashboard and all controls for these
-      customers only.</p>
+    <p class="select-hint">Star your key accounts below (or paste the list) to
+      filter every analysis to them.</p>
     <details class="meta-box">
       <summary>Paste the priority list (account numbers or customer names,
         one per line)</summary>
@@ -34,10 +31,8 @@
     </details>
 
     {% if not master %}
-      <div class="alert alert-info">No master file uploaded yet. Add it from the
-        <a href="/tools/ongoing-ctp-monitoring">CtP upload page</a> — it supplies
-        each customer's segment (treatment plan), balance and credit-hold
-        position, and lets you star priority customers row by row.</div>
+      <div class="alert alert-info">No master file yet — add it from the
+        <a href="/tools/ongoing-ctp-monitoring">CtP upload page</a>.</div>
     {% else %}
     <p class="lead">{{ master.source }} · uploaded {{ master.uploaded_at }} ·
       {{ master.stats.customers }} customers ·
@@ -46,12 +41,12 @@
         {{ master.stats.skipped_totals }} total line(s) excluded{% endif %}</p>
 
     {% if not master.stats.has_segment_column %}
-      <div class="alert alert-info">No segment column detected — customers will
-        default to the Telesales plan. Check the column name if the file has one.</div>
+      <div class="alert alert-info">No segment column detected — customers
+        default to the Telesales plan.</div>
     {% endif %}
     {% if not master.stats.has_hold_column %}
-      <div class="alert alert-info">No credit-hold column detected — hold
-        positions will come from the manual register instead.</div>
+      <div class="alert alert-info">No credit-hold column detected — holds come
+        from the manual register.</div>
     {% endif %}
 
     <details class="meta-box">

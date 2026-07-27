@@ -388,17 +388,20 @@ check("bank side split per AWB (first pair: 40 + 15, 53,639, AWB in Doc.Nr)",
       and jrows[0][11] == 53639.0 and jrows[0][6] == "4095823454"
       and jrows[1][9] == 4003025929 and jrows[1][10] == 15
       and jrows[1][11] == 53639.0 and jrows[1][6] == "4095823454")
-plug_pair = [r for r in jrows if r[11] == 71.0]
-check("plug booked as a balanced pair (BIT G/L key 50 + 471000 key 40)",
+# v11.8: the plug books on the SAME two keys as every other line (40 / 15),
+# the direction carried by the amount's sign (short payment posts negative).
+plug_pair = [r for r in jrows if r[11] == -71.0]
+check("plug booked as a balanced 40/15 pair (signed)",
       len(plug_pair) == 2
-      and plug_pair[0][9] == 1263001293 and plug_pair[0][10] == 50
-      and plug_pair[1][9] == 471000 and plug_pair[1][10] == 40
+      and plug_pair[0][9] == 1263001293 and plug_pair[0][10] == 40
+      and plug_pair[1][9] == 471000 and plug_pair[1][10] == 15
       and plug_pair[1][13] == "BANKED SHORT")
+check("the journal uses ONLY posting keys 40 and 15",
+      {r[10] for r in jrows} == {40, 15})
 sum40 = sum(r[11] for r in jrows if r[10] == 40)
-sum50 = sum(r[11] for r in jrows if r[10] == 50)
 sum15 = sum(r[11] for r in jrows if r[10] == 15)
-check("workbook CHECK stays balanced (+40s -50s -15s = 0)",
-      round(sum40 - sum50 - sum15, 2) == 0.0)
+check("workbook CHECK stays balanced (40 side == 15 side)",
+      round(sum40 - sum15, 2) == 0.0)
 check("BIT G/L nets to the actually banked amount (523,500)",
       round(sum(r[11] if r[10] == 40 else -r[11]
                 for r in jrows if r[9] == 1263001293), 2) == 523500.0)
@@ -955,10 +958,14 @@ check("operator page shows only that account's open AWBs",
 r = client.get("/operator/deadbeef00000000000000000000dead")
 check("unknown operator link -> 404", r.status_code == 404)
 
+# v11.8: the amount actually paid is mandatory on every ticked AWB (a
+# variance would additionally need a Comments explanation).
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["8525614075", "2080666324"],
                       "ref_8525614075": "DEP-4471-BICEC",
                       "ref_2080666324": "DEP-4471-BICEC",
+                      "paid_8525614075": "59600",
+                      "paid_2080666324": "56100",
                       "payment_date": "2026-07-17",
                       "amount_banked": "115700"},
                 files=[("deposit_slip",
@@ -1108,8 +1115,10 @@ check("register page: BIT reference/date/amount values shown",
       and "85,000" in flat3 and "⚠" in flat3)
 check("register page: no stale colspan left behind",
       'colspan="15"' not in r.text and 'colspan="17"' not in r.text)
-check("footnote names the BIT scan",
-      "BIT Reference" in flat3 and "scans the BIT file on record" in flat3)
+check("footnote renders with the BIT file on record",
+      "BIT Reference" in flat3
+      and "Blue rows await accounting treatment" in flat3
+      and (bmeta or {}).get("source", "zzz") in flat3)
 
 r = client.get("/tools/cheque-processing/register/export")
 check("register Excel downloads with the BIT columns",
@@ -1153,11 +1162,13 @@ finally:
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["9605628896"],
                       "ref_9605628896": "DEP-9999-UBA",
+                      "paid_9605628896": "60011",
                       "slip_id": side["slip_id"],
                       "payment_date": "2026-07-19"})
+_flat_done = " ".join(r.text.split()).lower()
 check("submission with a pre-read slip accepted", r.status_code == 200
-      and "banked amount read from your deposit slip" in
-      " ".join(r.text.split()).lower())
+      and "submission received" in _flat_done
+      and "deposit slip" in _flat_done and "115,700" in _flat_done)
 sub2 = iro.load_record("415774002")["submissions"][-1]
 check("submission entry carries the locked banked amount",
       sub2["amount"] == 115700.0)
@@ -1214,7 +1225,8 @@ finally:
 # …and via the no-script raw-file path at submit.
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["2080666324"],
-                      "ref_2080666324": "DEP-DUP-TEST"},
+                      "ref_2080666324": "DEP-DUP-TEST",
+                      "paid_2080666324": "56100"},
                 files=[("deposit_slip", ("dep.png", BIGSLIP,
                                          "image/png"))])
 check("duplicate slip rejected at submit (raw-file path)",
@@ -1253,6 +1265,7 @@ check("draft restored on the next visit",
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["2080666324"],
                       "ref_2080666324": "DEP-5555-SGBC",
+                      "paid_2080666324": "56100",
                       "payment_date": "2026-07-18"})
 check("submission accepted without a slip", r.status_code == 200)
 check("draft cleared once the return is sent",
@@ -1278,18 +1291,17 @@ try:
 finally:
     bitcash.rows_store = _prev_store
 
-# The statement email reads like a person, not an automation.
+# v11.8: the statement email is THREE lines of essentials — greeting + what
+# is open, the link, the sign-off (see test_v118 for the line-count check).
 subj5, body5 = iro.statement_email(
     {"name": "ETS NEW SERVICE TJR", "count": 3, "total": 175711.0},
     "https://x/operator/abc", "415774002")
-check("statement email sounds human",
+check("statement email is short and carries the essentials",
       "Dear Ets New Service Tjr" in body5
-      and "hope business is going well" in body5
+      and "415774002" in body5 and "175,711" in body5
       and "https://x/operator/abc" in body5
-      and "PAYREF 415774002" in body5
       and "Kind regards" in body5
-      and "Please find attached the statement of open airwaybills" not in
-      body5)
+      and len([ln for ln in body5.splitlines() if ln.strip()]) <= 3)
 
 # === 17. v10.6 — MyDHLPay + Cash Reconciliation =============================
 from app.tools import mydhlpay  # noqa: E402
@@ -1559,6 +1571,7 @@ bitcash.rows_store = lambda: FAKE7
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["9605628896"],
                       "ref_9605628896": "OM-778899",
+                      "paid_9605628896": "60011",
                       "deposit_ref": "012372",
                       "slip_id": side20["slip_id"],
                       "payment_date": "2026-07-07"})
@@ -1848,7 +1861,7 @@ check("an invalid/expired session explains itself on the login page",
       r.status_code == 303 and "expired=1" in r.headers["location"])
 r = c24.get("/login?expired=1")
 check("login page shows the session-ended notice",
-      "Your session ended" in " ".join(r.text.split()))
+      "Your session expired" in " ".join(r.text.split()))
 
 _oc22 = ai_ocr.is_configured
 ai_ocr.is_configured = lambda cfg: True

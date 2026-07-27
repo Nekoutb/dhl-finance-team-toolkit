@@ -731,6 +731,28 @@ def load_preread(slip_id, account=None):
     return meta
 
 
+def discard_preread(slip_id, account):
+    """Delete a payment evidence the operator attached but has NOT sent yet —
+    so a wrong slip can be removed and replaced. Only ever touches a pre-read
+    sidecar belonging to this account; once the return is submitted the slip
+    is claimed and copied to the sandbox, and this can no longer reach it
+    (the sidecar is gone / the deposit is on record with finance). Returns
+    True when something was removed."""
+    meta = load_preread(slip_id, account=account)
+    if not meta:
+        return False
+    # A submitted slip's deposit is already claimed — refuse to remove it.
+    if find_prior_deposit(sha=meta.get("sha")):
+        return False
+    for p in (UPLOAD_DIR / f"{slip_id}.json", meta.get("path")):
+        try:
+            if p:
+                Path(p).unlink(missing_ok=True)
+        except OSError:
+            pass
+    return True
+
+
 def _slip_media(path):
     ext = Path(path).suffix.lower()
     if ext in _XLS_EXT:
@@ -753,28 +775,10 @@ def statement_email(entry, link, account):
     subject = (f"Your DHL account {account} — {count} airwaybill(s) "
                f"awaiting your payment details")
     body = (
-        f"Dear {name},\n\n"
-        f"I hope business is going well on your side.\n\n"
-        f"Going through our books, your DHL account {account} still shows "
-        f"{count} airwaybill(s) open for a total of {total:,.0f} XAF — the "
-        f"full detail is in the attached statement. In most cases the money "
-        f"has already been banked and we simply need your deposit details "
-        f"to close the loop.\n\n"
-        f"Could you take two minutes on your personal page? Tick the "
-        f"airwaybills your deposit covered, put the deposit reference next "
-        f"to them and attach a photo of the bank deposit slip — the rest "
-        f"happens on our side:\n\n"
-        f"    {link}\n\n"
-        f"If email is easier for you, just reply with the subject "
-        f"\"PAYREF {account}\", attach the deposit slip, and list the "
-        f"airwaybills paid (one per line, e.g. \"AWB 8525614075 59600\").\n\n"
-        f"Whatever is matched drops off your next statement automatically, "
-        f"so you will never be asked twice for the same shipment. And if "
-        f"any figure looks off to you, tell me — we will look at it "
-        f"together.\n\n"
-        f"Thank you for the good collaboration.\n\n"
-        f"Kind regards,\n"
-        f"The Finance team — DHL Express Cameroon")
+        f"Dear {name}, your DHL account {account} shows {count} open "
+        f"airwaybill(s) totalling {total:,.0f} XAF (detail attached).\n"
+        f"Please confirm what you paid here: {link}\n"
+        f"Kind regards — The Finance team, DHL Express Cameroon")
     return subject, body
 
 
@@ -795,17 +799,12 @@ def send_evidence_copy(cfg, account, name, lines, refs, recon_token,
         for ln in (lines or []))
     who = (name or "").title() or f"the operator on account {account}"
     body = (
-        f"Hello team,\n\n"
-        f"{who} (account {account}) has just reported a deposit through "
-        f"their statement page"
-        + (f" — {slip_total:,.0f} XAF banked per the deposit slip attached "
-           "to this email" if slip_total else "")
-        + f".\n\nDeposit reference(s): {', '.join(refs) or 'none given'}\n"
-        f"Airwaybills covered ({len(lines or [])}):\n{detail}\n\n"
-        f"The reconciliation is already matched and waiting for review "
-        f"here: /tools/bit-cash-ar/recon/{recon_token}\n\n"
-        f"This message is the email evidence of the submission — keep it "
-        f"in this mailbox.")
+        f"{who} (account {account}) reported a deposit"
+        + (f" — {slip_total:,.0f} XAF banked (slip attached)"
+           if slip_total else "")
+        + f". Reference(s): {', '.join(refs) or 'none given'}.\n"
+        f"Review: /tools/bit-cash-ar/recon/{recon_token}\n"
+        f"Airwaybills ({len(lines or [])}):\n{detail}")
     first = (slip_paths or [None])[0]
     attachment = Path(first[0]) if first else None
     try:

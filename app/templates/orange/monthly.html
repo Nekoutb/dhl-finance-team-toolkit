@@ -8,11 +8,9 @@
 
   <section class="panel">
     <h1>📱 Orange Money — customer payments by month</h1>
-    <p class="lead">Every payment read from the
+    <p class="lead">Every payment from the
       <strong>{{ report.uploads }}</strong> processed file(s) on record,
-      pivoted per customer: name, AR account N°, phone number and the total
-      collected each statement month. A transaction appearing in overlapping
-      files is counted once.</p>
+      per customer and statement month.</p>
 
     {% if not report.rows %}
       <div class="alert alert-info">No processed Orange Money files on record
@@ -54,11 +52,8 @@
           </tbody>
         </table>
       </div>
-      <p class="note-small">Names and AR accounts come from the identities
-        confirmed on the review pages (remembered per correspondant). “—” =
-        not identified yet — fill it on the next upload's review page or
-        under <a href="/tools/orange-cameroun/customers">saved
-        customers</a>.</p>
+      <p class="note-small">“—” = not identified yet; fill it in under
+        <a href="/tools/orange-cameroun/customers">saved customers</a>.</p>
     {% endif %}
   </section>
 {% endblock %}

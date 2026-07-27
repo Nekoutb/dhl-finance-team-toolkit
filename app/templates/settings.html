@@ -5,17 +5,15 @@
 
   <section class="panel">
     <h1>⚙️ Settings</h1>
-    <p class="lead">Staff users, your password, document reading, and the
-      email (SMTP) server.</p>
+    <p class="lead">Staff users, passwords, document reading and email.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
 
   {% if not is_admin %}
   <section class="panel">
-    <div class="alert alert-info">You are signed in as an
-      <strong>employee</strong> — user onboarding and system settings are
-      managed by an administrator. You can change your own password below.</div>
+    <div class="alert alert-info">You are an <strong>employee</strong> — you can
+      change your own password below.</div>
   </section>
   {% endif %}
 
@@ -23,12 +21,11 @@
   <!-- ===== Staff users (admin) ===== -->
   <section class="panel">
     <h2 class="section-title">👥 Staff users</h2>
-    <p class="note-small">Set exactly which areas each user can reach (read-only
-      or read &amp; modify) in <a href="/admin">Administration</a>.</p>
+    <p class="note-small">Set each user's area access in
+      <a href="/admin">Administration</a>.</p>
     {% if not auth_enabled %}
-      <div class="alert alert-info">Staff login is currently <strong>off</strong>
-        (open access). Add the first user below to turn it on — required before
-        the site goes on a public domain.</div>
+      <div class="alert alert-info">Staff login is <strong>off</strong> — add the
+        first user below to turn it on.</div>
     {% endif %}
 
     {% if users %}
@@ -79,10 +76,8 @@
         </label>
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top:8px;">Add user</button>
-      <p class="note-small" style="margin-top:6px;">Share the temporary password
-        with the new user; they can change it here after signing in. Employees
-        see the tools only — Settings stays admin-only. After signing in, the
-        dashboard welcomes them by name.</p>
+      <p class="note-small" style="margin-top:6px;">Share the temporary password;
+        the user changes it here after signing in.</p>
     </form>
   </section>
   {% endif %}
@@ -109,8 +104,7 @@
   <!-- ===== Security — bot protection ===== -->
   <section class="panel">
     <h2 class="section-title">🔐 Security — bot protection</h2>
-    <p class="lead">Shield the login page from bots with Cloudflare
-      Turnstile.</p>
+    <p class="lead">Shield the login page from bots with Cloudflare Turnstile.</p>
 
     <div class="alert alert-{{ 'ok' if turnstile_active else 'info' }}">
       Cloudflare Turnstile:
@@ -122,10 +116,9 @@
 
     <form action="/settings/security" method="post">
       <h3 class="mini-title">Cloudflare Turnstile</h3>
-      <p class="note-small">Create a Turnstile widget at
+      <p class="note-small">Create a widget for <code>rtrotc.com</code> at
         <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">dash.cloudflare.com → Turnstile</a>
-        for <code>rtrotc.com</code>, then paste its <strong>Site key</strong>
-        and <strong>Secret key</strong>.</p>
+        and paste both keys.</p>
       <div class="inline-fields" style="margin:8px 0 12px;">
         <label class="field" style="min-width:300px;">
           <span>Site key</span>
@@ -151,9 +144,8 @@
   <!-- ===== Bank statements — configurable banks ===== -->
   <section class="panel">
     <h2 class="section-title">🏦 Bank statements — your banks</h2>
-    <p class="lead">List your banks (one per line). Each gets its own upload
-      slot on the <a href="/tools/bank-statements">Bank statements</a> page, and
-      uploading a statement replaces that bank's previous one.</p>
+    <p class="lead">One bank per line — each gets an upload slot on the
+      <a href="/tools/bank-statements">Bank statements</a> page.</p>
     <div class="alert alert-{{ 'ok' if banks else 'info' }}">
       {% if banks %}<strong>{{ banks|length }} bank(s)</strong> configured:
         {{ banks|join(', ') }}.
@@ -174,15 +166,13 @@
   <!-- ===== Document reading ===== -->
   <section class="panel">
     <h2 class="section-title">🔎 Document reading</h2>
-    <p class="lead">Scanned documents (PDFs and photos with no text layer) need
-      the document-reading engine. Paste the access key below to enable it —
-      the key is stored only in the server's config file, never in code.</p>
+    <p class="lead">Paste the access key to read scanned PDFs and photos that
+      carry no text layer.</p>
 
     <div class="alert alert-{{ 'ok' if ai_ready else 'info' }}">
       Current status:
       {% if ai_ready %}<strong>CONFIGURED</strong> — document reading is on.
-      {% else %}<strong>not configured</strong> — paste the access key below to
-        enable document reading.{% endif %}
+      {% else %}<strong>not configured</strong> — add the key below.{% endif %}
     </div>
 
     <form action="/settings/ai" method="post">
@@ -215,10 +205,8 @@
   <!-- ===== SMTP ===== -->
   <section class="panel">
     <h2 class="section-title">✉️ Email (SMTP)</h2>
-    <p class="lead">Configure the mail server once and it's locked into the
-      SaaS — every email feature (reconciliations to finance, customer links,
-      Mobile Money receipts, CtP reports) sends directly. Until SMTP is
-      enabled, the app produces ready-to-send .eml files instead.</p>
+    <p class="lead">Set the mail server so emails send directly; until then the
+      app produces .eml files.</p>
 
     <div class="alert alert-{{ 'ok' if smtp.enabled else 'info' }}">
       Current status:
@@ -276,11 +264,8 @@
   <!-- ===== Operator mailbox (IMAP) ===== -->
   <section class="panel">
     <h2 class="section-title">📬 Operator mailbox (IRO returns)</h2>
-    <p class="lead">The dedicated inbox the tool <strong>reads</strong> to
-      ingest operator payment references sent by email
-      (subject <code>PAYREF &lt;account&gt;</code>). Statements and links
-      are sent with the SMTP settings above; this section is only for
-      RECEIVING the returns.</p>
+    <p class="lead">The inbox the tool reads for operator payment references
+      (subject <code>PAYREF &lt;account&gt;</code>).</p>
     <form action="/settings/imap" method="post">
       <div class="inline-fields">
         <label class="field" style="min-width:260px;">
@@ -323,18 +308,15 @@
       <button class="btn btn-primary" type="submit">Save operator
         mailbox</button>
     </form>
-    <p class="note-small">Only mail from a registered operator email is
-      processed; everything else is quarantined on the
-      <a href="/tools/bit-cash-ar/operators">Operator statements</a> page.
-      New mail is picked up every few minutes (and on “Fetch mail now”).</p>
+    <p class="note-small">Mail from unregistered senders is quarantined on the
+      <a href="/tools/bit-cash-ar/operators">Operator statements</a> page.</p>
   </section>
 
   <!-- ===== MyDHLPay ===== -->
   <section class="panel">
     <h2 class="section-title">📲 MyDHLPay (scan-to-pay)</h2>
-    <p class="lead">The public payment page at <code>/pay</code> dials
-      Orange Money with these settings. The amount is filled per
-      airwaybill automatically.</p>
+    <p class="lead">The public page at <code>/pay</code> dials Orange Money;
+      the amount fills per airwaybill.</p>
     <form action="/settings/mydhlpay" method="post">
       <div class="inline-fields">
         <label class="field" style="min-width:200px;">
@@ -362,16 +344,8 @@
       </label>
       <button class="btn" type="submit">Send test email</button>
     </form>
-    <p class="note-small">Office 365: host <code>smtp.office365.com</code>,
-      port 587, TLS on — if your tenant blocks basic SMTP auth, IT can enable
-      "Authenticated SMTP" for the mailbox or provide a relay. Gmail: host
-      <code>smtp.gmail.com</code>, port 587, TLS on, and an
-      <strong>app password</strong> (not your normal one) from
-      myaccount.google.com → Security → 2-Step Verification → App passwords.
-      <strong>Yahoo:</strong> host <code>smtp.mail.yahoo.com</code>, port 465
-      (SSL — supported) or 587, and an <strong>app password</strong> generated
-      at login.yahoo.com → Account Security → Generate app password; your
-      normal Yahoo password will be rejected.</p>
+    <p class="note-small">Port 587 with TLS for Office 365, Gmail and Yahoo;
+      Gmail and Yahoo need an <strong>app password</strong>.</p>
   </section>
 
   {% endif %}

@@ -5,10 +5,8 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Feed the accounts-receivable breakdown <strong>at invoice
-      level</strong>. The app analyses each open item against the Collections
-      Treatment Plan and generates the controls to apply — per invoice and per
-      customer.</p>
+    <p class="lead">Upload the AR breakdown <strong>at invoice level</strong> to
+      generate the Collections Treatment Plan controls.</p>
 
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
@@ -17,8 +15,7 @@
     <h2 class="section-title" style="margin-top:6px;">⛔ Accounts on credit
       hold — daily</h2>
     <div style="overflow-x:auto;">{{ held_chart|safe }}</div>
-    <p class="note-small">Snapshotted each time an analysis is uploaded — the
-      graph updates daily as new analyses are loaded.</p>
+    <p class="note-small">Snapshotted each time an analysis is uploaded.</p>
     {% endif %}
 
     <form class="upload-form-stack" action="/tools/ongoing-ctp-monitoring/analyze"
@@ -89,16 +86,12 @@
     </details>
 
     <div class="alert alert-info" style="margin-top:16px;">
-      <strong>Tuned to the real AR export</strong> (SAP "AR DETAILS" layout:
-      customer number + name, document currency value, net due date). The
-      file's total line (amount with other fields empty) is detected and used
-      as a control-total check. Letters are handled by the system dunning —
-      only manual controls are assigned.
+      <strong>Tuned to the SAP "AR DETAILS" export.</strong> Only manual
+      controls are assigned.
     </div>
     <p class="hint">
       <a href="/tools/ongoing-ctp-monitoring/holds">Manage the credit-hold
-      register →</a> (who is currently on hold; analyses compare policy vs this
-      register)</p>
+      register →</a> (who is on hold now)</p>
 
     {% if recent %}
     <h2 class="section-title" style="margin-top:22px;">Recent analyses</h2>
@@ -193,8 +186,7 @@
         </div>
       </div>
       <p class="note-small">Field Sales &amp; Major (§3.5), Enterprise (§3.6) and
-        New Customer (§3.7) plans use their own day thresholds and are selected
-        automatically from each customer's segment.</p>
+        New Customer (§3.7) plans follow the customer's segment.</p>
     </details>
   </section>
 {% endblock %}

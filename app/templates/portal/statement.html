@@ -4,18 +4,14 @@
   <section class="panel">
     <h1>Statement for {{ stmt.customer_name }}</h1>
     <p class="lead">Account {{ stmt.customer_key }} · as at {{ stmt.created_at }}{% if stmt.currency %} · {{ stmt.currency }}{% endif %}</p>
-    <p class="lead">We have applied your <strong>payment(s)</strong> to your
-      <strong>oldest outstanding invoices first</strong>. Please review the
-      allocation below and <strong>confirm</strong> — there is nothing to tick.
-      We'll produce a reconciliation for your records and send it to our finance
-      team as your remittance confirmation.</p>
+    <p class="lead">Your payments are applied to your
+      <strong>oldest invoices first</strong> — review and confirm below.</p>
 
     {% if not stmt.payments and not stmt.invoices %}
       <div class="alert alert-info">No open items found on this statement.</div>
     {% elif not stmt.payments %}
-      <div class="alert alert-info">No payments have been received on your
-        account yet, so there is nothing to allocate. Your open invoices are
-        listed below.</div>
+      <div class="alert alert-info">No payments received yet — your open
+        invoices are listed below.</div>
       <h2 class="section-title">Open invoices</h2>
       <div class="table-wrap">
         <table class="tx-table">
@@ -83,16 +79,14 @@
           </tbody>
         </table>
       </div>
-      {% else %}<p class="note-small">No open invoices on this statement — your
+      {% else %}<p class="note-small">No open invoices — your
         payment{% if payments_total %} of {{ "{:,.2f}".format(payments_total) }}{% endif %}
-        will be held as a deposit on your account.</p>{% endif %}
+        is held as a deposit.</p>{% endif %}
 
       {% if leftover > 0.005 %}
       <div class="alert alert-info">
-        ℹ️ Your payment(s) exceed your settled invoices by
-        <strong>{{ "{:,.2f}".format(leftover) }}</strong>. The excess is
-        <strong>automatically held as a deposit on your account</strong> and
-        offset against your future invoices — no action needed.
+        ℹ️ Overpayment of <strong>{{ "{:,.2f}".format(leftover) }}</strong> is
+        held as a deposit and offset against your future invoices.
       </div>
       {% endif %}
 
@@ -117,9 +111,7 @@
 
       <div class="alert alert-info">
         By confirming, you approve that {{ cfg.organization }} applies your
-        payment(s) against your oldest invoice(s) as shown above. Your
-        confirmation is kept on record and will serve as the reconciliation
-        reference whenever required.
+        payment(s) as shown above, and this is kept on record.
       </div>
       <button class="btn btn-primary" type="submit">Confirm allocation</button>
     </form>

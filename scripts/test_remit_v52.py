@@ -66,7 +66,7 @@ print("ok: excess auto-classified as a deposit (500.00), no tick required")
 # (fetch another pending statement)
 acme = next(c for c in batch["customers"] if "ACME" in c["customer_name"])
 r = client.get(f"/portal/{acme['token']}")
-assert "kept on record" in r.text and "reconciliation" in r.text.lower()
+assert "kept on record" in r.text and "By confirming" in r.text
 print("ok: allocation screen shows the approval/record notice")
 
 # --- 5. forward the response (settings default + per-row email) ---------------

@@ -20,8 +20,8 @@
         <a href="/tools/ongoing-ctp-monitoring">CtP Portal</a> and the customer
         list appears here.</div>
     {% else %}
-      <div class="alert alert-ok">Statements are built from the latest analysis
-        — as of <strong>{{ as_of }}</strong> ({{ source }}),
+      <div class="alert alert-ok">Latest analysis as of
+        <strong>{{ as_of }}</strong> ({{ source }}),
         {{ customers|length }} account(s) on file.</div>
 
       <form action="/tools/quick-statement/generate" method="get"
@@ -39,14 +39,8 @@
         </label>
         <button class="btn btn-primary" type="submit">🧾 Generate statement (Excel)</button>
       </form>
-      <p class="note-small">One click produces an <strong>Excel statement</strong>
-        listing every open item pulled from the latest AR transaction file on
-        record: invoice reference, <strong>issue date</strong>, due date,
-        <strong>payment terms from the customer TB</strong> (e.g. 014 = 14 days),
-        <strong>ageing in days</strong> (today's date less the invoice issue
-        date), account number and amount. When the <strong>same customer
-        name</strong> exists under <strong>two or more account numbers</strong>,
-        the statement combines those accounts automatically — and only then.</p>
+      <p class="note-small">Lists every open item with dates, terms and ageing;
+        accounts sharing a customer name are combined.</p>
     {% endif %}
   </section>
 {% endblock %}

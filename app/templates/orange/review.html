@@ -15,9 +15,8 @@
       <strong>{{ model.totals.correspondant_count }}</strong> correspondant(s) ·
       total credited <strong>{{ "{:,.0f}".format(model.totals.credited).replace(",", " ") }} XAF</strong>
     </p>
-    <p class="select-hint">Confirm or add each customer’s <strong>name</strong> and
-      <strong>account number</strong> — they’re remembered by correspondant
-      number and pre-filled next time. Click any column header to sort.</p>
+    <p class="select-hint">Confirm each customer’s <strong>name</strong> and
+      <strong>account number</strong>. Click any column header to sort.</p>
 
     <form action="/tools/orange-cameroun/generate" method="post" id="genform">
       <input type="hidden" name="token" value="{{ token }}">
@@ -68,15 +67,14 @@
         </table>
       </div>
       {% if ar_meta %}
-      <p class="note-small">The two <strong>AR ledger</strong> columns come from
+      <p class="note-small">The <strong>AR ledger</strong> columns come from
         the latest AR analysis{% if ar_meta.as_of %} (as of
-        {{ ar_meta.as_of }}){% endif %} — joined on the AR account number, or on
-        the customer name when no account is saved yet; “—” = not found there.</p>
+        {{ ar_meta.as_of }}){% endif %}; “—” = not found there.</p>
       {% endif %}
 
       <div class="send-row">
-        <p class="muted">{{ model.totals.count }} Orange-branded receipt(s) will
-          be generated and bundled into one ZIP — a folder per correspondant.</p>
+        <p class="muted">{{ model.totals.count }} receipt(s) in one ZIP, a
+          folder per correspondant.</p>
         <div class="actions">
           <button class="btn btn-primary" type="submit">
             Generate receipts (ZIP)

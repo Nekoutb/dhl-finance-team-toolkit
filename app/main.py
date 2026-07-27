@@ -2589,6 +2589,8 @@ def _bitcash_home(request, error="", message="", status_code=200,
         "processing": st.get("processing"),
         "processing_error": st.get("processing_error"),
         "recons": recons, "op_pending": op_pending,
+        # Which sandboxes can go into a journal entry (finance ticks them).
+        "journalable": {r["token"] for r in bitcash.journalable_recons()},
         "ageing": ageing,
         "journal": Path(journal).name if journal else "",
         "jname": Path(jname).name if jname else "",
@@ -3109,7 +3111,9 @@ async def mydhlpay_delete(request: Request, code: str):
 
 
 @app.get("/operator/{token}", response_class=HTMLResponse)
-def operator_page(request: Request, token: str, error: str = ""):
+def operator_page(request: Request, token: str, error: str = "", posted=None):
+    """``posted`` — what the operator had typed when a submission was refused,
+    so a validation error never wipes their amounts, comments or evidence."""
     rec = iro.find_by_token(token)
     if rec is None:
         return HTMLResponse("<h1>Link not valid</h1><p>This statement link "
@@ -3119,14 +3123,44 @@ def operator_page(request: Request, token: str, error: str = ""):
         "account": rec["account"], "name": rec.get("name", ""),
         "rows": [], "count": 0, "total": 0.0}
     cfg = load_config()
+    posted = posted or {}
     return templates.TemplateResponse("operator/statement.html", {
         "request": request, "cfg": cfg, "rec": rec,
         "entry": entry, "error": error, "token": token,
         "draft": rec.get("draft") or None,
         "banks": cfg.get("banks", []) or [],
         "payment_methods": iro.PAYMENT_METHODS,
-        "op_bank": rec.get("bank", ""),
-        "op_method": rec.get("payment_method", "") or "Bank deposit"})
+        "op_bank": posted.get("bank") or rec.get("bank", ""),
+        "op_method": (posted.get("payment_method")
+                      or rec.get("payment_method", "") or "Bank deposit"),
+        # Re-fill what was typed (empty on a normal visit).
+        "posted_paid": posted.get("paid") or {},
+        "posted_comment": posted.get("comment") or {},
+        "posted_ticks": posted.get("ticks") or [],
+        "posted_refs": posted.get("refs") or {},
+        "posted_reference": posted.get("reference", ""),
+        "posted_payment_date": posted.get("payment_date", ""),
+        "posted_slip_ids": posted.get("slip_ids") or []})
+
+
+@app.post("/operator/{token}/discard-slip")
+async def operator_discard_slip(request: Request, token: str):
+    """Remove a payment evidence the operator attached but has NOT sent yet,
+    so they can correct their own mistake and upload the right one. Once the
+    return is submitted to finance the evidence can no longer be removed."""
+    rec = iro.find_by_token(token)
+    if rec is None:
+        return JSONResponse({"error": "invalid link"}, status_code=404)
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        payload = {}
+    slip_id = str((payload or {}).get("slip_id") or "")
+    if not iro.discard_preread(slip_id, rec["account"]):
+        return JSONResponse({"error": "That evidence is already sent to "
+                                      "finance and can no longer be removed."},
+                            status_code=409)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/operator/{token}/read-slip")
@@ -3239,9 +3273,11 @@ async def operator_submit(request: Request, token: str):
             continue
         pref = str(form.get(f"ref_{awb}") or "").strip()[:40]
         # Amount actually paid + comment the operator entered per airwaybill.
+        # A typed 0 is a REAL answer ("nothing was paid on this one") — only a
+        # blank / unparseable box counts as missing.
+        raw_paid = str(form.get(f"paid_{awb}") or "").replace(",", "").strip()
         try:
-            paid = float(str(form.get(f"paid_{awb}") or "").replace(",", "")
-                         .strip() or 0) or None
+            paid = float(raw_paid) if raw_paid != "" else None
         except ValueError:
             paid = None
         comment = str(form.get(f"comment_{awb}") or "").strip()[:120]
@@ -3266,16 +3302,52 @@ async def operator_submit(request: Request, token: str):
         iro.set_payment_details(rec["account"], bank=op_bank,
                                 payment_method=op_method)
 
+    # Everything the operator typed, so a refusal re-fills the page instead of
+    # wiping their work (amounts, comments, references and attached evidence).
+    posted = {
+        "ticks": [str(a) for a in form.getlist("awb")],
+        "paid": {str(a): str(form.get(f"paid_{a}") or "")
+                 for a in form.getlist("awb")},
+        "comment": {str(a): str(form.get(f"comment_{a}") or "")
+                    for a in form.getlist("awb")},
+        "refs": {str(a): str(form.get(f"ref_{a}") or "")
+                 for a in form.getlist("awb")},
+        "reference": global_ref,
+        "payment_date": str(form.get("payment_date") or "")[:10],
+        "slip_ids": [str(s) for s in form.getlist("slip_id") if str(s).strip()],
+        "bank": op_bank, "payment_method": op_method,
+    }
+
     # Cheap validations FIRST — a rejected form must never burn a deposit
     # claim.
     if not lines:
-        return operator_page(request, token,
+        return operator_page(request, token, posted=posted,
                              error="Tick at least one airwaybill your "
                                    "deposit paid.")
     if not refs:
-        return operator_page(request, token,
+        return operator_page(request, token, posted=posted,
                              error="Enter the payment reference for the "
                                    "airwaybills you ticked.")
+    # Every ticked airwaybill needs the amount actually paid, and any variance
+    # against the statement amount needs an explanation before it can be sent.
+    missing_paid = [ln["awb"] for ln in lines if ln.get("amount_paid") is None]
+    if missing_paid:
+        return operator_page(
+            request, token, posted=posted,
+            error="Enter the amount actually paid for every ticked airwaybill "
+                  f"— missing on {', '.join(missing_paid[:5])}"
+                  + (" …" if len(missing_paid) > 5 else "") + ".")
+    unexplained = [ln["awb"] for ln in lines
+                   if abs(round((ln["amount_paid"] or 0)
+                                - (ln["amount"] or 0), 2)) > 0.5
+                   and not ln.get("comment")]
+    if unexplained:
+        return operator_page(
+            request, token, posted=posted,
+            error="Explain the difference in the Comments column for "
+                  f"{', '.join(unexplained[:5])}"
+                  + (" …" if len(unexplained) > 5 else "")
+                  + " — the amount paid differs from the statement amount.")
 
     # Deposit slips: pre-read ids (the normal path — amount already read
     # and locked) plus raw files as a no-script fallback. Each deposit is
@@ -3297,12 +3369,12 @@ async def operator_submit(request: Request, token: str):
             continue
         ext = Path(slip.filename).suffix.lower()
         if ext not in _IRO_SLIP_EXT:
-            return operator_page(request, token,
+            return operator_page(request, token, posted=posted,
                                  error=f"Deposit slip '{slip.filename}': "
                                        "use a photo or a PDF.")
         blob = await slip.read()
         if len(blob) > _IRO_MAX_FILE:
-            return operator_page(request, token,
+            return operator_page(request, token, posted=posted,
                                  error=f"Deposit slip '{slip.filename}' is "
                                        "bigger than 15 MB.")
         dest = UPLOAD_DIR / f"iroslip_{uuid.uuid4().hex[:8]}{ext}"
@@ -3316,7 +3388,7 @@ async def operator_submit(request: Request, token: str):
                                   refs[0] if refs else "", "portal")
         if prior:
             return operator_page(
-                request, token,
+                request, token, posted=posted,
                 error=iro.duplicate_message(prior, rec["account"]))
 
     first_meta = slip_metas[0] if slip_metas else {}
@@ -3464,18 +3536,31 @@ async def bitcash_recon_delete(token: str):
 
 
 @app.post("/tools/bit-cash-ar/journal")
-def bitcash_journal():
+async def bitcash_journal(request: Request):
     # POST so the per-area middleware requires MODIFY access to generate.
     from datetime import datetime as _dt
+    form = await request.form()
+    # Finance picks which approved reconciliations to journal, so the same
+    # journal is never generated twice. The page always posts `picker=1`, so
+    # an EMPTY tick set means "nothing selected" — never "journal everything"
+    # (that would silently re-journal work already posted).
+    picked = [t for t in form.getlist("token") if str(t).strip()]
+    if form.get("picker") and not picked:
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="Nothing ticked — tick the approved "
+                                  "reconciliation(s) you want in this journal "
+                                  "entry.")
+    picked = picked or None
     now = _dt.now()
     stamp = now.strftime("%Y%m%d_%H%M%S")
     out = OUTPUT_DIR / f"cm01_journal_{stamp}.xlsx"
-    result = bitcash.build_journal(out, now=now)
+    result = bitcash.build_journal(out, now=now, tokens=picked)
     if result is None:
         return redirect_msg("/tools/bit-cash-ar",
-                            error="No approved reconciliation is ready — "
-                                  "approve at least one sandbox (with a BIT "
-                                  "payment and invoices selected) first.")
+                            error="No approved reconciliation selected — tick "
+                                  "the reconciliation(s) to journal (they must "
+                                  "be approved with a BIT payment and invoices "
+                                  "selected).")
     if result["count"] == 0:
         return redirect_msg("/tools/bit-cash-ar",
                             error=f"{result.get('skipped', 0)} approved "

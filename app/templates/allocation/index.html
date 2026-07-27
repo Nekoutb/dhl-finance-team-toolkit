@@ -5,9 +5,8 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Upload a vendor invoice, enter the amounts, and the platform
-      builds the cost-allocation sheet — viewable here and downloadable as
-      Excel.</p>
+    <p class="lead">Upload a vendor invoice and enter the amounts to build the
+      cost-allocation sheet.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
@@ -26,8 +25,8 @@
 
     {% if eno_key %}
       <p class="note-small">Allocation key on file: <strong>{{ eno_key.customers|length }}</strong>
-        customer(s){% if eno_key.source %} · from {{ eno_key.source }}{% endif %}.
-        The key holds the function split (%) per customer; replace it below when it changes.</p>
+        customer(s){% if eno_key.source %} · from {{ eno_key.source }}{% endif %}
+        — replace it below when it changes.</p>
     {% else %}
       <div class="alert alert-info">No allocation key yet — upload the
         REPARTITION-style Excel (customer → functions → %).</div>
@@ -72,10 +71,9 @@
           🤖 Read invoice with AI</button>
       </form>
       {% else %}
-      <div class="alert alert-info">Document reading is not configured yet — paste
-        your document-reading key under <a href="/settings">Settings →
-        Document reading</a>, then upload the invoice here. You can still type the
-        amounts manually in Step 2 below.</div>
+      <div class="alert alert-info">Document reading is not configured — add the
+        key under <a href="/settings">Settings</a>, or type the amounts in
+        Step 2.</div>
       {% endif %}
       {% if extraction %}
       <div class="alert alert-ok" style="margin-top:8px;">Read:
@@ -244,9 +242,8 @@
     <details class="drop">
       <summary><span class="drop-title">Open the MTN allocation workspace</span>
         <span class="drop-val">coming soon</span></summary>
-      <p class="lead" style="padding:10px 16px;">Awaiting your MTN invoice
-        example and its allocation template — share one and this section works
-        like ENEO.</p>
+      <p class="lead" style="padding:10px 16px;">Share an MTN invoice and its
+        allocation template to enable this section.</p>
     </details>
   </section>
 
@@ -262,9 +259,8 @@
     <details class="drop">
       <summary><span class="drop-title">Open the Orange allocation workspace</span>
         <span class="drop-val">coming soon</span></summary>
-      <p class="lead" style="padding:10px 16px;">Awaiting your Orange invoice
-        example and its allocation template — share one and this section works
-        like ENEO.</p>
+      <p class="lead" style="padding:10px 16px;">Share an Orange invoice and its
+        allocation template to enable this section.</p>
     </details>
   </section>
 {% endblock %}

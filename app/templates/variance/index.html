@@ -6,9 +6,7 @@
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
     <p class="lead">Upload the prior-year and current-year trial balances and
-      general ledgers. Expense and balance-sheet accounts are compared year on
-      year, and the journal-entry descriptions explain what drives each
-      variance — with the questions to consider as you review.</p>
+      general ledgers to compare accounts year on year.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
   </section>
@@ -43,11 +41,8 @@
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top:10px;">
         Run variance analysis</button>
-      <p class="note-small" style="margin-top:8px;">Expected columns —
-        TB: account · account name · closing balance (or debit/credit).
-        GL: account · description/narration · amount (or debit/credit).
-        Accounts are classed by OHADA first digit (6 = expense, 1–5 = balance
-        sheet); class 7 income is out of scope here.</p>
+      <p class="note-small" style="margin-top:8px;">Columns — TB: account ·
+        name · closing balance. GL: account · description · amount.</p>
     </form>
   </section>
 

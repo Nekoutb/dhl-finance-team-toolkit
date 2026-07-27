@@ -8,10 +8,8 @@
 
   <section class="panel">
     <h1>Credit-hold register</h1>
-    <p class="lead">The customers <strong>currently on credit hold</strong> in
-      real life. The AR export carries no hold flag, so this register is the
-      app's source of truth — every analysis compares it against what the
-      policy requires and reports the exceptions.</p>
+    <p class="lead">The customers <strong>currently on credit hold</strong> —
+      every analysis compares this register against policy.</p>
 
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
 
@@ -55,8 +53,8 @@
       </table>
     </div>
     {% else %}
-      <p class="note-small">Empty — add the customers that are currently on
-        credit hold, or use "Mark as held" buttons on an analysis result.</p>
+      <p class="note-small">Empty — add the customers currently on credit
+        hold.</p>
     {% endif %}
   </section>
 {% endblock %}

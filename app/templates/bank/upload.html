@@ -5,34 +5,29 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">One slot per bank, one statement per <strong>month</strong>.
-      Prior months stay on file and remain searchable (cheque matching and the
-      CtP dashboard read across all of them); re-uploading the
-      <strong>same bank and month</strong> replaces that statement and its
-      analysis.</p>
+    <p class="lead">Upload one statement per bank per month; re-uploading
+      replaces it.</p>
 
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if not has_ar %}
-      <div class="alert alert-info">No AR analysis on file yet — collections
-        will still be reported, but to link payments to each customer's
-        receivables position, run an
-        <a href="/tools/ongoing-ctp-monitoring">AR analysis</a> first.</div>
+      <div class="alert alert-info">Run an
+        <a href="/tools/ongoing-ctp-monitoring">AR analysis</a> first to link
+        payments to receivables.</div>
     {% endif %}
 
     {% if not slots %}
-      <div class="alert alert-info">No banks configured yet. Add your banks in
-        <a href="/settings">Settings → Bank statements</a> to get an upload slot
-        for each.</div>
+      <div class="alert alert-info">Add your banks in
+        <a href="/settings">Settings → Bank statements</a> to get an upload
+        slot for each.</div>
     {% endif %}
   </section>
 
   {% if balances %}
   <section class="panel">
     <h2 class="section-title">💰 Bank balances</h2>
-    <p class="note-small">The closing balance of the latest statement on file for
-      each bank, totalled to your overall bank position. The balance is read from
-      the statement's running-balance (“Solde” / “Balance”) column.</p>
+    <p class="note-small">Closing balance of the latest statement on file for
+      each bank.</p>
     <div class="table-wrap" style="max-height:none;">
       <table class="tx-table">
         <thead><tr><th>Bank</th><th style="text-align:right;">Closing balance</th>
@@ -63,16 +58,13 @@
     </div>
     {% if balance_missing %}
     <div class="alert alert-info" style="margin-top:8px;">Some banks show
-      “no balance in file” — their latest statement had no running-balance
-      column the reader recognised. Re-upload that statement (a photo/PDF is read
-      in full when the document-reading key is set), or tell us the column’s
-      exact header and we’ll add it.</div>
+      “no balance in file” — re-upload those statements.</div>
     {% endif %}
     {% if balance_chart %}
     <h3 class="section-title" style="margin-top:14px;">Running balance — daily</h3>
     <div style="overflow-x:auto;">{{ balance_chart|safe }}</div>
-    <p class="note-small">Total bank balance across all banks, captured daily as
-      statements are uploaded.</p>
+    <p class="note-small">Total bank balance across all banks, captured
+      daily.</p>
     {% endif %}
   </section>
   {% endif %}
@@ -139,9 +131,8 @@
     <details class="meta-box">
       <summary>Other stored statements ({{ legacy|length }}) — not tied to a
         bank slot</summary>
-      <p class="note-small" style="margin-top:8px;">These were uploaded before
-        bank slots (or under a bank you've since renamed). Clear them so each
-        bank keeps a single current statement.</p>
+      <p class="note-small" style="margin-top:8px;">Clear these so each bank
+        keeps a single current statement.</p>
       <div class="table-wrap" style="margin-top:8px;">
         <table class="tx-table">
           <thead><tr><th>Analysed</th><th>Statement</th><th>Credits</th>

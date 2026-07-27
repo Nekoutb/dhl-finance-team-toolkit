@@ -6,13 +6,13 @@
     <p class="lead">Account <strong>{{ entry.account }}</strong> ·
       {{ entry.count }} open airwaybill(s) ·
       total <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong>. Tick what
-      you paid, add the payment reference, attach your slip and submit.</p>
+      you paid, enter the amount actually paid and the payment reference,
+      attach your evidence and submit.</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     <div id="iro-error" class="alert alert-error" style="display:none;"></div>
     {% if draft and draft.ticks %}
     <div class="alert alert-info">📝 Your unsent selections from
-      {{ draft.saved_at }} were restored — nothing was lost. Review and
-      submit when ready.</div>
+      {{ draft.saved_at }} were restored.</div>
     {% endif %}
 
     {% if not entry.rows %}
@@ -49,20 +49,22 @@
             <tr>
               <td><input type="checkbox" name="awb" value="{{ r.awb }}"
                          class="iro-tick" data-amt="{{ r.amount or 0 }}"
-                         {% if r.awb in drefs %}checked{% endif %}></td>
+                         {% if r.awb in posted_ticks or (not posted_ticks and r.awb in drefs) %}checked{% endif %}></td>
               <td><strong>{{ r.awb or r.assignment }}</strong></td>
               <td>{{ r.reference }}</td>
               <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
               <td><input type="text" name="ref_{{ r.awb }}" maxlength="40"
                          class="iro-ref" placeholder="e.g. DEP-4471-BICEC"
-                         value="{{ drefs.get(r.awb, '') }}"
+                         value="{{ posted_refs.get(r.awb) or drefs.get(r.awb, '') }}"
                          style="min-width:150px;"></td>
               <td><input type="number" step="any" name="paid_{{ r.awb }}"
                          class="iro-paid" data-amt="{{ r.amount or 0 }}"
+                         value="{{ posted_paid.get(r.awb, '') }}"
                          placeholder="0" style="width:120px;"></td>
               <td class="iro-diff" style="text-align:right;">—</td>
               <td><input type="text" name="comment_{{ r.awb }}" maxlength="120"
                          class="iro-comment" placeholder="optional"
+                         value="{{ posted_comment.get(r.awb, '') }}"
                          style="min-width:140px;"></td>
             </tr>
             {% endfor %}
@@ -78,7 +80,7 @@
           <span>Payment reference</span>
           <input type="text" name="reference" id="iro-globalref"
                  maxlength="40" placeholder="e.g. DEP-4471-BICEC"
-                 value="{{ draft.reference if draft else '' }}">
+                 value="{{ posted_reference or (draft.reference if draft else '') }}">
         </label>
         <button class="btn" type="button" id="iro-apply"
                 style="align-self:flex-end;">Apply this reference to all ticked
@@ -86,7 +88,7 @@
         <label class="field">
           <span>Payment date</span>
           <input type="date" name="payment_date" id="iro-paydate"
-                 value="{{ draft.payment_date if draft else '' }}">
+                 value="{{ posted_payment_date or (draft.payment_date if draft else '') }}">
         </label>
       </div>
 
@@ -125,15 +127,19 @@
                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif">
         </label>
       </div>
-      <div id="iro-slip-list" class="note-small"></div>
-      <div id="iro-slip-ids"></div>
+      <div id="iro-slip-list" class="note-small">
+        {%- if posted_slip_ids %}<div>✓ {{ posted_slip_ids|length }} evidence
+          file(s) still attached.</div>{% endif %}</div>
+      <div id="iro-slip-ids">
+        {%- for sid in posted_slip_ids %}
+        <input type="hidden" name="slip_id" value="{{ sid }}">
+        {%- endfor %}</div>
 
       <!-- Everything below is READ OFF THE SLIP and locked -->
       <div id="iro-slipinfo" style="border:1px solid rgba(100,116,139,.35);
            border-radius:10px;padding:10px;margin:8px 0 10px;">
-        <p class="note-small" style="margin:0 0 6px;"><strong>Read from
-          your deposit slip</strong> — filled automatically, cannot be
-          changed:</p>
+        <p class="note-small" style="margin:0 0 6px;"><strong>Read from your
+          evidence</strong> — filled automatically, cannot be changed:</p>
         <div class="inline-fields">
           <label class="field" style="min-width:160px;">
             <span>Amount banked (XAF)</span>
@@ -363,6 +369,41 @@
                 msg += d.dhl ? " · payment to DHL identified ✓"
                              : " · DHL not confirmed on the slip";
                 row.textContent = msg;
+                // Wrong file? Remove it and upload the right one — allowed
+                // until the return is sent to finance.
+                var del = document.createElement("button");
+                del.type = "button";
+                del.className = "btn btn-small";
+                del.style.marginLeft = "8px";
+                del.textContent = "🗑 Remove";
+                del.addEventListener("click", function () {
+                  fetch("/operator/{{ token }}/discard-slip", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({slip_id: d.slip_id})
+                  }).then(function (rp) { return rp.json(); })
+                    .then(function (res) {
+                      if (res.error) { showError(res.error); return; }
+                      showError("");
+                      h.remove();
+                      var i = totals.indexOf(d.total);
+                      if (i !== -1) { totals.splice(i, 1); }
+                      banked.value = totals.length ? fmt(totals[0]) : "—";
+                      if (!totals.length) {
+                        ["iro-slip-date", "iro-slip-bank", "iro-slip-ref",
+                         "iro-slip-depositor", "iro-slip-benef",
+                         "iro-slip-acct"].forEach(function (id) {
+                          var el = document.getElementById(id);
+                          if (el) { el.value = "—"; }
+                        });
+                      }
+                      row.remove();
+                      saveDraft();
+                    }).catch(function () {
+                      showError("Could not remove that evidence — try again.");
+                    });
+                });
+                row.appendChild(del);
                 saveDraft();
               })
               .catch(function () {
@@ -455,7 +496,37 @@
         document.getElementById("iro-form").addEventListener("change",
           queueDraft);
         document.getElementById("iro-form").addEventListener("submit",
-          function () {
+          function (e) {
+            // Every ticked airwaybill needs the amount actually paid, and any
+            // difference needs an explanation (the server enforces this too).
+            var bad = [], noWhy = [];
+            document.querySelectorAll(".iro-tick:checked").forEach(
+              function (c) {
+                var tr = c.closest("tr");
+                var paidIn = tr.querySelector(".iro-paid");
+                var cmt = tr.querySelector(".iro-comment");
+                var v = paidIn ? paidIn.value.trim() : "";
+                if (v === "" || isNaN(parseFloat(v))) {
+                  bad.push(c.value);
+                  return;
+                }
+                var d = parseFloat(v)
+                  - parseFloat(paidIn.getAttribute("data-amt") || "0");
+                if (Math.abs(d) > 0.5 && !(cmt && cmt.value.trim())) {
+                  noWhy.push(c.value);
+                }
+              });
+            if (bad.length || noWhy.length) {
+              e.preventDefault();
+              showError(bad.length
+                ? "Enter the amount actually paid for: " + bad.slice(0, 5).join(", ")
+                  + (bad.length > 5 ? " …" : "")
+                : "Explain the difference in Comments for: "
+                  + noWhy.slice(0, 5).join(", ")
+                  + (noWhy.length > 5 ? " …" : ""));
+              window.scrollTo({top: 0, behavior: "smooth"});
+              return;
+            }
             // The return is being SENT: no late autosave may resurrect it,
             // and a double-click must not create a second reconciliation.
             submitted = true;

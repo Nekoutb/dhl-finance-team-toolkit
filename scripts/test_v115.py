@@ -189,17 +189,18 @@ for row in range(4, ws2.max_row + 1):
     asg = str(ws2.cell(row=row, column=14).value or "")
     if acct == "4003026257" and "difference" in asg.lower():
         plug_line = ws2.cell(row=row, column=11).value    # posting key
-check("plug on the reseller account uses customer key 06 (not G/L 40)",
-      plug_line == 6)
-# the BIT G/L side of the plug still uses a G/L key (50 for a short payment)
+# v11.8: only two posting keys are ever used — 40 and 15 (see test_v118 for
+# the full pair/sign/balance checks).
+check("plug on the reseller account posts on key 15", plug_line == 15)
 gl_keys = [ws2.cell(row=row, column=11).value
            for row in range(4, ws2.max_row + 1)
            if str(ws2.cell(row=row, column=10).value or "") == "512000"]
-check("plug BIT G/L side keeps a G/L key (50)", 50 in gl_keys)
-
-# a typed G/L plug account (NOT the reseller account) still uses G/L keys
-check("non-customer plug account still uses a G/L key",
-      True)  # covered by the recon_account mismatch branch in build_journal
+check("plug BIT side posts on key 40", 40 in gl_keys)
+all_keys = {ws2.cell(row=row, column=11).value
+            for row in range(4, ws2.max_row + 1)
+            if ws2.cell(row=row, column=10).value not in (None, "")}
+check("the journal uses no posting key other than 40 and 15",
+      all_keys == {40, 15})
 
 # === 8. REVIEW FIX: bank dropdown wins over stale free-text; no "__other__" ==
 from fastapi.testclient import TestClient  # noqa: E402
@@ -230,6 +231,7 @@ check("portal table shows the new columns",
 # operator corrects to a listed bank via the dropdown; stale free-text lingers
 r = client.post(f"/operator/{tok9}/submit", data={
     "awb": "8888888888", "ref_8888888888": "DEP-9", "reference": "DEP-9",
+    "paid_8888888888": "5000",
     "bank": "BICEC", "bank_other": "Ecoban", "payment_method": "Bank deposit"},
     follow_redirects=False)
 check("submit accepted", r.status_code == 200)
@@ -238,6 +240,7 @@ check("dropdown pick wins over stale free-text (correction kept)",
 # picking "Other" with an empty text box never stores the sentinel
 r = client.post(f"/operator/{tok9}/submit", data={
     "awb": "8888888888", "ref_8888888888": "DEP-9", "reference": "DEP-9",
+    "paid_8888888888": "5000",
     "bank": "__other__", "bank_other": "", "payment_method": "Credit card"},
     follow_redirects=False)
 check("'__other__' sentinel is never stored as the bank",
