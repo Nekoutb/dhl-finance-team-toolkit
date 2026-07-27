@@ -29,8 +29,7 @@
           {% if processing.eta_seconds >= 60 %}{{ (processing.eta_seconds // 60) }} min {{ (processing.eta_seconds % 60) }} s
           {% else %}{{ processing.eta_seconds }} s{% endif %} left
         {% endif %}
-        — the new files replace the previous ones as the reference; the daily
-        graph keeps the prior days. This page refreshes itself.
+        — this page refreshes itself.
       </div>
     </div>
     {% elif processing_error %}
@@ -84,8 +83,7 @@
     {% endif %}
     {% if chart %}
     <div style="margin-top:10px;overflow-x:auto;">{{ chart|safe }}</div>
-    <p class="note-small">Open items per day, snapshotted at each upload — the
-      graph updates daily as new files are loaded.</p>
+    <p class="note-small">Open items per day.</p>
     {% endif %}
   </section>
 
@@ -147,9 +145,8 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">Each open Cash AR item is aged from its
-      <strong>document date</strong> to today and grouped per account —
-      amounts above 60 days show in red.</p>
+    <p class="note-small">Aged from each item's <strong>document date</strong>;
+      above 60 days shown in red.</p>
   </section>
   {% endif %}
 
@@ -169,37 +166,31 @@
       </div>
       <button class="btn btn-primary" type="submit">Upload &amp; count open items</button>
     </form>
-    <p class="note-small">Upload one file or both — each replaces the previous
-      file of its kind. The number of open items is counted at upload
-      (rows marked open/ouvert when the file has a status column, else every
-      row) and added to today's point on the graph.</p>
+    <p class="note-small">Upload one or both — each replaces the previous file
+      of its kind.</p>
   </section>
 
   <!-- Reconciliations: customer payment statements vs Cash AR + BIT -->
   <section class="panel">
     <h2 class="section-title">Reconciliations — customer payment statements</h2>
-    <p class="lead">Upload the customer's payment statement (pick-up sheet /
-      remittance evidence — scanned PDF, photo or Excel). Its detailed invoice
-      references are identified in the <strong>Cash AR</strong> and its total
-      in the <strong>BIT</strong>; a sandbox opens for you to confirm, adjust
-      and approve. Approved sandboxes feed the journal entry.</p>
+    <p class="lead">Upload a customer payment statement (PDF, photo or Excel) —
+      a sandbox opens to confirm and approve; approved ones feed the journal.</p>
     {% if ai_ready %}
     <form action="/tools/bit-cash-ar/recon/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="filedrop">
         <input type="file" name="statement"
                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls" required>
-        <span class="filedrop-text">Choose the payment statement — scans are
-          read automatically (invoice references, amounts and the total).</span>
+        <span class="filedrop-text">Choose the payment statement — read
+          automatically.</span>
       </label>
       <label class="field" style="max-width:420px;">
         <span>Bank deposit slip (optional but recommended)</span>
         <input type="file" name="deposit_slip"
                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls">
       </label>
-      <p class="note-small" style="margin:2px 0 6px;">The slip carries the
-        amount actually banked — the BIT is searched against it first, which
-        pins the exact payment on the bank statement.</p>
+      <p class="note-small" style="margin:2px 0 6px;">The slip's banked amount
+        anchors the BIT search.</p>
       <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
     </form>
     {% else %}

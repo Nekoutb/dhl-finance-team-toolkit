@@ -5,10 +5,8 @@
     <h1>Statement of account — {{ entry.name or entry.account }}</h1>
     <p class="lead">Account <strong>{{ entry.account }}</strong> ·
       {{ entry.count }} open airwaybill(s) ·
-      total <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong>.
-      Tick the airwaybills your deposit paid, enter the payment reference,
-      attach the bank deposit slip and submit — the finance team receives it
-      instantly.</p>
+      total <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong>. Tick what
+      you paid, add the payment reference, attach your slip and submit.</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     <div id="iro-error" class="alert alert-error" style="display:none;"></div>
     {% if draft and draft.ticks %}
@@ -63,24 +61,52 @@
         <strong id="iro-total">0</strong> XAF</p>
 
       <div class="inline-fields" style="margin-bottom:8px;">
-        <label class="field" style="min-width:220px;">
-          <span>Deposit reference (applies to all ticked lines)</span>
+        <label class="field" style="min-width:230px;">
+          <span>Payment reference</span>
           <input type="text" name="reference" id="iro-globalref"
                  maxlength="40" placeholder="e.g. DEP-4471-BICEC"
                  value="{{ draft.reference if draft else '' }}">
         </label>
         <button class="btn" type="button" id="iro-apply"
-                style="align-self:flex-end;">Apply to ticked lines</button>
+                style="align-self:flex-end;">Apply this reference to all ticked
+          airwaybills</button>
         <label class="field">
-          <span>Payment date (filled from the deposit slip)</span>
+          <span>Payment date</span>
           <input type="date" name="payment_date" id="iro-paydate"
                  value="{{ draft.payment_date if draft else '' }}">
         </label>
       </div>
 
+      <div class="inline-fields" style="margin-bottom:8px;">
+        <label class="field" style="min-width:170px;">
+          <span>Payment method</span>
+          <select name="payment_method" id="iro-method">
+            {% for m in payment_methods %}
+            <option value="{{ m }}"{% if m == op_method %} selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field" style="min-width:200px;">
+          <span>Your bank</span>
+          <select name="bank" id="iro-bank">
+            <option value="">— select your bank —</option>
+            {% for b in banks %}
+            <option value="{{ b }}"{% if b == op_bank %} selected{% endif %}>{{ b }}</option>
+            {% endfor %}
+            <option value="__other__"{% if op_bank and op_bank not in banks %} selected{% endif %}>Other (type it below)</option>
+          </select>
+        </label>
+        <label class="field" id="iro-bank-other-wrap" style="min-width:200px;">
+          <span>…or type your bank</span>
+          <input type="text" name="bank_other" id="iro-bank-other"
+                 maxlength="60" placeholder="first time? type your bank"
+                 value="{{ op_bank if op_bank and op_bank not in banks else '' }}">
+        </label>
+      </div>
+
       <div class="inline-fields" style="margin-bottom:6px;">
         <label class="field" style="min-width:300px;">
-          <span><strong>Bank deposit slip — the only evidence you need</strong>
+          <span><strong id="iro-slip-label">Bank deposit slip</strong>
             (photo or PDF)</span>
           <input type="file" id="iro-slip-input" multiple
                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif">
@@ -156,13 +182,10 @@
       <button class="btn btn-primary" type="submit" id="iro-submit">📨
         Submit payment references</button>
       <p class="note-small" id="iro-draft-note" style="margin-top:6px;"></p>
-      <p class="note-small" style="margin-top:4px;">The banked amount and
-        deposit date are read directly off the deposit slip by the tool —
-        the amount cannot be altered. A deposit slip already reported once
-        is rejected automatically. Airwaybills already reported and matched
-        no longer appear here. Submitting opens a reconciliation with the
-        DHL finance team — you will be contacted if anything needs
-        clarification.</p>
+      <p class="note-small" style="margin-top:4px;">Amounts are read off your
+        slip and can't be changed; a slip already reported is rejected. If your
+        payment doesn't match the ticked airwaybills exactly, the balance is
+        held on your account.</p>
     </form>
 
     <script>
@@ -184,16 +207,44 @@
         document.querySelectorAll(".iro-tick").forEach(function (c) {
           c.addEventListener("change", total);
         });
+        // Apply ONE payment reference across every ticked airwaybill —
+        // overwrites each ticked row's reference so a lumpsum payment is
+        // one-click to tag. If none are ticked, apply to all visible rows.
         document.getElementById("iro-apply").addEventListener("click",
           function () {
             var v = document.getElementById("iro-globalref").value;
-            document.querySelectorAll(".iro-tick:checked").forEach(
-              function (c) {
-                var ref = c.closest("tr").querySelector(".iro-ref");
-                if (ref && !ref.value) { ref.value = v; }
-              });
+            var picked = document.querySelectorAll(".iro-tick:checked");
+            if (!picked.length) {
+              picked = document.querySelectorAll(".iro-tick");
+            }
+            picked.forEach(function (c) {
+              if (!c.checked) { c.checked = true; }
+              var ref = c.closest("tr").querySelector(".iro-ref");
+              if (ref) { ref.value = v; }
+            });
+            total();
           });
         total();
+
+        // Bank selector: reveal the free-type box only for "Other"; the method
+        // relabels the evidence upload (deposit slip vs card receipt).
+        var bankSel = document.getElementById("iro-bank");
+        var bankOtherWrap = document.getElementById("iro-bank-other-wrap");
+        function syncBank() {
+          bankOtherWrap.style.display =
+            (bankSel.value === "__other__") ? "" : "none";
+        }
+        if (bankSel) { bankSel.addEventListener("change", syncBank); syncBank(); }
+        var methodSel = document.getElementById("iro-method");
+        var slipLabel = document.getElementById("iro-slip-label");
+        function syncMethod() {
+          if (slipLabel) {
+            slipLabel.textContent =
+              (methodSel.value === "Credit card")
+                ? "Credit-card payment receipt" : "Bank deposit slip";
+          }
+        }
+        if (methodSel) { methodSel.addEventListener("change", syncMethod); syncMethod(); }
 
         var filter = document.getElementById("iro-filter");
         filter.addEventListener("input", function () {

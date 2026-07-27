@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.4 — 22 Jul 2026 · Cheque register: a 👁 View button opens the scanned cheque, and 📎 Evidence downloads a bundle (the cheque scan + a clean snapshot of the matched bank-statement line + the matched BIT line). Bank Statements: a Bank balances panel shows each bank's closing balance (from the statement's Solde/Balance column, latest-dated row), last upload date and the total across banks, with a daily running-balance graph. Cash AR ageing is calculated from the DOCUMENT DATE — and a one-click “Age the file on record” re-reads the file already stored so its ageing appears without a re-upload"
+APP_VERSION = "v11.5 — 23 Jul 2026 · IRO statements gain Amount-actually-paid / Difference / Comments columns; resellers pick (or type, first time) their bank and choose Bank deposit or Credit card; one payment reference applies across all ticked airwaybills; a lumpsum's leftover and the reconciliation plug default to the reseller's own account with a “payment difference on payment reference …” description; the journal file embeds each reconciliation's evidence as its own named tab; and the BIT/Cash AR pages are decluttered to one-line essentials"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

@@ -914,7 +914,8 @@ def _read_slip_total(slip_path, slip_media, ai_cfg):
 def create_recon_async(stored_path, media_type, source, uploaded_by,
                        slip_path=None, slip_media=None, slip_source="",
                        extra_slips=None, payment_refs=None,
-                       slip_total=None, slip_info=None):
+                       slip_total=None, slip_info=None,
+                       account="", operator_bank="", payment_method=""):
     """Create a sandbox stub and AI-read/match the statement on a background
     thread (a scanned PDF can take a minute — never block the request).
     Copies of the payment advice AND the bank deposit slip(s) are kept with
@@ -953,6 +954,12 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
                 "extra_slips": extras,
                 "payment_refs": [str(r)[:40] for r in (payment_refs or [])
                                  if str(r).strip()][:20],
+                # IRO context (blank for staff uploads): the reseller's SAP
+                # account, chosen bank and payment method — so the plug can
+                # default to their account and finance sees how they paid.
+                "account": str(account or "").strip(),
+                "operator_bank": str(operator_bank or "").strip()[:60],
+                "payment_method": str(payment_method or "").strip()[:30],
                 "statement": None, "error": ""})
     from ..config import load_config
 
@@ -1133,6 +1140,21 @@ def _read_excel_statement(path):
             "total": round(sum(l["amount"] for l in lines), 2), "lines": lines}
 
 
+def recon_account(recon):
+    """The IRO's SAP account for a sandbox opened from an operator return:
+    the stored ``account`` field, else parsed from ``uploaded_by`` ('operator:
+    <acct>') or the 'IRO <acct>' source label. '' for a staff upload."""
+    acct = str((recon or {}).get("account") or "").strip()
+    if acct:
+        return acct
+    up = str((recon or {}).get("uploaded_by") or "")
+    if up.startswith("operator:"):
+        return up.split("operator:", 1)[1].strip()
+    src = str((recon or {}).get("source") or "")
+    m = re.match(r"IRO\s+(\S+)", src)
+    return m.group(1) if m else ""
+
+
 def recon_view(recon):
     """Resolve a sandbox's rows for the template, plus the reconciliation
     difference, the manual plug and the residual left after it.
@@ -1198,7 +1220,17 @@ def recon_view(recon):
             "slip": recon.get("slip"), "advice": recon.get("file", ""),
             "slip_info": recon.get("slip_info"),
             "extra_slips": recon.get("extra_slips", []),
-            "payment_refs": recon.get("payment_refs", [])}
+            "payment_refs": recon.get("payment_refs", []),
+            # IRO context + a ready-made plug default so a lumpsum's leftover
+            # books to the reseller's own account with a clear description.
+            "account": recon_account(recon),
+            "operator_bank": recon.get("operator_bank", ""),
+            "payment_method": recon.get("payment_method", ""),
+            "plug_account_default": recon_account(recon),
+            "plug_note_default": (
+                "payment difference on payment reference "
+                + (recon.get("payment_refs") or [""])[0]).strip()
+            if recon_account(recon) else ""}
 
 
 def set_slip(token, stored_name, source, total=None, info=None):
@@ -1328,6 +1360,93 @@ def _compact_date(d):
     return int(f"{d.day}{d.month}{d.strftime('%y')}")
 
 
+def _xl_sheet_name(base, used):
+    """A valid, unique Excel worksheet name: <=31 chars, none of []:*?/\\ ."""
+    name = re.sub(r"[\[\]:*?/\\]", " ", str(base or "Evidence")).strip()
+    name = re.sub(r"\s+", " ", name)[:31] or "Evidence"
+    lows = {u.lower() for u in used}
+    if name.lower() not in lows:
+        return name
+    i = 2
+    while True:
+        suffix = f" ({i})"
+        cand = (name[:31 - len(suffix)] + suffix)
+        if cand.lower() not in lows:
+            return cand
+        i += 1
+
+
+def _add_evidence_sheets(wb, recs):
+    """Embed each approved reconciliation's EVIDENCE as its own tab in the
+    journal workbook — the tab named by a short evidence summary. Each tab
+    carries the evidence facts (payment refs, banked amount, the slip reading,
+    the matched BIT + Cash AR lines, the difference) and, when the slip is an
+    image, the slip image itself."""
+    from openpyxl.styles import Font
+    head = Font(name="Arial", size=10, bold=True)
+    arial = Font(name="Arial", size=10)
+    used = set(wb.sheetnames)
+    for rec in recs:
+        view = recon_view(rec)
+        acct = view.get("account") or rec.get("source") or rec.get("token")
+        refs = ", ".join(view.get("payment_refs") or []) or "-"
+        info = view.get("slip_info") or {}
+        title = _xl_sheet_name(f"EV {acct} {refs}", used)
+        used.add(title)
+        ws = wb.create_sheet(title=title)
+        ws.column_dimensions["A"].width = 26
+        ws.column_dimensions["B"].width = 46
+        facts = [
+            ("Evidence for", rec.get("source") or ""),
+            ("Reseller account", view.get("account") or "-"),
+            ("Payment method", view.get("payment_method") or "-"),
+            ("Bank (operator)", view.get("operator_bank") or "-"),
+            ("Payment reference(s)", refs),
+            ("Amount banked (slip)", view.get("slip_total")),
+            ("Evidences total (AWBs)", view.get("ar_total")),
+            ("BIT amount matched", view.get("bit_amount")),
+            ("Difference", view.get("difference")),
+            ("Slip bank", info.get("bank") or "-"),
+            ("Slip depositor", info.get("depositor") or "-"),
+            ("Slip beneficiary", info.get("beneficiary") or "-"),
+            ("Slip account credited", info.get("account_credited") or "-"),
+            ("Slip reference", info.get("slip_reference") or "-"),
+            ("Slip date", info.get("date") or "-"),
+        ]
+        r = 1
+        ws.cell(row=r, column=1, value="EVIDENCE").font = head
+        r += 1
+        for label, val in facts:
+            ws.cell(row=r, column=1, value=label).font = arial
+            ws.cell(row=r, column=2, value=val).font = arial
+            r += 1
+        r += 1
+        ws.cell(row=r, column=1, value="Airwaybill").font = head
+        ws.cell(row=r, column=2, value="Amount").font = head
+        r += 1
+        for a in (view.get("ar_rows") or []):
+            ws.cell(row=r, column=1,
+                    value=str(a.get("awb") or a.get("assignment") or "")).font = arial
+            ws.cell(row=r, column=2, value=a.get("amount")).font = arial
+            r += 1
+        slip = (rec.get("slip") or {}).get("name", "")
+        if slip and Path(slip).suffix.lower() in (".png", ".jpg", ".jpeg",
+                                                  ".gif"):
+            p = FILES_DIR / Path(slip).name
+            if p.exists():
+                try:
+                    from openpyxl.drawing.image import Image as XLImage
+                    img = XLImage(str(p))
+                    if img.width and img.height and img.width > 520:
+                        scale = 520 / img.width
+                        img.width = int(img.width * scale)
+                        img.height = int(img.height * scale)
+                    ws.add_image(img, "D2")
+                except Exception:  # noqa: BLE001 — image embed is best-effort
+                    pass
+    return wb
+
+
 def build_journal(out_path, now=None):
     """Write every APPROVED sandbox into the CM01 template as one document
     each (LI. 1..N), mirroring the AWB detail on BOTH sides: per selected
@@ -1402,14 +1521,24 @@ def build_journal(out_path, now=None):
             entries.append((a["sap_acct"], 15, a["amount"], awb, awb))
         # Manual plug: a balanced PAIR — short payment (plug > 0) credits
         # the BIT G/L back down to the amount actually banked and debits the
-        # plug G/L; an excess payment does the reverse.
+        # plug account; an excess payment does the reverse.
+        # When the plug account is the reseller's CUSTOMER account (the IRO
+        # default), the customer line must carry a customer posting key —
+        # SAP rejects a customer account posted with a G/L key (40/50). Use
+        # the payment-difference keys: 06 (debit customer) / 16 (credit).
         plug = rec.get("plug") or {}
         plug_amt = _to_float(plug.get("amount"))
         if plug_amt and plug.get("account"):
             note = plug.get("note") or "DIFFERENCE PLUG"
+            plug_is_customer = (str(plug["account"]).strip()
+                                == recon_account(rec))
+            if plug_is_customer:
+                plug_key = 6 if plug_amt > 0 else 16       # customer diff keys
+            else:
+                plug_key = 40 if plug_amt > 0 else 50      # G/L keys
             entries.append((bit["gl_account"], 50 if plug_amt > 0 else 40,
                             abs(plug_amt), bit["assignment"], _MANUAL))
-            entries.append((plug["account"], 40 if plug_amt > 0 else 50,
+            entries.append((plug["account"], plug_key,
                             abs(plug_amt), note, _MANUAL))
         for account, key, amount, assignment, doc_nr in entries:
             ws.cell(row=r, column=1, value=li)                       # LI.
@@ -1452,6 +1581,12 @@ def build_journal(out_path, now=None):
                                       and c not in (9,) else val) if val
                                else None)
                 cell.font = arial
+
+    # Each approved reconciliation's evidence as its own named tab.
+    try:
+        _add_evidence_sheets(wb, written)
+    except Exception:  # noqa: BLE001 — evidence tabs never block the journal
+        pass
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

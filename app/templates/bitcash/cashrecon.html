@@ -8,12 +8,9 @@
 
   <section class="panel">
     <h1>💵 Cash Reconciliation — MyDHLPay sessions</h1>
-    <p class="lead">Every scan-to-pay session from the public
-      <strong>MyDHLPay</strong> page (<code>/pay</code>): the customer
-      scanned the airwaybills, received a unique transaction code and paid
-      by Orange Money with that code as the reference. One click turns a
-      session into a normal reconciliation sandbox — the code is searched
-      in the BIT first.</p>
+    <p class="lead">Scan-to-pay sessions from <strong>MyDHLPay</strong>
+      (<code>/pay</code>) — one click turns a session into a reconciliation
+      sandbox.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
@@ -64,12 +61,8 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">“→ Reconcile” builds the evidence from the
-      scanned airwaybills (the session code as the payment reference on
-      every line) and opens the sandbox — the reference-first BIT matching
-      hunts the code, then review, approve and journal exactly as usual.
-      The code also appears in the Orange Money report when the payer
-      pasted it as the transaction reference.</p>
+    <p class="note-small">“→ Reconcile” opens a sandbox with the session code
+      as the payment reference on every line.</p>
     {% endif %}
   </section>
 {% endblock %}

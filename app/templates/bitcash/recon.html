@@ -18,10 +18,8 @@
     <script>setTimeout(function () { location.reload(); }, 5000);</script>
     <section class="panel">
       <h1>Reading the payment statement…</h1>
-      <p class="lead">Uploaded {{ rec.uploaded }} · {{ rec.source }}. The scan
-        is being read automatically (invoice references, amounts and the total) and
-        matched against the Cash AR and BIT on file. This page refreshes
-        itself.</p>
+      <p class="lead">{{ rec.source }} — reading and matching automatically;
+        this page refreshes itself.</p>
       <div class="progress"><i style="width:45%"></i></div>
     </section>
   {% elif rec.status == 'error' %}
@@ -51,10 +49,8 @@
 
     {% if view.stale %}
     <div class="alert alert-error">
-      ⚠ <strong>The BIT / Cash AR files on record were replaced after this
-      reconciliation was prepared.</strong> Its old matches pointed into the
-      previous files and are no longer valid — nothing is shown below to
-      avoid mixing sources. Re-run the matching against the current files:
+      ⚠ The BIT / Cash AR files were replaced since this was prepared — re-run
+      the matching:
       <form action="/tools/bit-cash-ar/recon/{{ token }}/rematch" method="post"
             style="display:inline;margin-left:6px;">
         <button class="btn btn-primary" type="submit">🔄 Re-run
@@ -63,27 +59,16 @@
     </div>
     {% endif %}
     {% if view.frozen %}
-    <div class="alert alert-ok">🔒 Approved and <strong>frozen in
-      time</strong> on {{ view.frozen_at }} — the figures below come from the
-      snapshot taken at approval; newer BIT / Cash AR uploads can never
-      change this reconciliation.</div>
+    <div class="alert alert-ok">🔒 Approved and frozen in time on
+      {{ view.frozen_at }}.</div>
     {% endif %}
 
     <div class="alert alert-info">
-      🧮 <strong>Total of evidences is XAF
-      {{ "{:,.0f}".format(s.total) }}</strong> — calculated arithmetically
-      from the {{ s.lines|length }} AWB line(s) on the statement (the file's
-      own total cell is never trusted{% if s.stated_total %}; it reads
-      <strong>{{ "{:,.0f}".format(s.stated_total) }}</strong> here and was
-      ignored{% endif %}).
-      {% if view.slip_total %}<strong>Deposit slip total:
-      {{ "{:,.0f}".format(view.slip_total) }} XAF</strong> — the BIT is
-      searched against the banked amount first.{% endif %}
-      {% if view.payment_refs %}Payment reference(s) submitted:
-      <strong>{{ view.payment_refs|join(", ") }}</strong> — looked up inside
-      the BIT before any amount match.{% endif %}
-      {% if view.bit_candidates %}The closest BIT matches within
-      ±{{ "{:,.0f}".format(view.margin) }} are shown below.{% endif %}
+      🧮 Evidences total <strong>{{ "{:,.0f}".format(s.total) }} XAF</strong>
+      from {{ s.lines|length }} AWB line(s){% if s.stated_total %} (file's own
+      total {{ "{:,.0f}".format(s.stated_total) }} ignored){% endif %}.
+      {% if view.slip_total %} <strong>Banked {{ "{:,.0f}".format(view.slip_total) }}</strong>.{% endif %}
+      {% if view.payment_refs %} <strong>Ref(s): {{ view.payment_refs|join(", ") }}</strong>.{% endif %}
     </div>
 
     <!-- Reconciliation difference -->
@@ -256,13 +241,8 @@
     </div>
     {% elif not view.stale %}
     <div class="alert alert-error">✗ No BIT line within
-      ±{{ "{:,.0f}".format(view.margin) }} of the
-      {% if view.slip_total %}banked amount of
-      <strong>{{ "{:,.0f}".format(view.slip_total) }}</strong> nor the
-      {% endif %}evidences total of
-      <strong>{{ "{:,.0f}".format(s.total) }}</strong> — the payment may not
-      have reached the BIT yet. Re-upload a fresh BIT file and re-run the
-      matching, or investigate the amount.</div>
+      ±{{ "{:,.0f}".format(view.margin) }} of the banked/evidences amount — the
+      payment may not have reached the BIT yet.</div>
     {% endif %}
 
     {% if open %}
@@ -286,12 +266,13 @@
       (posting key {{ 40 if view.plug.amount > 0 else 50 }}).
     </div>
     {% elif view.difference %}
-    <div class="alert alert-warn">The reconciliation difference of
-      <strong>{{ "{:,.0f}".format(view.difference) }} XAF</strong> is not
-      plugged — enter it below so the journal entry balances.</div>
+    <div class="alert alert-warn">Difference of
+      <strong>{{ "{:,.0f}".format(view.difference) }} XAF</strong> not yet
+      plugged.{% if view.plug_account_default %} It's pre-filled to book onto
+      the reseller's account <strong>{{ view.plug_account_default }}</strong> —
+      just save.{% endif %}</div>
     {% else %}
-    <p class="note-small">Nothing to plug — the selected invoices and the BIT
-      payment agree to the franc.</p>
+    <p class="note-small">Nothing to plug — selected invoices and the BIT agree.</p>
     {% endif %}
 
     {% if open %}
@@ -305,24 +286,22 @@
       <label class="field" style="min-width:200px;">
         <span>G/L account for the plug line</span>
         <input type="text" name="account"
-               value="{{ view.plug.account if view.plug else '' }}"
+               value="{{ view.plug.account if view.plug else view.plug_account_default }}"
                placeholder="e.g. cash over/short account">
       </label>
       <label class="field" style="min-width:220px;">
         <span>Note (journal assignment)</span>
         <input type="text" name="note"
-               value="{{ view.plug.note if view.plug else '' }}"
+               value="{{ view.plug.note if view.plug else view.plug_note_default }}"
                placeholder="e.g. deposit rounded at bank">
       </label>
       <button class="btn" type="submit" style="align-self:flex-end;">💾 Save
         plug</button>
     </form>
-    <p class="note-small">A positive plug covers a BIT that is
-      <em>short</em> of the evidences; a negative plug covers a BIT that is
-      <em>over</em>. The journal books it as a <strong>balanced pair</strong>
-      — the BIT G/L is returned to the amount actually banked and the
-      variance sits on the plug account. Save a blank or 0 amount to remove
-      the plug.</p>
+    <p class="note-small">A positive plug covers a short BIT, a negative one an
+      over-payment; it books as a balanced pair. Blank/0 removes it.
+      {%- if view.plug_account_default %} The default sends the balance to the
+      reseller's account {{ view.plug_account_default }}.{% endif %}</p>
     {% endif %}
   </section>
 
@@ -360,9 +339,7 @@
       {% if view.slip_info.account_credited %} · account
         {{ view.slip_info.account_credited }}{% endif %}
       {% if view.slip_info.slip_reference %} · slip ref
-        <strong>{{ view.slip_info.slip_reference }}</strong>{% endif %}
-      — the slip reference and account are hunted in the BIT on matching
-      (re-run the matching after attaching a slip to apply them).</p>
+        <strong>{{ view.slip_info.slip_reference }}</strong>{% endif %}.</p>
     {% endif %}
     {% if rec.status in ('open', 'approved') %}
     <form action="/tools/bit-cash-ar/recon/{{ token }}/slip" method="post"
@@ -378,9 +355,7 @@
       <button class="btn" type="submit" style="align-self:flex-end;">📎
         Attach slip</button>
     </form>
-    <p class="note-small">The deposit slip pins the exact payment on the bank
-      statement and is included in the journal pack together with the advice
-      and the evidences Excel.</p>
+    <p class="note-small">Included in the journal pack.</p>
     {% endif %}
   </section>
 

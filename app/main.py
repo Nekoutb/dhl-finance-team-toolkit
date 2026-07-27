@@ -3097,10 +3097,15 @@ def operator_page(request: Request, token: str, error: str = ""):
     entry = iro.account_entry(rec["account"]) or {
         "account": rec["account"], "name": rec.get("name", ""),
         "rows": [], "count": 0, "total": 0.0}
+    cfg = load_config()
     return templates.TemplateResponse("operator/statement.html", {
-        "request": request, "cfg": load_config(), "rec": rec,
+        "request": request, "cfg": cfg, "rec": rec,
         "entry": entry, "error": error, "token": token,
-        "draft": rec.get("draft") or None})
+        "draft": rec.get("draft") or None,
+        "banks": cfg.get("banks", []) or [],
+        "payment_methods": iro.PAYMENT_METHODS,
+        "op_bank": rec.get("bank", ""),
+        "op_method": rec.get("payment_method", "") or "Bank deposit"})
 
 
 @app.post("/operator/{token}/read-slip")
@@ -3219,6 +3224,18 @@ async def operator_submit(request: Request, token: str):
     global_ref = str(form.get("reference") or "").strip()[:40]
     if global_ref:
         refs.append(global_ref)
+    # Bank + payment method (chosen or typed the first time) — remembered on
+    # the operator record so the next statement pre-fills them. A real dropdown
+    # pick WINS over any stale free-text; the "__other__" sentinel (or an empty
+    # pick) falls back to the typed bank and is never stored literally.
+    bank_choice = str(form.get("bank") or "").strip()
+    bank_typed = str(form.get("bank_other") or "").strip()
+    op_bank = (bank_choice if bank_choice and bank_choice != "__other__"
+               else bank_typed)[:60]
+    op_method = str(form.get("payment_method") or "").strip()[:30]
+    if op_bank or op_method:
+        iro.set_payment_details(rec["account"], bank=op_bank,
+                                payment_method=op_method)
 
     # Cheap validations FIRST — a rejected form must never burn a deposit
     # claim.
@@ -3295,7 +3312,8 @@ async def operator_submit(request: Request, token: str):
         rec["account"], lines=lines,
         slip_paths=slip_paths, references=refs, channel="portal",
         label=f"IRO {rec['account']} — {refs[0] if refs else 'return'}",
-        slip_total=slip_total, slip_info=slip_info)
+        slip_total=slip_total, slip_info=slip_info,
+        bank=op_bank, payment_method=op_method)
     iro.stamp_deposits({m.get("sha") for m in slip_metas if m.get("sha")},
                        recon_token)
     cfg = load_config()

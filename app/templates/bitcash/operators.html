@@ -8,14 +8,8 @@
 
   <section class="panel">
     <h1>👥 Operator statements — IRO returns</h1>
-    <p class="lead">Each reseller account (the SAP account in the Cash AR =
-      the operator's DHL account number) gets a statement of its
-      <strong>open airwaybills</strong> and a personal secure link. The
-      operator ticks what was paid, gives the payment reference per AWB and
-      attaches the deposit slip — the return opens a reconciliation sandbox
-      automatically. Airwaybills already matched in an open or approved
-      reconciliation are <strong>no longer open</strong> and are never sent
-      out again.</p>
+    <p class="lead">Each reseller gets a statement of open airwaybills and a
+      secure link; their return opens a reconciliation sandbox automatically.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
@@ -76,13 +70,11 @@
         <button class="btn" type="submit">📥 Fetch mail now</button>
       </form>
     </div>
-    <p class="note-small">Statements carry the open AWBs (Excel) + the
-      secure link + the exact email format
-      (<code>PAYREF &lt;account&gt;</code>).
-      {% if not imap_on %}The operator mailbox is not configured yet —
-      email returns stay off until the IMAP details are saved under
-      <a href="/settings">Settings → Operator mailbox</a>; the portal links
-      work regardless.{% endif %}</p>
+    <p class="note-small">Email subject format:
+      <code>PAYREF &lt;account&gt;</code>.
+      {% if not imap_on %}Email returns are off until the IMAP details are set
+      in <a href="/settings">Settings → Operator mailbox</a>; portal links work
+      regardless.{% endif %}</p>
     {% endif %}
   </section>
 
@@ -101,9 +93,8 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">A quarantined mail is never turned into a
-      reconciliation — register the operator's email above (or ask them to
-      resend with the right subject) and use “Fetch mail now”.</p>
+    <p class="note-small">Register the sender's email above (or ask them to
+      resend with the right subject), then “Fetch mail now”.</p>
   </section>
   {% endif %}
 {% endblock %}

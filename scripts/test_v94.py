@@ -356,7 +356,7 @@ check("candidate carries its delta vs the evidences (-71)",
 
 r = client.get("/tools/bit-cash-ar/recon/feedbead0001")
 check("sandbox narrative discloses the arithmetic total",
-      r.status_code == 200 and "Total of evidences is XAF" in r.text
+      r.status_code == 200 and "Evidences total" in r.text
       and "523,571" in r.text)
 check("sandbox shows the manual-plug section", "Manual plug" in r.text)
 
@@ -679,8 +679,7 @@ check("stale sandbox resolves nothing (no mixed-up rows)",
       and view3["bit_candidates"] == [] and view3["ar_total"] == 0)
 page = client.get("/tools/bit-cash-ar/recon/feedbead0003")
 check("stale sandbox shows the replacement warning + re-run button",
-      "files on record were replaced" in page.text
-      and "Re-run" in page.text)
+      "were replaced" in page.text and "Re-run" in page.text)
 check("approval refused while stale",
       bitcash.set_status("feedbead0003", True, "t") == "stale")
 check("selection refused while stale",
@@ -744,7 +743,7 @@ check("BIT auto-selected from the slip's banked amount",
 page = client.get(f"/tools/bit-cash-ar/recon/{tok5}")
 flat5 = " ".join(page.text.split())
 check("sandbox narrative discloses the deposit-slip total",
-      "Deposit slip total: 523,500" in flat5)
+      "Banked 523,500" in flat5)
 
 # === 13. v10.1 — match precision, date columns, monthly momo, delete, sync ==
 from app.services import bank_statement  # noqa: E402
@@ -1523,7 +1522,7 @@ r = client.get(f"/operator/{tok1}")
 flat20 = " ".join(r.text.split())
 check("portal shows the locked slip panel + beneficiary bank box",
       "iro-slip-bank" in r.text and "Beneficiary bank" in flat20
-      and "the only evidence you need" in flat20
+      and "Bank deposit slip" in flat20
       and "iro-locked" in r.text)
 check("portal offers the deposit-list option",
       "deposit slips list" in flat20.lower()

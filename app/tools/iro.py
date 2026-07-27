@@ -221,6 +221,20 @@ def set_email(account, email_addr, name=""):
     return _mutate_record(account, _fn)
 
 
+PAYMENT_METHODS = ("Bank deposit", "Credit card")
+
+
+def set_payment_details(account, bank="", payment_method=""):
+    """Remember the operator's bank and payment method so their next statement
+    pre-fills them (they only type the bank the first time)."""
+    def _fn(rec):
+        if bank:
+            rec["bank"] = str(bank).strip()[:60]
+        if payment_method:
+            rec["payment_method"] = str(payment_method).strip()[:30]
+    return _mutate_record(account, _fn)
+
+
 def ensure_token(account, name=""):
     def _fn(rec):
         if name:
@@ -295,16 +309,18 @@ def build_statement_xlsx(out_path, entry):
     ws.set_column(0, 0, 16)
     ws.set_column(1, 2, 18)
     ws.set_column(3, 3, 14)
-    ws.set_column(4, 4, 24)
+    ws.set_column(4, 4, 22)
+    ws.set_column(5, 6, 16)          # Amount actually paid · Difference
+    ws.set_column(7, 7, 28)          # Comments
     ws.write("A1", "Statement of account — open airwaybills", f_title)
     ws.write("A2", f"Account: {entry['account']}"
              + (f" · {entry['name']}" if entry.get("name") else ""), f_body)
-    ws.write("A3", f"Generated {datetime.now().strftime('%d/%m/%Y %H:%M')} — "
-                   "fill the Payment reference column for the AWBs your "
-                   "deposit paid and return this file, or use your secure "
-                   "link.", f_body)
+    ws.write("A3", "Fill the Payment reference, Amount actually paid and "
+                   "Comments for the AWBs you paid — or use your secure link.",
+             f_body)
     headers = ["Waybill", "Cash AR reference", "Doc N°", "Amount (XAF)",
-               "Payment reference"]
+               "Payment reference", "Amount actually paid",
+               "Difference (paid - statement)", "Comments"]
     for c, h in enumerate(headers):
         ws.write(4, c, h, f_head)
     r = 5
@@ -314,11 +330,19 @@ def build_statement_xlsx(out_path, entry):
         ws.write(r, 2, row.get("doc_no", ""), f_cell)
         ws.write_number(r, 3, row.get("amount") or 0, f_num)
         ws.write(r, 4, "", f_cell)
+        ws.write(r, 5, "", f_num)                    # amount actually paid
+        # Difference auto-computes as the operator fills "amount actually paid"
+        # (blank until they do). Excel row = r + 1; F = paid, D = statement.
+        ws.write_formula(
+            r, 6, f'=IF(F{r + 1}="","",F{r + 1}-D{r + 1})', f_num)
+        ws.write(r, 7, "", f_cell)                   # comments
         r += 1
     ws.write(r, 0, "TOTAL", f_tot)
-    for c in (1, 2, 4):
+    for c in (1, 2, 4, 7):
         ws.write(r, c, "", f_tot)
     ws.write_number(r, 3, entry["total"], f_tot)
+    ws.write_formula(r, 5, f'=SUM(F6:F{r})', f_tot)
+    ws.write_formula(r, 6, f'=SUM(G6:G{r})', f_tot)
     ws.freeze_panes(5, 0)
     wb.close()
     return Path(out_path)
@@ -345,7 +369,8 @@ def build_evidence_xlsx(out_path, lines):
 # --------------------------------------------------------------------------- #
 def create_submission(account, lines=None, evidence_path=None,
                       slip_paths=None, references=None, channel="portal",
-                      label="", slip_total=None, slip_info=None):
+                      label="", slip_total=None, slip_info=None,
+                      bank="", payment_method=""):
     """Open a reconciliation sandbox from an operator's return. Either
     ``evidence_path`` (an uploaded Excel) or ``lines``
     ([{awb, amount, reference}]) must be given; ``slip_paths`` =
@@ -366,7 +391,9 @@ def create_submission(account, lines=None, evidence_path=None,
         slip_source=first[1] if first else "",
         extra_slips=[(p, s) for p, s in slips[1:]],
         payment_refs=[r for r in (references or []) if r],
-        slip_total=slip_total, slip_info=slip_info)
+        slip_total=slip_total, slip_info=slip_info,
+        account=str(account), operator_bank=bank,
+        payment_method=payment_method)
     record_submission(account, {
         "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "references": [r for r in (references or []) if r][:10],
