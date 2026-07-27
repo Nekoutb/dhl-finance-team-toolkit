@@ -475,6 +475,32 @@ def stamp_deposits(shas, recon_token):
             _atomic(DEPOSITS_PATH, entries[-1000:])
 
 
+def list_deposits():
+    """Every reported deposit (newest first) for the finance delete view."""
+    return list(reversed(_deposits()))
+
+
+def delete_deposit(sha=None, reference=None, account=None, at=None):
+    """Remove a reported deposit from the duplicate-guard history so the IRO
+    can submit that slip / payment reference again. Matches by ``sha`` (unique
+    per file), else by (reference, account, reported-at). Returns how many
+    entries were removed."""
+    def _match(e):
+        if sha:
+            return e.get("sha") == sha
+        return (str(e.get("reference", "")) == str(reference or "")
+                and e.get("account") == str(account or "")
+                and e.get("at") == at)
+    with _FileLock(DEPOSITS_PATH):
+        entries = _deposits()
+        keep = [e for e in entries if not _match(e)]
+        removed = len(entries) - len(keep)
+        if removed:
+            with _lock:
+                _atomic(DEPOSITS_PATH, keep)
+    return removed
+
+
 def release_deposits(recon_token):
     """When finance deletes a reconciliation sandbox, its deposit slips
     leave the history too — the IRO can submit them again. Returns the

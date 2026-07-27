@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.6 — 23 Jul 2026 · The reseller statement PORTAL now shows the Amount actually paid, Difference (live) and Comments columns per airwaybill (they were previously only in the Excel), and those entries ride into the reconciliation evidence. Plus everything from v11.5: bank pick/type + Bank deposit or Credit card; one payment reference across all ticked airwaybills; lumpsum leftover + reconciliation plug default to the reseller's own account (customer posting keys); the journal file embeds each reconciliation's evidence as its own named tab; BIT/Cash AR pages decluttered"
+APP_VERSION = "v11.7 — 23 Jul 2026 · Finance can now DELETE a reported deposit / payment reference (new 'Reported deposits' section on the Operator statements page) so the reseller can submit it again — it stops being flagged a duplicate. On the reseller portal a ⬆ Ticked to top button floats every ticked airwaybill to the top, with a 'Show only ticked' filter. Reseller statement portal also shows Amount actually paid / Difference (live) / Comments per airwaybill; bank pick/type + Bank deposit or Credit card; one reference across all ticked AWBs; lumpsum leftover + plug default to the reseller's own account (customer posting keys); journal embeds each reconciliation's evidence as a named tab"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

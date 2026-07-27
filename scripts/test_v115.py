@@ -258,6 +258,50 @@ check("evidence file records the per-AWB paid amount + comment",
       ewb.cell(row=2, column=4).value == 4800.0
       and ewb.cell(row=2, column=5).value == "short by 200")
 
+# === 10. Finance deletes a reported deposit so it is no longer a duplicate ===
+iro.DEPOSITS_PATH = _tmp / "deposits.json"
+iro.claim_deposit("shaA", "4003025705", 523500.0, "2026-07-07", "DEP-A", "t1")
+iro.claim_deposit("shaB", "4003025705", 100000.0, "2026-07-08", "DEP-B", "t2")
+check("list_deposits returns reported deposits newest-first",
+      [d["sha"] for d in iro.list_deposits()] == ["shaB", "shaA"])
+# the operators page shows the delete section
+op = client.get("/tools/bit-cash-ar/operators")
+check("operators page shows the Reported deposits delete section",
+      "Reported deposits" in op.text and "DEP-A" in op.text
+      and "/operators/deposit/delete" in op.text)
+# delete DEP-A via the route → it can be reported again
+r = client.post("/tools/bit-cash-ar/operators/deposit/delete",
+                data={"sha": "shaA", "reference": "DEP-A",
+                      "account": "4003025705", "at": ""},
+                follow_redirects=False)
+check("delete-deposit route removes it and redirects",
+      r.status_code == 303 and "message=" in r.headers["location"]
+      and iro.find_prior_deposit(sha="shaA") is None
+      and iro.find_prior_deposit(sha="shaB") is not None)
+check("the removed deposit is no longer treated as a duplicate",
+      iro.claim_deposit("shaA", "4003025705", 523500.0, "2026-07-07",
+                        "DEP-A2", "t3") is None)
+r = client.post("/tools/bit-cash-ar/operators/deposit/delete",
+                data={"sha": "nope"}, follow_redirects=False)
+check("deleting a missing deposit reports not-found",
+      r.status_code == 303 and "error=" in r.headers["location"])
+
+# === 11. Operator portal: 'ticked to top' + 'only ticked' controls present ===
+r = client.get(f"/operator/{tok9}") if iro.account_entry("9999") \
+    else type("x", (), {"text": ""})
+# (re)seed an open AWB for the portal render
+bitcash.ROWS_PATH.write_text(json.dumps({
+    "bit_header": ["Assignment"], "gen_bit": "g3", "gen_cash": "g3", "bit": [],
+    "cash": [{"id": 0, "sap_acct": "7777", "awb": "7777777777",
+              "assignment": "7777777777", "reference": "R", "amount": 9000.0,
+              "customer": "SEV", "doc_no": "1", "date": "2026-07-01"}]},
+    ensure_ascii=False), encoding="utf-8")
+tok7 = iro.ensure_token("7777")["token"]
+r = client.get(f"/operator/{tok7}")
+check("portal offers 'Ticked to top' + 'Show only ticked' controls",
+      'id="iro-ticktop"' in r.text and 'id="iro-onlyticked"' in r.text
+      and "Ticked to top" in r.text)
+
 if _fail:
     print(f"\n{_fail} CHECK(S) FAILED")
     sys.exit(1)

@@ -29,6 +29,10 @@
           <input type="text" id="iro-filter"
                  placeholder="type an airwaybill, reference or amount…">
         </label>
+        <button class="btn" type="button" id="iro-ticktop"
+                style="align-self:flex-end;">⬆ Ticked to top</button>
+        <label class="checkline" style="align-self:flex-end;">
+          <input type="checkbox" id="iro-onlyticked"> Show only ticked</label>
         <span class="note-inline" style="align-self:flex-end;"
               id="iro-filter-count">{{ entry.rows|length }} row(s)</span>
       </div>
@@ -271,8 +275,10 @@
         if (methodSel) { methodSel.addEventListener("change", syncMethod); syncMethod(); }
 
         var filter = document.getElementById("iro-filter");
-        filter.addEventListener("input", function () {
+        var onlyTicked = document.getElementById("iro-onlyticked");
+        function applyFilter() {
           var q = filter.value.toLowerCase().replace(/[\s,]/g, "");
+          var only = onlyTicked && onlyTicked.checked;
           var shown = 0;
           document.querySelectorAll("#iro-table tbody tr").forEach(
             function (tr) {
@@ -281,13 +287,31 @@
               if (refin && refin.value) {
                 hay += refin.value.toLowerCase().replace(/[\s,]/g, "");
               }
-              var hit = !q || hay.indexOf(q) !== -1;
+              var tick = tr.querySelector(".iro-tick");
+              var hit = (!q || hay.indexOf(q) !== -1)
+                && (!only || (tick && tick.checked));
               tr.style.display = hit ? "" : "none";
               if (hit) { shown += 1; }
             });
           document.getElementById("iro-filter-count").textContent =
             shown + " row(s)";
-        });
+        }
+        filter.addEventListener("input", applyFilter);
+        if (onlyTicked) { onlyTicked.addEventListener("change", applyFilter); }
+        // Move every ticked airwaybill to the top of the table (stable order).
+        document.getElementById("iro-ticktop").addEventListener("click",
+          function () {
+            var tbody = document.querySelector("#iro-table tbody");
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+            var frag = document.createDocumentFragment();
+            rows.filter(function (tr) {
+              var c = tr.querySelector(".iro-tick"); return c && c.checked;
+            }).forEach(function (tr) { frag.appendChild(tr); });
+            rows.filter(function (tr) {
+              var c = tr.querySelector(".iro-tick"); return !(c && c.checked);
+            }).forEach(function (tr) { frag.appendChild(tr); });
+            tbody.appendChild(frag);
+          });
 
         var slipInput = document.getElementById("iro-slip-input");
         var banked = document.getElementById("iro-banked");

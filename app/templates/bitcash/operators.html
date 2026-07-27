@@ -78,6 +78,46 @@
     {% endif %}
   </section>
 
+  <section class="panel">
+    <h2 class="section-title">💳 Reported deposits — remove to allow re-submission</h2>
+    <p class="note-small">Delete a deposit here so the operator can report that
+      payment reference / slip again (it stops being flagged a duplicate).</p>
+    {% if deposits %}
+    <div class="table-wrap" style="max-height:420px;">
+      <table class="tx-table">
+        <thead><tr><th>Reported</th><th>Account</th><th>Payment reference</th>
+          <th>Amount (XAF)</th><th>Slip date</th><th>Sandbox</th>
+          <th></th></tr></thead>
+        <tbody>
+          {% for d in deposits %}
+          <tr>
+            <td>{{ d.at }}</td>
+            <td><strong>{{ d.account }}</strong></td>
+            <td>{{ d.reference or '—' }}</td>
+            <td>{% if d.total is not none %}{{ "{:,.0f}".format(d.total) }}{% else %}—{% endif %}</td>
+            <td>{{ d.date or '—' }}</td>
+            <td>{% if d.recon_token %}<a href="/tools/bit-cash-ar/recon/{{ d.recon_token }}">open →</a>{% else %}—{% endif %}</td>
+            <td>
+              <form action="/tools/bit-cash-ar/operators/deposit/delete"
+                    method="post" style="display:inline;"
+                    onsubmit="return confirm('Remove this deposit so the operator can report it again?');">
+                <input type="hidden" name="sha" value="{{ d.sha }}">
+                <input type="hidden" name="reference" value="{{ d.reference }}">
+                <input type="hidden" name="account" value="{{ d.account }}">
+                <input type="hidden" name="at" value="{{ d.at }}">
+                <button class="btn btn-small" type="submit">🗑 Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="note-small">No deposits reported yet.</p>
+    {% endif %}
+  </section>
+
   {% if quarantine %}
   <section class="panel">
     <h2 class="section-title">Quarantined emails — not processed</h2>

@@ -2869,8 +2869,29 @@ def iro_panel(request: Request, message: str = "", error: str = ""):
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "rows": rows, "quarantine": iro.quarantine_list(),
         "imap_on": bool((load_config().get("imap") or {}).get("enabled")),
+        "deposits": iro.list_deposits(),
         "message": message, "error": error,
     })
+
+
+@app.post("/tools/bit-cash-ar/operators/deposit/delete")
+async def iro_delete_deposit(request: Request):
+    """Finance removes a reported deposit / payment reference from the
+    duplicate-guard history so the IRO can submit it again."""
+    form = await request.form()
+    sha = (form.get("sha") or "").strip()
+    ref = (form.get("reference") or "").strip()
+    n = iro.delete_deposit(sha=sha or None,
+                           reference=(form.get("reference") or "").strip(),
+                           account=(form.get("account") or "").strip(),
+                           at=(form.get("at") or "").strip())
+    if not n:
+        return redirect_msg("/tools/bit-cash-ar/operators",
+                            error="That deposit was not found — it may already "
+                                  "have been removed.")
+    return redirect_msg("/tools/bit-cash-ar/operators",
+                        message=f"Deposit {ref or '(reference)'} removed — the "
+                                "operator can report it again.")
 
 
 @app.post("/tools/bit-cash-ar/operators/email")
