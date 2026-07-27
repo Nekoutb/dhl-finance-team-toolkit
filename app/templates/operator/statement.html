@@ -36,7 +36,9 @@
       <div class="table-wrap" style="max-height:none;">
         <table class="tx-table" id="iro-table">
           <thead><tr><th>Paid?</th><th>Airwaybill</th><th>Reference</th>
-            <th>Amount (XAF)</th><th>Payment reference</th></tr></thead>
+            <th>Amount (XAF)</th><th>Payment reference</th>
+            <th>Amount actually paid</th><th>Difference</th>
+            <th>Comments</th></tr></thead>
           <tbody>
             {% for r in entry.rows %}
             {% set drefs = draft.ticks if draft and draft.ticks else {} %}
@@ -51,6 +53,13 @@
                          class="iro-ref" placeholder="e.g. DEP-4471-BICEC"
                          value="{{ drefs.get(r.awb, '') }}"
                          style="min-width:150px;"></td>
+              <td><input type="number" step="any" name="paid_{{ r.awb }}"
+                         class="iro-paid" data-amt="{{ r.amount or 0 }}"
+                         placeholder="0" style="width:120px;"></td>
+              <td class="iro-diff" style="text-align:right;">—</td>
+              <td><input type="text" name="comment_{{ r.awb }}" maxlength="120"
+                         class="iro-comment" placeholder="optional"
+                         style="min-width:140px;"></td>
             </tr>
             {% endfor %}
           </tbody>
@@ -206,6 +215,21 @@
         }
         document.querySelectorAll(".iro-tick").forEach(function (c) {
           c.addEventListener("change", total);
+        });
+        // Live per-row difference = amount actually paid − statement amount.
+        function diffRow(inp) {
+          var tr = inp.closest("tr");
+          var cell = tr.querySelector(".iro-diff");
+          if (!cell) { return; }
+          var paid = parseFloat(inp.value);
+          if (isNaN(paid) || inp.value === "") { cell.textContent = "—"; return; }
+          var d = paid - parseFloat(inp.getAttribute("data-amt") || "0");
+          cell.textContent = fmt(d);
+          cell.style.color = Math.abs(d) < 0.5 ? "#1b7f4b"
+            : (d > 0 ? "#b06f00" : "#bd3727");
+        }
+        document.querySelectorAll(".iro-paid").forEach(function (inp) {
+          inp.addEventListener("input", function () { diffRow(inp); });
         });
         // Apply ONE payment reference across every ticked airwaybill —
         // overwrites each ticked row's reference so a lumpsum payment is

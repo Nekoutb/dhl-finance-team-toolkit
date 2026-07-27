@@ -3217,8 +3217,16 @@ async def operator_submit(request: Request, token: str):
         if not row:
             continue
         pref = str(form.get(f"ref_{awb}") or "").strip()[:40]
+        # Amount actually paid + comment the operator entered per airwaybill.
+        try:
+            paid = float(str(form.get(f"paid_{awb}") or "").replace(",", "")
+                         .strip() or 0) or None
+        except ValueError:
+            paid = None
+        comment = str(form.get(f"comment_{awb}") or "").strip()[:120]
         lines.append({"awb": row["awb"], "amount": row["amount"],
-                      "reference": pref})
+                      "reference": pref, "amount_paid": paid,
+                      "comment": comment})
         if pref:
             refs.append(pref)
     global_ref = str(form.get("reference") or "").strip()[:40]

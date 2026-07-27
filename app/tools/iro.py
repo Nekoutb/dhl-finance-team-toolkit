@@ -355,11 +355,18 @@ def build_evidence_xlsx(out_path, lines):
 
     wb = xlsxwriter.Workbook(str(out_path))
     ws = wb.add_worksheet("Evidence")
-    ws.write_row(0, 0, ["Waybill", "Amount", "Payment reference"])
+    # "Actually paid" / "Comments" carry the operator's per-AWB entries; the
+    # headers avoid amount/reference keywords so the recon parser ignores them.
+    ws.write_row(0, 0, ["Waybill", "Amount", "Payment reference",
+                        "Actually paid", "Comments"])
     for i, ln in enumerate(lines, start=1):
         ws.write(i, 0, str(ln["awb"]))
         ws.write_number(i, 1, float(ln["amount"] or 0))
         ws.write(i, 2, str(ln.get("reference") or ""))
+        if ln.get("amount_paid") is not None:
+            ws.write_number(i, 3, float(ln["amount_paid"]))
+        if ln.get("comment"):
+            ws.write(i, 4, str(ln["comment"]))
     wb.close()
     return Path(out_path)
 

@@ -216,6 +216,17 @@ bitcash.ROWS_PATH.write_text(json.dumps({
 iro.set_payment_details("9999", bank="Ecoban")   # a typo saved first time
 tok9 = iro.ensure_token("9999")["token"]
 client = TestClient(main.app)
+
+# the PORTAL table shows the paid / difference / comments columns (checked
+# BEFORE any submit, while the AWB is still open)
+r = client.get(f"/operator/{tok9}")
+check("portal table shows the new columns",
+      "Amount actually paid" in r.text and ">Difference<" in r.text
+      and ">Comments<" in r.text
+      and 'name="paid_8888888888"' in r.text
+      and 'name="comment_8888888888"' in r.text
+      and 'class="iro-diff"' in r.text)
+
 # operator corrects to a listed bank via the dropdown; stale free-text lingers
 r = client.post(f"/operator/{tok9}/submit", data={
     "awb": "8888888888", "ref_8888888888": "DEP-9", "reference": "DEP-9",
@@ -232,6 +243,20 @@ r = client.post(f"/operator/{tok9}/submit", data={
 check("'__other__' sentinel is never stored as the bank",
       iro.load_record("9999").get("bank") == "BICEC"    # unchanged, not sentinel
       and iro.load_record("9999").get("payment_method") == "Credit card")
+
+# === 9. Per-AWB paid amount + comment carried into the evidence file =========
+# submit with a per-AWB paid amount + comment → carried into the evidence file
+ev = _tmp / "ev.xlsx"
+iro.build_evidence_xlsx(ev, [{"awb": "8888888888", "amount": 5000.0,
+                              "reference": "DEP-9", "amount_paid": 4800.0,
+                              "comment": "short by 200"}])
+ewb = openpyxl.load_workbook(ev).active
+ehdr = [c.value for c in ewb[1]]
+check("evidence file carries Actually paid + Comments columns",
+      ehdr[3] == "Actually paid" and ehdr[4] == "Comments")
+check("evidence file records the per-AWB paid amount + comment",
+      ewb.cell(row=2, column=4).value == 4800.0
+      and ewb.cell(row=2, column=5).value == "short by 200")
 
 if _fail:
     print(f"\n{_fail} CHECK(S) FAILED")

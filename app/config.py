@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.5 — 23 Jul 2026 · IRO statements gain Amount-actually-paid / Difference / Comments columns; resellers pick (or type, first time) their bank and choose Bank deposit or Credit card; one payment reference applies across all ticked airwaybills; a lumpsum's leftover and the reconciliation plug default to the reseller's own account with a “payment difference on payment reference …” description; the journal file embeds each reconciliation's evidence as its own named tab; and the BIT/Cash AR pages are decluttered to one-line essentials"
+APP_VERSION = "v11.6 — 23 Jul 2026 · The reseller statement PORTAL now shows the Amount actually paid, Difference (live) and Comments columns per airwaybill (they were previously only in the Excel), and those entries ride into the reconciliation evidence. Plus everything from v11.5: bank pick/type + Bank deposit or Credit card; one payment reference across all ticked airwaybills; lumpsum leftover + reconciliation plug default to the reseller's own account (customer posting keys); the journal file embeds each reconciliation's evidence as its own named tab; BIT/Cash AR pages decluttered"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
