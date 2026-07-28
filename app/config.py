@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.8 — 24 Jul 2026 · Finance now TICKS which approved reconciliations go into a journal entry, so the same journal is never generated twice; the journal (plug included) posts on keys 40 and 15 only. Resellers must state the amount actually paid on every airwaybill and explain any difference before they can submit, and can delete/replace a wrongly-attached payment evidence until it reaches finance. Screens and IRO emails cut to one-line essentials"
+APP_VERSION = "v11.9 — 28 Jul 2026 · Multi-country groundwork (no change to how the tool behaves today): a golden-journal test now locks the CM01 SAP output cell-by-cell so it can be proven unchanged through the Nigeria/Ghana migration, and a lint measures every Cameroon-specific value still hardcoded (303) so it can only shrink"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

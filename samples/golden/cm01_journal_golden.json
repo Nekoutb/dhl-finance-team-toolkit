@@ -1,0 +1,2967 @@
+{
+ "BANK DETAILS ": {
+  "A1": [
+   "Company Code",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A2": [
+   "REM SGBC 0106",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A3": [
+   "REM UBA 0206",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AA1": [
+   "Clearing Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AB1": [
+   "Accounting Indicator",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AC1": [
+   "Transaction Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AD1": [
+   "Document Header Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AE1": [
+   "Transaction Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AF1": [
+   "Year",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AG1": [
+   "Offsetting Account Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AH1": [
+   "Cost Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AI1": [
+   "Reversal Reason",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AJ1": [
+   "Purchasing Document",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AK1": [
+   "Profit Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AL1": [
+   "Posting Period",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AM1": [
+   "Name",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AN1": [
+   "Discount Lne Iem",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AO1": [
+   "Invoice Reference",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B1": [
+   "Fiscal year/period",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B2": [
+   523500,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B3": [
+   130000,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C1": [
+   "Group Account Number",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C2": [
+   "23.06.2026",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C3": [
+   "23.06.2026",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D1": [
+   "G/L Account",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D2": [
+   410021,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D3": [
+   410022,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E1": [
+   "G/L Account: Long Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F1": [
+   "Posting Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G1": [
+   "Document Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H1": [
+   "Reference",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "I1": [
+   "Assignment",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J1": [
+   "Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K1": [
+   "Posting Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "L1": [
+   "Company Code Currency Value",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "M1": [
+   "Company Code Currency Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "N1": [
+   "Document Currency Value",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "O1": [
+   "Currency",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "P1": [
+   "Group Currency Value",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "Q1": [
+   "Group Currency Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "R1": [
+   "Document Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "S1": [
+   "Document Number",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "T1": [
+   "Item",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "U1": [
+   "Offsetting Account",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "V1": [
+   "User Name",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "W1": [
+   "Entry Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "X1": [
+   "Clearing Document",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "Y1": [
+   "Document Currency Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "Z1": [
+   "Clearing Entry Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "CHECK": {
+  "A2": [
+   "Nature",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A3": [
+   "Debit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A4": [
+   "Debit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A5": [
+   "Debit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A6": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A7": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A8": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A9": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B2": [
+   "Posting KEY",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B3": [
+   "01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B4": [
+   21,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B5": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B6": [
+   11,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B7": [
+   15,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B8": [
+   31,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B9": [
+   50,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C10": [
+   "=ROUND(SUM(C3:C9),3)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C2": [
+   "Amount",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C3": [
+   "=SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B3,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C4": [
+   "=SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B4,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C5": [
+   "=SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B5,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C6": [
+   "=-SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B6,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C7": [
+   "=-SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B7,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C8": [
+   "=-SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B8,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "C9": [
+   "=-SUMIF('CM01_23.06.2026_PC_001'!K:K,CHECK!B9,'CM01_23.06.2026_PC_001'!L:L)",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "D2": [
+   "Item",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "D3": [
+   "Customer ( AR ) ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D4": [
+   "Vendor ( AP ) ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D5": [
+   "GL",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D6": [
+   "Customer ( AR ) ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D7": [
+   "Customer ( AR ) ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D8": [
+   "Vendor ( AP ) ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D9": [
+   "GL",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "CM01_23.06.2026_PC_001": {
+  "A1": [
+   "DOCUMENT HEADER DATA",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A10": [
+   2,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A11": [
+   2,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A2": [
+   "LI.",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A4": [
+   1,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A5": [
+   1,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A6": [
+   1,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A7": [
+   1,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A8": [
+   2,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A9": [
+   2,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AA2": [
+   "Plant",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AB2": [
+   "Warehouse",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AC2": [
+   "Customer",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AD2": [
+   "3rdP/IC\nWWI_C\n",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AE2": [
+   "Reference 1",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AF2": [
+   "Reference 2",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AG2": [
+   "Reference 3",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AH2": [
+   "Transaction Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AI1": [
+   "AP Only",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AI2": [
+   "Payment Term",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AJ2": [
+   "Baseline Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AK2": [
+   "Payment Method",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AL2": [
+   "Payment Block",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AM2": [
+   "Business Place",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AN2": [
+   "Business Section",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AO1": [
+   "Onetime Only",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AO2": [
+   "Name 1",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AP2": [
+   "Name 3",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AQ2": [
+   "City",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AR2": [
+   "Bank Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AS2": [
+   "Bank Account",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AT2": [
+   "Control Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AU2": [
+   "Instruction key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AV1": [
+   "CARBON ACCOUNTING",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AV2": [
+   "Quantity",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "AW2": [
+   "Unit of Measure",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B10": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B11": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B2": [
+   "Comp. Code",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B4": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B5": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B6": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B7": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B8": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B9": [
+   "CM01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C10": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C11": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C2": [
+   "Doc. Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C4": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C5": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C6": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C7": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C8": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C9": [
+   "DZ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D10": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D11": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D2": [
+   "Post",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D3": [
+   "Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D4": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D5": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D6": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D7": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D8": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D9": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E10": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E11": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E2": [
+   "Doc. Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E4": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E5": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E6": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E7": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E8": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E9": [
+   23626,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F10": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F11": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F2": [
+   "Curr",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F4": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F5": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F6": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F7": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F8": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F9": [
+   "XAF",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G10": [
+   "MANUAL RECIEPT ",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G11": [
+   "MANUAL RECIEPT ",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G2": [
+   "Ref.",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G3": [
+   "Doc. Nr",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G4": [
+   "4095823454",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G5": [
+   "4095823454",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G6": [
+   "8525614075",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G7": [
+   "8525614075",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G8": [
+   "2414645273",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "G9": [
+   "2414645273",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "H10": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H11": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H2": [
+   "Doc. Header Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H4": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H5": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H6": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H7": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H8": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "H9": [
+   "MANUAL RECIEPT ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "I2": [
+   "Tax Calculation",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J1": [
+   "DOCUMENT LINE ITEM DATA ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J10": [
+   1263001293,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J11": [
+   4003026257,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J2": [
+   "Account\n(GL Account or Vendor  or Customer Code)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J4": [
+   1263001293,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J5": [
+   4003025929,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J6": [
+   1263001293,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J7": [
+   4003025929,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J8": [
+   1263001293,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "J9": [
+   4003026257,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K10": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K11": [
+   15,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K2": [
+   "Post",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K3": [
+   "Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K4": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K5": [
+   15,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K6": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K7": [
+   15,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K8": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "K9": [
+   15,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "L10": [
+   -20000,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "L11": [
+   -20000,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "L2": [
+   "Amount",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "L3": [
+   "=CHECK",
+   "str",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "L4": [
+   53639,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "L5": [
+   53639,
+   "int",
+   "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)",
+   "Arial",
+   10.0
+  ],
+  "L6": [
+   469861,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "L7": [
+   469861,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "L8": [
+   150000,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "L9": [
+   150000,
+   "int",
+   "#,##0.00",
+   "Arial",
+   10.0
+  ],
+  "M2": [
+   "Tax Code",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "N10": [
+   "REM UBA 0206",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N11": [
+   "payment difference on payment reference DEP-9999-UBA",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N2": [
+   "Assig",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "N4": [
+   "REM SGBC 0106",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N5": [
+   "4095823454",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N6": [
+   "REM SGBC 0106",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N7": [
+   "8525614075",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N8": [
+   "REM UBA 0206",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "N9": [
+   "2414645273",
+   "str",
+   "@",
+   "Arial",
+   10.0
+  ],
+  "O2": [
+   "Cost Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "P2": [
+   "Internal Order",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "Q2": [
+   "Trading Partner",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "R2": [
+   "Partner Profit Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "S2": [
+   "Profit Centre",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "S3": [
+   "FR0100",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "T2": [
+   "Rever.reason",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "U2": [
+   "Revers",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "U3": [
+   "Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "V2": [
+   "Item Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "W2": [
+   "Sales Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "X2": [
+   "Billing type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "Y2": [
+   "Direction",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "Z2": [
+   "Material",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "Doc Level Check": {
+  "A1": [
+   "Doc. Header Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B10": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A10)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B2": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A2)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B3": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A3)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B4": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A4)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B5": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A5)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B6": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A6)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B7": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A7)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B8": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A8)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B9": [
+   "=COUNTIF('CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A9)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C1": [
+   50,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C10": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A10,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C2": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A2,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C3": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A3,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C4": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A4,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C5": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A5,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C6": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A6,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C7": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A7,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C8": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A8,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "C9": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A9,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$C$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D1": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D10": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A10,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D2": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A2,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D3": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A3,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D4": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A4,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D5": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A5,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D6": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A6,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D7": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A7,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D8": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A8,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D9": [
+   "=SUMIFS('CM01_23.06.2026_PC_001'!L:L,'CM01_23.06.2026_PC_001'!H:H,'Doc Level Check'!A9,'CM01_23.06.2026_PC_001'!K:K,'Doc Level Check'!$D$1)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E10": [
+   "=C10-D10",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E2": [
+   "=C2-D2",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E3": [
+   "=C3-D3",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E4": [
+   "=C4-D4",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E5": [
+   "=C5-D5",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E6": [
+   "=C6-D6",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E7": [
+   "=C7-D7",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E8": [
+   "=C8-D8",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E9": [
+   "=C9-D9",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "EV 4003025929 DEP-4471-BICE (2)": {
+  "A1": [
+   "EVIDENCE",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A10": [
+   "Difference",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A11": [
+   "Slip bank",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A12": [
+   "Slip depositor",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A13": [
+   "Slip beneficiary",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A14": [
+   "Slip account credited",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A15": [
+   "Slip reference",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A16": [
+   "Slip date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A18": [
+   "Airwaybill",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A19": [
+   "2414645273",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A2": [
+   "Evidence for",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A3": [
+   "Reseller account",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A4": [
+   "Payment method",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A5": [
+   "Bank (operator)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A6": [
+   "Payment reference(s)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A7": [
+   "Amount banked (slip)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A8": [
+   "Evidences total (AWBs)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A9": [
+   "BIT amount matched",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B10": [
+   20000,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B11": [
+   "BICEC",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B12": [
+   "ACME LOGISTICS",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B13": [
+   "DHL INTERNATIONAL CAMEROUN",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B14": [
+   "00123101000-83",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B15": [
+   "012372",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B16": [
+   "2026-06-22",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B18": [
+   "Amount",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B19": [
+   150000,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B2": [
+   "IRO 4003025929 - d01d0000bbbb",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B3": [
+   "4003025929",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B4": [
+   "Bank deposit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B5": [
+   "BICEC",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B6": [
+   "DEP-4471-BICEC",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B7": [
+   130000,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B8": [
+   150000,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B9": [
+   130000,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "EV 4003025929 DEP-4471-BICEC": {
+  "A1": [
+   "EVIDENCE",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A10": [
+   "Difference",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A11": [
+   "Slip bank",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A12": [
+   "Slip depositor",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A13": [
+   "Slip beneficiary",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A14": [
+   "Slip account credited",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A15": [
+   "Slip reference",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A16": [
+   "Slip date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A18": [
+   "Airwaybill",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A19": [
+   "4095823454",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A2": [
+   "Evidence for",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A20": [
+   "8525614075",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A3": [
+   "Reseller account",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A4": [
+   "Payment method",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A5": [
+   "Bank (operator)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A6": [
+   "Payment reference(s)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A7": [
+   "Amount banked (slip)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A8": [
+   "Evidences total (AWBs)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A9": [
+   "BIT amount matched",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B10": [
+   0,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B11": [
+   "BICEC",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B12": [
+   "ACME LOGISTICS",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B13": [
+   "DHL INTERNATIONAL CAMEROUN",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B14": [
+   "00123101000-83",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B15": [
+   "012372",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B16": [
+   "2026-06-22",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B18": [
+   "Amount",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B19": [
+   53639,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B2": [
+   "IRO 4003025929 - d01d0000aaaa",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B20": [
+   469861,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B3": [
+   "4003025929",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B4": [
+   "Bank deposit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B5": [
+   "BICEC",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B6": [
+   "DEP-4471-BICEC",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B7": [
+   523500,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B8": [
+   523500,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "B9": [
+   523500,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "Fields": {
+  "A1": [
+   "LI.",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A10": [
+   "Account\n(GL Account or Vendor / customerCode)",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A11": [
+   "Post",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A12": [
+   "Amount",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A13": [
+   "Tax Code",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A14": [
+   "Assignment ",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A15": [
+   "Cost Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A16": [
+   "Internal Order",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A17": [
+   "Trading Partner",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A18": [
+   "Partner Profit Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A19": [
+   "Profit Centre",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A2": [
+   "Comp. Code",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A20": [
+   "Rever.reason",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A21": [
+   "Reverse date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A22": [
+   "Item Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A23": [
+   "Sales Center",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A24": [
+   "Billing type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A25": [
+   "Direction",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A26": [
+   "Material",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A27": [
+   "Plant",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A28": [
+   "Warehouse",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A29": [
+   "Customer",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A3": [
+   "Doc. Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A30": [
+   "3rdP/IC\nWWI_C\n",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A31": [
+   "Reference 1",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A32": [
+   "Reference 2",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A33": [
+   "Reference 3",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A34": [
+   "Transaction Type",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A35": [
+   "Payment Term",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A36": [
+   "Baseline Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A37": [
+   "Payment Method",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A38": [
+   "Payment Block",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A39": [
+   "Business Place",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A4": [
+   "Posting Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A40": [
+   "Business Section",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A41": [
+   "Name 1",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A42": [
+   "Name 3",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A43": [
+   "City",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A44": [
+   "Bank Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A45": [
+   "Bank Account",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A46": [
+   "Control Key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A47": [
+   "Instruction key",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A48": [
+   "Quantity",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A49": [
+   "Unit of Measure",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A5": [
+   "Document Date",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A6": [
+   "Currency",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A7": [
+   "Refernce",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A8": [
+   "Doc. Header Text",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "A9": [
+   "Tax Calculation",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D37": [
+   "01",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D38": [
+   11,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D39": [
+   31,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D40": [
+   21,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D41": [
+   40,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "D42": [
+   50,
+   "int",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E37": [
+   "Invoice",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E38": [
+   "Credit memo",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E39": [
+   "Invoice",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "E40": [
+   "Debit memo",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F37": [
+   "Debit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F38": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F39": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F40": [
+   "Debit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F41": [
+   "Debit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "F42": [
+   "Credit",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G37": [
+   "Customer",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G38": [
+   "Customer",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G39": [
+   "Vendor",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G40": [
+   "Vendor",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G41": [
+   "GL",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ],
+  "G42": [
+   "GL",
+   "str",
+   "General",
+   "Arial",
+   10.0
+  ]
+ },
+ "Sheet1": {},
+ "__sheets__": [
+  "CM01_23.06.2026_PC_001",
+  "BANK DETAILS ",
+  "Sheet1",
+  "CHECK",
+  "Doc Level Check",
+  "Fields",
+  "EV 4003025929 DEP-4471-BICEC",
+  "EV 4003025929 DEP-4471-BICE (2)"
+ ]
+}

@@ -1,0 +1,189 @@
+{
+ "app/config.py": {
+  "cameroon": 1,
+  "momo_merchant": 1
+ },
+ "app/main.py": {
+  "XAF": 4,
+  "cameroon": 21,
+  "momo_merchant": 1
+ },
+ "app/services/ai_ocr.py": {
+  "XAF": 8,
+  "cameroon": 1
+ },
+ "app/services/bank_statement.py": {
+  "cameroon": 2
+ },
+ "app/services/ctp_dashboard.py": {
+  "XAF": 1
+ },
+ "app/services/ctp_rules.py": {
+  "XAF": 2,
+  "cfa_peg": 2
+ },
+ "app/services/customers.py": {
+  "cameroon": 1
+ },
+ "app/services/eno_allocation.py": {
+  "cameroon": 1,
+  "eneo_vat": 3
+ },
+ "app/services/excel_reader.py": {
+  "cameroon": 1
+ },
+ "app/services/orange_statement.py": {
+  "XAF": 1,
+  "cameroon": 5
+ },
+ "app/services/pdf_writer.py": {
+  "XAF": 1,
+  "cameroon": 1
+ },
+ "app/services/variance.py": {
+  "XAF": 3,
+  "xlsx_money_fmt": 2
+ },
+ "app/static/app.js": {
+  "cameroon": 1
+ },
+ "app/templates/account_stop/index.html": {
+  "XAF": 2,
+  "zero_dec_money": 5
+ },
+ "app/templates/allocation/index.html": {
+  "XAF": 1,
+  "cameroon": 1,
+  "zero_dec_money": 3
+ },
+ "app/templates/bank/report.html": {
+  "zero_dec_money": 10
+ },
+ "app/templates/bank/upload.html": {
+  "zero_dec_money": 4
+ },
+ "app/templates/base.html": {
+  "CM01": 1,
+  "cameroon": 4
+ },
+ "app/templates/bitcash/cashrecon.html": {
+  "XAF": 1,
+  "zero_dec_money": 1
+ },
+ "app/templates/bitcash/index.html": {
+  "XAF": 2,
+  "zero_dec_money": 12
+ },
+ "app/templates/bitcash/operators.html": {
+  "XAF": 2,
+  "zero_dec_money": 2
+ },
+ "app/templates/bitcash/recon.html": {
+  "XAF": 13,
+  "cameroon": 1,
+  "zero_dec_money": 27
+ },
+ "app/templates/cheques/index.html": {
+  "zero_dec_money": 6
+ },
+ "app/templates/dashboard.html": {
+  "XAF": 3,
+  "zero_dec_money": 3
+ },
+ "app/templates/ongoing/dashboard.html": {
+  "zero_dec_money": 3
+ },
+ "app/templates/ongoing/holds.html": {
+  "cameroon": 1
+ },
+ "app/templates/ongoing/master.html": {
+  "cameroon": 1,
+  "zero_dec_money": 2
+ },
+ "app/templates/ongoing/results.html": {
+  "zero_dec_money": 23
+ },
+ "app/templates/operator/done.html": {
+  "XAF": 1,
+  "zero_dec_money": 1
+ },
+ "app/templates/operator/statement.html": {
+  "XAF": 6,
+  "zero_dec_money": 2
+ },
+ "app/templates/orange/customers.html": {
+  "cameroon": 2
+ },
+ "app/templates/orange/done.html": {
+  "XAF": 1,
+  "cameroon": 3
+ },
+ "app/templates/orange/history.html": {
+  "XAF": 4,
+  "cameroon": 1,
+  "zero_dec_money": 5
+ },
+ "app/templates/orange/monthly.html": {
+  "XAF": 1,
+  "cameroon": 4,
+  "zero_dec_money": 4
+ },
+ "app/templates/orange/review.html": {
+  "XAF": 3,
+  "cameroon": 2,
+  "zero_dec_money": 3
+ },
+ "app/templates/orange/upload.html": {
+  "XAF": 1,
+  "cameroon": 5,
+  "zero_dec_money": 1
+ },
+ "app/templates/pay/index.html": {
+  "XAF": 4,
+  "zero_dec_money": 2
+ },
+ "app/templates/portal/done.html": {
+  "zero_dec_money": 3
+ },
+ "app/templates/quickstmt/index.html": {
+  "zero_dec_money": 1
+ },
+ "app/templates/remittance/allocations.html": {
+  "zero_dec_money": 4
+ },
+ "app/templates/remittance/batch.html": {
+  "zero_dec_money": 4
+ },
+ "app/templates/settings.html": {
+  "momo_merchant": 1
+ },
+ "app/templates/variance/index.html": {
+  "zero_dec_money": 4
+ },
+ "app/tools/bitcash.py": {
+  "CM01": 5,
+  "XAF": 6,
+  "xlsx_money_fmt": 2
+ },
+ "app/tools/iro.py": {
+  "XAF": 4,
+  "cameroon": 1,
+  "xlsx_money_fmt": 2
+ },
+ "app/tools/mydhlpay.py": {
+  "momo_merchant": 2
+ },
+ "app/tools/orange_cameroun.py": {
+  "XAF": 1,
+  "cameroon": 1,
+  "xlsx_money_fmt": 2
+ },
+ "app/tools/quickstmt.py": {
+  "XAF": 1,
+  "xlsx_money_fmt": 2
+ },
+ "app/tools/registry.py": {
+  "CM01": 1,
+  "cameroon": 2
+ }
+}
