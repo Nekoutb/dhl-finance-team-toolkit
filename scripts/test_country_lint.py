@@ -46,6 +46,11 @@ EXEMPT = (
 SCAN_DIRS = ("app",)
 SCAN_EXT = (".py", ".html", ".js")
 
+# A line ending in this marker is skipped. For text that MENTIONS a country or
+# code without being behaviour — chiefly the APP_VERSION release note. Keep it
+# rare: it is visible in review precisely so it can be challenged.
+WAIVER = "lint:country-ok"
+
 
 def scan():
     """{relative_path: {pattern_name: count}} for every non-exempt file."""
@@ -61,6 +66,8 @@ def scan():
                 text = p.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+            text = "\n".join(ln for ln in text.splitlines()
+                             if WAIVER not in ln)
             counts = {}
             for name, rx in PATTERNS.items():
                 n = len(re.findall(rx, text))

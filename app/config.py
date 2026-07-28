@@ -9,13 +9,23 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.9 — 28 Jul 2026 · Multi-country groundwork (no change to how the tool behaves today): a golden-journal test now locks the CM01 SAP output cell-by-cell so it can be proven unchanged through the Nigeria/Ghana migration, and a lint measures every Cameroon-specific value still hardcoded (303) so it can only shrink"
+APP_VERSION = "v11.9 — 28 Jul 2026 · Multi-country groundwork (no change to how the tool behaves today): a golden-journal test now locks the CM01 SAP output cell-by-cell so it can be proven unchanged through the Nigeria/Ghana migration, and a lint measures every Cameroon-specific value still hardcoded (303) so it can only shrink"  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "outputs"
 CONFIG_PATH = BASE_DIR / "config.json"
+
+# Multi-country groundwork (v12). PLATFORM_DIR holds what belongs to the whole
+# platform rather than to one country — the identity database, cross-country
+# indexes and operational logs. TENANTS_DIR will hold one directory per country,
+# each an exact clone of today's data/ layout. Neither is used for reads yet;
+# they exist so the migration has a settled home to move things into.
+PLATFORM_DIR = DATA_DIR / "platform"
+TENANTS_DIR = DATA_DIR / "tenants"
+IDENTITY_DB = Path(os.environ.get("FT_IDENTITY_DB")
+                   or (PLATFORM_DIR / "identity.db"))
 
 DEFAULT_CONFIG = {
     "app_name": "Finance Team Toolkit",
@@ -102,16 +112,74 @@ def _deep_merge(base, override):
     return result
 
 
+# --------------------------------------------------------------------------- #
+# load_config cache
+#
+# load_config() runs on EVERY request (the middleware, then ~70 more call
+# sites). Re-reading and re-parsing config.json each time is the app's biggest
+# fixed per-request cost — and it grows with the user list, which lives in the
+# same file. The cache below turns that into a single stat().
+#
+# Invalidation is a (mtime_ns, size, inode) stamp. Every writer goes through
+# write_config_file(), which is a temp-file + os.replace — so the inode ALWAYS
+# changes on a write and the stamp can never miss an update, even for two
+# writes inside the same filesystem timestamp tick.
+#
+# The cached dict is returned BY REFERENCE, not copied — a defensive deep copy
+# of a large config would cost about as much as the parse it avoids. Callers
+# must therefore treat the result as READ-ONLY. Every mutator in the codebase
+# already goes through auth._load_raw() (a separate raw read) instead, and
+# scripts/test_config_cache.py asserts that no request mutates it.
+# --------------------------------------------------------------------------- #
+_config_cache = None            # (stamp, merged_dict) — rebound atomically
+_config_parses = 0              # real parses done — asserted by the tests
+
+
+def config_parse_count():
+    """How many times the config has actually been read+parsed from disk.
+    Lets a test prove a cache hit skipped the work, with no timing flake."""
+    return _config_parses
+
+
+def _config_stamp():
+    """Identity of the config file right now, or None when it is absent."""
+    try:
+        st = CONFIG_PATH.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size, getattr(st, "st_ino", 0))
+
+
 def load_config():
-    """Return the merged configuration (defaults + user config.json)."""
-    if CONFIG_PATH.exists():
+    """Return the merged configuration (defaults + user config.json).
+
+    Cached against the file's stamp — treat the result as read-only.
+    """
+    global _config_cache, _config_parses
+    stamp = _config_stamp()
+    cached = _config_cache
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    _config_parses += 1
+    if stamp is None:                       # no config.json (login-free dev)
+        merged = _deep_merge(DEFAULT_CONFIG, {})
+    else:
         try:
             user = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return _deep_merge(DEFAULT_CONFIG, user)
+            merged = _deep_merge(DEFAULT_CONFIG, user)
         except (json.JSONDecodeError, OSError):
-            # Never let a broken config file take the app down.
-            return _deep_merge(DEFAULT_CONFIG, {})
-    return _deep_merge(DEFAULT_CONFIG, {})
+            # Never let a broken config file take the app down. Cached against
+            # the broken file's own stamp, so fixing it invalidates at once.
+            merged = _deep_merge(DEFAULT_CONFIG, {})
+    _config_cache = (stamp, merged)
+    return merged
+
+
+def invalidate_config_cache():
+    """Drop the cached config — for tests, and for any writer that bypasses
+    write_config_file()."""
+    global _config_cache
+    _config_cache = None
 
 
 def ensure_dirs():
@@ -175,10 +243,12 @@ def write_config_file(payload):
     for attempt in range(20):
         try:
             os.replace(tmp, CONFIG_PATH)
+            invalidate_config_cache()
             return
         except PermissionError:
             time.sleep(0.01 * (attempt + 1))
     os.replace(tmp, CONFIG_PATH)
+    invalidate_config_cache()
 
 
 def save_user_config(updates):
