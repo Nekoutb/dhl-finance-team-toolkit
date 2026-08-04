@@ -296,6 +296,10 @@ def _cash_rows_from(parsed, row_tick=None):
         return None
 
     c_acct = col("sap acct", "sap account")
+    # The operational (IBS) account. Normally a number, but branch CASH tills
+    # are identified here (CASHCM<branch>) while their SAP account is just a
+    # dedicated till account — so the IRO layer keys on this, not sap_acct.
+    c_ibs = col("ibs acct", "ibs account")
     c_asg = col("assignment")
     c_ref = col("reference")
     c_amt = col("amount")
@@ -361,6 +365,7 @@ def _cash_rows_from(parsed, row_tick=None):
         rows.append({
             "id": i,
             "sap_acct": _cellstr(d.get(c_acct)),
+            "ibs_acct": _cellstr(d.get(c_ibs)) if c_ibs else "",
             "awb": _digits(d.get(c_asg)),
             "assignment": _cellstr(d.get(c_asg)),
             "reference": _cellstr(d.get(c_ref)),

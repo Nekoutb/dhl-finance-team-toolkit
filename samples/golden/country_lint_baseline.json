@@ -164,12 +164,13 @@
  "app/tools/bitcash.py": {
   "CM01": 5,
   "XAF": 6,
+  "cash_acct_prefix": 1,
   "xlsx_money_fmt": 2
  },
  "app/tools/iro.py": {
   "XAF": 4,
-  "cameroon": 1,
-  "cash_acct_prefix": 3,
+  "cameroon": 2,
+  "cash_acct_prefix": 5,
   "xlsx_money_fmt": 2
  },
  "app/tools/mydhlpay.py": {

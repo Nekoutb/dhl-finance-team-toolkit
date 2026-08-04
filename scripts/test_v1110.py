@@ -41,11 +41,11 @@ def check(label, cond):
         _fail += 1
 
 
-def _row(i, acct, awb, amount, days_old, today):
+def _row(i, acct, awb, amount, days_old, today, ibs=""):
     d = (today - timedelta(days=days_old)).strftime("%d.%m.%Y")
-    return {"id": i, "sap_acct": acct, "awb": awb, "assignment": awb,
-            "reference": f"R{awb}", "amount": amount, "customer": "CUST",
-            "doc_no": str(i), "date": d}
+    return {"id": i, "sap_acct": acct, "ibs_acct": ibs, "awb": awb,
+            "assignment": awb, "reference": f"R{awb}", "amount": amount,
+            "customer": "CUST", "doc_no": str(i), "date": d}
 
 
 TODAY = date(2026, 7, 10)          # month end = 31 Jul 2026 (21 days later)
@@ -93,17 +93,24 @@ check("undated items stay out of the projection",
 bitcash.ROWS_PATH.write_text(json.dumps({
     "bit": [], "bit_header": [], "gen_bit": "", "gen_cash": "g2",
     "cash_date_col": "Doc. Date",
-    "cash": [_row(0, "4003025705", "2000000001", 100.0, 5, TODAY),
-             _row(1, "4003026257", "2000000002", 200.0, 5, TODAY),
-             _row(2, "CASHCMDLA", "2000000003", 30.0, 5, TODAY),
-             _row(3, "CASHCMBUE", "2000000004", 40.0, 5, TODAY)],
+    "cash": [_row(0, "4003025705", "2000000001", 100.0, 5, TODAY,
+                  ibs="415048444"),
+             _row(1, "4003026257", "2000000002", 200.0, 5, TODAY,
+                  ibs="415048999"),
+             # Branch tills: CASHCM lives in IBS Acct, the SAP account is a
+             # dedicated till account — exactly as the real Cash AR does it.
+             _row(2, "4003025858", "2000000003", 30.0, 5, TODAY,
+                  ibs="CASHCMDLA"),
+             _row(3, "4003025838", "2000000004", 40.0, 5, TODAY,
+                  ibs="CASHCMYAO")],
 }, ensure_ascii=False), encoding="utf-8")
 
 accts = iro.operator_accounts()
 by_acct = {a["account"]: a for a in accts}
-check("a CASHCM account is never an operator of its own",
-      not any(iro.is_cash_account(a["account"]) for a in accts)
-      and set(by_acct) == {"4003025705", "4003026257"})
+check("a branch till is never an operator of its own (keyed on IBS Acct)",
+      set(by_acct) == {"4003025705", "4003026257"})
+check("the till's dedicated SAP account does not surface as a reseller",
+      "4003025858" not in by_acct and "4003025838" not in by_acct)
 check("every operator statement includes BOTH cash accounts' airwaybills",
       all({r["awb"] for r in a["rows"]} >= {"2000000003", "2000000004"}
           for a in accts))
@@ -112,9 +119,9 @@ check("each operator still sees their own airwaybill",
       and "2000000002" in {r["awb"] for r in by_acct["4003026257"]["rows"]})
 check("an operator does NOT see another operator's own airwaybill",
       "2000000002" not in {r["awb"] for r in by_acct["4003025705"]["rows"]})
-check("cash rows are tagged with the account they were raised on",
-      all(r.get("cash_account") for r in by_acct["4003025705"]["rows"]
-          if r["awb"] in ("2000000003", "2000000004")))
+check("cash rows are tagged with the TILL they were raised on",
+      {r["cash_account"] for r in by_acct["4003025705"]["rows"]
+       if r.get("cash_account")} == {"CASHCMDLA", "CASHCMYAO"})
 check("totals split own vs shared pool",
       by_acct["4003025705"]["own_total"] == 100.0
       and by_acct["4003025705"]["cash_total"] == 70.0
@@ -122,10 +129,29 @@ check("totals split own vs shared pool",
       and by_acct["4003025705"]["cash_count"] == 2)
 check("account_entry() surfaces the cash rows to the portal + submit handler",
       len(iro.account_entry("4003025705")["rows"]) == 3)
-check("is_cash_account matches the prefix case-insensitively, not substrings",
+check("is_cash_account matches the prefix, not substrings",
       iro.is_cash_account("CASHCMDLA") and iro.is_cash_account("cashcmbue")
       and not iro.is_cash_account("4003025705")
       and not iro.is_cash_account("XCASHCM01"))
+check("row_cash_account reads IBS Acct first, sap_acct as fallback",
+      iro.row_cash_account({"ibs_acct": "CASHCMDLA", "sap_acct": "4003025858"})
+      == "CASHCMDLA"
+      and iro.row_cash_account({"ibs_acct": "415048444",
+                                "sap_acct": "CASHCMXXX"}) == "CASHCMXXX"
+      and iro.row_cash_account({"ibs_acct": "415048444",
+                                "sap_acct": "4003025705"}) == "")
+check("the parser captures IBS Acct on cash rows",
+      "ibs_acct" in bitcash._cash_rows_from({
+          "header": ["SAP Acct", "IBS Acct", "Assignment", "Amount"],
+          "rows": [{"data": {"SAP Acct": "4003025858",
+                             "IBS Acct": "CASHCMDLA",
+                             "Assignment": "123", "Amount": 5}}]})[0][0]
+      and bitcash._cash_rows_from({
+          "header": ["SAP Acct", "IBS Acct", "Assignment", "Amount"],
+          "rows": [{"data": {"SAP Acct": "4003025858",
+                             "IBS Acct": "CASHCMDLA",
+                             "Assignment": "123", "Amount": 5}}]})[0][0]["ibs_acct"]
+      == "CASHCMDLA")
 
 # Once a cash AWB is claimed in a sandbox it leaves EVERY statement.
 _gen = bitcash.rows_generation()
@@ -150,7 +176,7 @@ iro.build_statement_xlsx(xl, iro.account_entry("4003025705"))
 ws = openpyxl.load_workbook(xl).active
 refs = [ws.cell(row=r, column=2).value or "" for r in range(6, 12)]
 check("the statement Excel marks the cash-account lines",
-      any("[cash CASHCMBUE]" in str(v) for v in refs))
+      any("[cash CASHCMYAO]" in str(v) for v in refs))
 
 # === 3+4. Cheque register: greyed treated rows, each amount printed once ===
 tpl = (ROOT / "app" / "templates" / "cheques" / "index.html").read_text(

@@ -161,6 +161,23 @@ def is_cash_account(account, prefix=None):
     return bool(pre) and str(account or "").strip().upper().startswith(pre)
 
 
+def row_cash_account(row, prefix=None):
+    """The branch cash till a Cash AR row was raised on, else ''.
+
+    Cameroon identifies these in the IBS Acct column (CASHCMDLA, CASHCMYAO …);
+    the row's SAP account is only the dedicated till account behind it, so
+    keying on sap_acct alone would miss every one. sap_acct is still checked
+    second in case a country books them the other way round."""
+    pre = prefix if prefix is not None else cash_account_prefix()
+    if not pre:
+        return ""
+    for key in ("ibs_acct", "sap_acct"):
+        value = str(row.get(key) or "").strip()
+        if value.upper().startswith(pre):
+            return value
+    return ""
+
+
 def operator_accounts():
     """The Cash AR grouped per operator account (SAP acct), OPEN rows only —
     matched AWBs excluded. Every operator additionally receives the shared
@@ -176,9 +193,11 @@ def operator_accounts():
             continue
         if row.get("awb") and row["awb"] in covered:
             continue
-        if is_cash_account(acct, prefix):
+        till = row_cash_account(row, prefix)
+        if till:
             # Pooled, not an operator of its own — added to everyone below.
-            cash_rows.append(dict(row, cash_account=acct))
+            # (Its SAP account is a branch till, never a reseller.)
+            cash_rows.append(dict(row, cash_account=till))
             continue
         g = groups.setdefault(acct, {"account": acct, "names": Counter(),
                                      "rows": [], "total": 0.0})
