@@ -25,6 +25,7 @@ BLESS = "--bless" in sys.argv
 # What must eventually live in per-country config. Each entry: name -> regex.
 PATTERNS = {
     "XAF":            r"\bXAF\b",
+    "cash_acct_prefix": r"CASHCM",
     "CM01":           r"\bCM01\b",
     "cameroon":       r"(?i)\bcamero(?:on|un)\b",
     "cfa_peg":        r"655\.957",

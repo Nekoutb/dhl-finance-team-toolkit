@@ -141,16 +141,44 @@ def matched_awbs():
     return covered
 
 
+# Branch CASH accounts (CASHCMDLA, CASHCMBUE …). IROs raise airwaybills on
+# these as well as on their own account, so every operator statement carries
+# them IN ADDITION to the operator's own rows. They are a shared pool: the
+# same cash AWB is offered to every operator, and whoever reports it first
+# takes it — matched_awbs() then removes it from everyone else's statement.
+CASH_ACCOUNT_PREFIX = "CASHCM"          # fallback when unset in config
+
+
+def cash_account_prefix():
+    """The configured branch-cash-account prefix for this country."""
+    from ..config import load_config
+    return (str(load_config().get("cash_account_prefix")
+                or CASH_ACCOUNT_PREFIX).strip().upper())
+
+
+def is_cash_account(account, prefix=None):
+    pre = prefix if prefix is not None else cash_account_prefix()
+    return bool(pre) and str(account or "").strip().upper().startswith(pre)
+
+
 def operator_accounts():
     """The Cash AR grouped per operator account (SAP acct), OPEN rows only —
-    matched AWBs excluded. Sorted by open amount, biggest first."""
+    matched AWBs excluded. Every operator additionally receives the shared
+    branch CASH account rows (see CASH_ACCOUNT_PREFIX). Sorted by open amount,
+    biggest first."""
     covered = matched_awbs()
+    prefix = cash_account_prefix()      # resolved once, not per row
     groups = {}
+    cash_rows = []
     for row in bitcash.rows_store()["cash"]:
         acct = (row.get("sap_acct") or "").strip()
         if not acct:
             continue
         if row.get("awb") and row["awb"] in covered:
+            continue
+        if is_cash_account(acct, prefix):
+            # Pooled, not an operator of its own — added to everyone below.
+            cash_rows.append(dict(row, cash_account=acct))
             continue
         g = groups.setdefault(acct, {"account": acct, "names": Counter(),
                                      "rows": [], "total": 0.0})
@@ -158,12 +186,17 @@ def operator_accounts():
             g["names"][row["customer"].strip()] += 1
         g["rows"].append(row)
         g["total"] = round(g["total"] + (row.get("amount") or 0), 2)
+    cash_total = round(sum(r.get("amount") or 0 for r in cash_rows), 2)
     out = []
     for g in groups.values():
         name = g["names"].most_common(1)[0][0] if g["names"] else ""
-        out.append({"account": g["account"], "name": name,
-                    "rows": sorted(g["rows"], key=lambda r: r.get("awb", "")),
-                    "count": len(g["rows"]), "total": g["total"]})
+        rows = sorted(g["rows"] + cash_rows, key=lambda r: r.get("awb", ""))
+        out.append({"account": g["account"], "name": name, "rows": rows,
+                    "count": len(rows),
+                    "total": round(g["total"] + cash_total, 2),
+                    # So the page can say how much of this is the shared pool.
+                    "own_total": g["total"], "cash_total": cash_total,
+                    "cash_count": len(cash_rows)})
     out.sort(key=lambda g: -g["total"])
     return out
 
@@ -326,7 +359,9 @@ def build_statement_xlsx(out_path, entry):
     r = 5
     for row in entry["rows"]:
         ws.write(r, 0, row.get("awb") or row.get("assignment", ""), f_cell)
-        ws.write(r, 1, row.get("reference", ""), f_cell)
+        ws.write(r, 1, (row.get("reference", "")
+                        + (f"  [cash {row['cash_account']}]"
+                           if row.get("cash_account") else "")), f_cell)
         ws.write(r, 2, row.get("doc_no", ""), f_cell)
         ws.write_number(r, 3, row.get("amount") or 0, f_num)
         ws.write(r, 4, "", f_cell)

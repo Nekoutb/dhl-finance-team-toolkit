@@ -110,6 +110,7 @@
       <table class="tx-table">
         <thead><tr><th>Account</th><th>Customer</th>
           <th>0–30 days</th><th>30–60 days</th><th>Above 60 days</th>
+          <th title="Aged to {{ ageing.month_end }} instead of today — what will be over 60 days at month end if nothing is collected">Projected over 60<br><span class="note-inline">at {{ ageing.month_end }}</span></th>
           {% if ageing.totals.undated %}<th>No date</th>{% endif %}
           <th>Total (XAF)</th></tr></thead>
         <tbody>
@@ -120,6 +121,7 @@
             <td>{% if g.b0 %}{{ "{:,.0f}".format(g.b0) }}{% else %}—{% endif %}</td>
             <td>{% if g.b31 %}{{ "{:,.0f}".format(g.b31) }}{% else %}—{% endif %}</td>
             <td>{% if g.b61 %}<strong class="diff-bad">{{ "{:,.0f}".format(g.b61) }}</strong>{% else %}—{% endif %}</td>
+            <td>{% if g.proj61 %}<strong class="diff-warn">{{ "{:,.0f}".format(g.proj61) }}</strong>{% else %}—{% endif %}</td>
             {% if ageing.totals.undated %}
             <td>{% if g.undated %}{{ "{:,.0f}".format(g.undated) }}{% else %}—{% endif %}</td>
             {% endif %}
@@ -131,6 +133,7 @@
             <td><strong>{{ "{:,.0f}".format(ageing.totals.b0) }}</strong></td>
             <td><strong>{{ "{:,.0f}".format(ageing.totals.b31) }}</strong></td>
             <td><strong>{{ "{:,.0f}".format(ageing.totals.b61) }}</strong></td>
+            <td><strong>{{ "{:,.0f}".format(ageing.totals.proj61) }}</strong></td>
             {% if ageing.totals.undated %}
             <td><strong>{{ "{:,.0f}".format(ageing.totals.undated) }}</strong></td>
             {% endif %}
@@ -140,7 +143,10 @@
       </table>
     </div>
     <p class="note-small">Aged from each item's <strong>document date</strong>;
-      above 60 days shown in red.</p>
+      above 60 days in red. <strong>Projected over 60</strong> ages the same
+      items to {{ ageing.month_end }} — what tips past 60 days by month end if
+      nothing is collected.</p>
+    <style>.diff-warn { color: #b06f00; }</style>
   </section>
   {% endif %}
 

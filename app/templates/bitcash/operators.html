@@ -10,6 +10,14 @@
     <h1>👥 Operator statements — IRO returns</h1>
     <p class="lead">Email each reseller their open airwaybills and a secure
       link; returns open a sandbox.</p>
+    {% if rows and rows[0].cash_count %}
+    <div class="alert alert-info">Every statement also carries the
+      {{ rows[0].cash_count }} open airwaybill(s) on the branch
+      <strong>cash</strong> accounts ({{ "{:,.0f}".format(rows[0].cash_total) }}
+      XAF). They are shared, so that amount is inside every operator's total —
+      the first operator to report one takes it off everyone else's
+      statement.</div>
+    {% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 

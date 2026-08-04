@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.9 — 28 Jul 2026 · Multi-country groundwork (no change to how the tool behaves today): a golden-journal test now locks the CM01 SAP output cell-by-cell so it can be proven unchanged through the Nigeria/Ghana migration, and a lint measures every Cameroon-specific value still hardcoded (303) so it can only shrink"  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.10 — 28 Jul 2026 · Cheque register: a cheque marked treated greys out the whole line, and each amount is printed once per line (a matching credited/BIT amount shows “= cheque”, a differing one is shown in full and flagged). Cash AR ageing gains a Projected over 60 column — the same items aged to month end, so you see what tips past 60 days if nothing is collected. IRO statements: search several airwaybills at once separated by commas, and every statement now also carries the branch cash accounts (prefix now per-country configurable) that resellers raise airwaybills on."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -78,6 +78,10 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "model": "claude-opus-4-8",
     },
+    # Branch CASH accounts: resellers raise airwaybills on these as well as on
+    # their own account, so every operator statement carries them. Cameroon's
+    # are CASHCM<branch>; another country sets its own prefix here.
+    "cash_account_prefix": "CASHCM",
     # Bank statements: the admin defines the banks (one slot each) in Settings.
     # Each configured bank holds exactly one current statement; re-uploading
     # overrides it. Empty = no slots yet (configure in Settings → Bank statements).

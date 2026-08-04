@@ -1,6 +1,7 @@
 {
  "app/config.py": {
-  "cameroon": 1,
+  "cameroon": 2,
+  "cash_acct_prefix": 2,
   "momo_merchant": 1
  },
  "app/main.py": {
@@ -72,11 +73,11 @@
  },
  "app/templates/bitcash/index.html": {
   "XAF": 2,
-  "zero_dec_money": 12
+  "zero_dec_money": 14
  },
  "app/templates/bitcash/operators.html": {
-  "XAF": 2,
-  "zero_dec_money": 2
+  "XAF": 3,
+  "zero_dec_money": 3
  },
  "app/templates/bitcash/recon.html": {
   "XAF": 13,
@@ -84,7 +85,7 @@
   "zero_dec_money": 27
  },
  "app/templates/cheques/index.html": {
-  "zero_dec_money": 6
+  "zero_dec_money": 5
  },
  "app/templates/dashboard.html": {
   "XAF": 3,
@@ -168,6 +169,7 @@
  "app/tools/iro.py": {
   "XAF": 4,
   "cameroon": 1,
+  "cash_acct_prefix": 3,
   "xlsx_money_fmt": 2
  },
  "app/tools/mydhlpay.py": {

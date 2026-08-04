@@ -7,7 +7,10 @@
       {{ entry.count }} open airwaybill(s) ·
       total <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong>. Tick what
       you paid, enter the amount actually paid and the payment reference,
-      attach your evidence and submit.</p>
+      attach your evidence and submit.
+      {%- if entry.cash_count %} Includes {{ entry.cash_count }} airwaybill(s)
+      raised on the branch <strong>cash</strong> accounts — tick only the ones
+      you raised.{% endif %}</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     <div id="iro-error" class="alert alert-error" style="display:none;"></div>
     {% if draft and draft.ticks %}
@@ -24,10 +27,10 @@
 
       <div class="inline-fields" style="margin-bottom:6px;">
         <label class="field" style="min-width:280px;">
-          <span>🔎 Search / filter (airwaybill N°, reference, amount — any
-            field)</span>
+          <span>🔎 Search / filter — paste several airwaybills separated by
+            commas</span>
           <input type="text" id="iro-filter"
-                 placeholder="type an airwaybill, reference or amount…">
+                 placeholder="e.g. 1005475881, 1011864556, 1013751944">
         </label>
         <button class="btn" type="button" id="iro-ticktop"
                 style="align-self:flex-end;">⬆ Ticked to top</button>
@@ -50,7 +53,9 @@
               <td><input type="checkbox" name="awb" value="{{ r.awb }}"
                          class="iro-tick" data-amt="{{ r.amount or 0 }}"
                          {% if r.awb in posted_ticks or (not posted_ticks and r.awb in drefs) %}checked{% endif %}></td>
-              <td><strong>{{ r.awb or r.assignment }}</strong></td>
+              <td><strong>{{ r.awb or r.assignment }}</strong>
+                {%- if r.cash_account %} <span class="pill pill-watch"
+                  title="Raised on the branch cash account {{ r.cash_account }} — tick it if this one is yours">cash</span>{% endif %}</td>
               <td>{{ r.reference }}</td>
               <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
               <td><input type="text" name="ref_{{ r.awb }}" maxlength="40"
@@ -283,7 +288,11 @@
         var filter = document.getElementById("iro-filter");
         var onlyTicked = document.getElementById("iro-onlyticked");
         function applyFilter() {
-          var q = filter.value.toLowerCase().replace(/[\s,]/g, "");
+          // Comma-separated search: "1005475881, 1011864556" shows BOTH rows.
+          // Each term is matched on its own; a row hits if ANY term matches.
+          var terms = filter.value.toLowerCase().split(",")
+            .map(function (t) { return t.replace(/\s/g, ""); })
+            .filter(function (t) { return t.length > 0; });
           var only = onlyTicked && onlyTicked.checked;
           var shown = 0;
           document.querySelectorAll("#iro-table tbody tr").forEach(
@@ -294,8 +303,10 @@
                 hay += refin.value.toLowerCase().replace(/[\s,]/g, "");
               }
               var tick = tr.querySelector(".iro-tick");
-              var hit = (!q || hay.indexOf(q) !== -1)
-                && (!only || (tick && tick.checked));
+              var matched = !terms.length || terms.some(function (t) {
+                return hay.indexOf(t) !== -1;
+              });
+              var hit = matched && (!only || (tick && tick.checked));
               tr.style.display = hit ? "" : "none";
               if (hit) { shown += 1; }
             });

@@ -633,11 +633,24 @@ def _row_date(value):
     return None
 
 
+def _month_end(d):
+    """The last calendar day of d's month."""
+    import calendar
+    return date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
+
+
 def cash_ageing(today=None):
     """The Cash AR classified per ACCOUNT into ageing buckets as of today:
-    0-30 days, 30-60 days, above 60 days (item posting date vs today).
-    Items whose date could not be read land in 'undated'."""
+    0-30 days, 30-60 days, above 60 days (item document date vs today).
+    Items whose date could not be read land in 'undated'.
+
+    ``proj61`` is the PROJECTED over-60 position at month end: each item aged
+    from its document date to the LAST DAY OF THE CURRENT MONTH instead of
+    today. It answers "what will be over 60 days by close if nothing is
+    collected?" — so it always includes everything already in b61, plus the
+    items that will cross the 60-day line between today and month end."""
     today = today or datetime.now().date()
+    month_end = _month_end(today)
     store = rows_store()
     accounts = {}
     dated = False
@@ -645,7 +658,7 @@ def cash_ageing(today=None):
         acct = (r.get("sap_acct") or "").strip() or "—"
         g = accounts.setdefault(acct, {
             "account": acct, "customer": "", "b0": 0.0, "b31": 0.0,
-            "b61": 0.0, "undated": 0.0, "total": 0.0})
+            "b61": 0.0, "proj61": 0.0, "undated": 0.0, "total": 0.0})
         if not g["customer"] and (r.get("customer") or "").strip():
             g["customer"] = r["customer"].strip()
         amt = r.get("amount") or 0
@@ -661,12 +674,15 @@ def cash_ageing(today=None):
                 g["b31"] = round(g["b31"] + amt, 2)
             else:
                 g["b61"] = round(g["b61"] + amt, 2)
+            if (month_end - d).days > 60:
+                g["proj61"] = round(g["proj61"] + amt, 2)
         g["total"] = round(g["total"] + amt, 2)
     rows = sorted(accounts.values(), key=lambda g: -g["total"])
     totals = {k: round(sum(g[k] for g in rows), 2)
-              for k in ("b0", "b31", "b61", "undated", "total")}
+              for k in ("b0", "b31", "b61", "proj61", "undated", "total")}
     return {"as_of": today.strftime("%d/%m/%Y"), "rows": rows,
             "totals": totals, "has_dates": dated,
+            "month_end": month_end.strftime("%d/%m/%Y"),
             # Which header fed the ageing date ("" = none recognised) — shown on
             # the panel so an all-undated result is explained, not silent.
             "date_col": store.get("cash_date_col", "")}
