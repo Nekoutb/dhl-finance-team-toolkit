@@ -20,6 +20,7 @@ daily series. The parsed rows are also kept so customer payment statements
 open; without such a column every row is an open item (these files are
 typically extracts of open items only).
 """
+import io
 import json
 import os
 import re
@@ -1397,6 +1398,50 @@ def _xl_sheet_name(base, used):
         i += 1
 
 
+def _evidence_preview_png(path, max_w=900):
+    """A PNG stream previewing one evidence file, or None when it cannot be
+    rendered (e.g. an Excel deposit list).
+
+    Excel can only embed raster images, so a PDF deposit slip — the common
+    case — has to be rasterised first: its FIRST PAGE is rendered here. Photos
+    pass through re-encoded as PNG so Excel always gets a format it accepts.
+    """
+    p = Path(path)
+    if not p.exists():
+        return None
+    ext = p.suffix.lower()
+    try:
+        if ext == ".pdf":
+            import pypdfium2 as pdfium
+            doc = pdfium.PdfDocument(str(p))
+            if len(doc) == 0:
+                return None
+            pil = doc[0].render(scale=2).to_pil()
+        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+                     ".tif", ".tiff"):
+            from PIL import Image as PILImage
+            pil = PILImage.open(p)
+            pil.load()
+        else:
+            return None                     # .xlsx and friends: listed only
+        if pil.mode not in ("RGB", "L"):
+            pil = pil.convert("RGB")
+        if pil.width > max_w:
+            pil = pil.resize((max_w, max(1, round(pil.height * max_w
+                                                  / pil.width))))
+        buf = io.BytesIO()
+        pil.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception:  # noqa: BLE001 — a preview must never break the journal
+        return None
+
+
+# openpyxl reads embedded image streams lazily at save time, so the BytesIO
+# objects must outlive _add_evidence_sheets().
+_preview_refs = []
+
+
 def _add_evidence_sheets(wb, recs):
     """Embed each approved reconciliation's EVIDENCE as its own tab in the
     journal workbook — the tab named by a short evidence summary. Each tab
@@ -1450,20 +1495,54 @@ def _add_evidence_sheets(wb, recs):
                     value=str(a.get("awb") or a.get("assignment") or "")).font = arial
             ws.cell(row=r, column=2, value=a.get("amount")).font = arial
             r += 1
-        slip = (rec.get("slip") or {}).get("name", "")
-        if slip and Path(slip).suffix.lower() in (".png", ".jpg", ".jpeg",
-                                                  ".gif"):
-            p = FILES_DIR / Path(slip).name
-            if p.exists():
+        # EVIDENCE FILES: always listed by name, so a tab never leaves you
+        # wondering whether a slip exists. Each is previewed on the sheet when
+        # it can be rendered — a photo directly, a PDF via its first page.
+        files = []
+        advice = rec.get("file", "")
+        if advice:
+            files.append(("Payment advice", advice,
+                          rec.get("source") or advice))
+        slip_rec = rec.get("slip") or {}
+        if slip_rec.get("name"):
+            files.append(("Deposit slip", slip_rec["name"],
+                          slip_rec.get("source") or slip_rec["name"]))
+        for n, ex in enumerate(rec.get("extra_slips") or [], start=2):
+            if ex.get("name"):
+                files.append((f"Deposit slip {n}", ex["name"],
+                              ex.get("source") or ex["name"]))
+        r += 1
+        ws.cell(row=r, column=1, value="EVIDENCE FILES").font = head
+        r += 1
+        if not files:
+            ws.cell(row=r, column=1, value="(none attached)").font = arial
+            r += 1
+        for label, stored, source in files:
+            on_disk = (FILES_DIR / Path(stored).name).exists()
+            ws.cell(row=r, column=1, value=label).font = arial
+            ws.cell(row=r, column=2, value=str(source)).font = arial
+            ws.cell(row=r, column=3,
+                    value=("in the journal pack ZIP" if on_disk
+                           else "missing from the store")).font = arial
+            r += 1
+
+        # Preview the deposit slip (the evidence finance actually looks at);
+        # fall back to the advice when no slip was attached.
+        preview_for = next((f for f in files if f[0].startswith("Deposit slip")),
+                           None) or (files[0] if files else None)
+        if preview_for:
+            png = _evidence_preview_png(FILES_DIR / Path(preview_for[1]).name)
+            if png is not None:
                 try:
                     from openpyxl.drawing.image import Image as XLImage
-                    img = XLImage(str(p))
-                    if img.width and img.height and img.width > 520:
+                    img = XLImage(png)
+                    _preview_refs.append(png)   # keep alive until wb.save()
+                    if img.width and img.width > 520:
                         scale = 520 / img.width
                         img.width = int(img.width * scale)
                         img.height = int(img.height * scale)
-                    ws.add_image(img, "D2")
-                except Exception:  # noqa: BLE001 — image embed is best-effort
+                    ws.add_image(img, "E2")
+                except Exception:  # noqa: BLE001 — a preview never blocks the JE
                     pass
     return wb
 

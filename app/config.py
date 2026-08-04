@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.10 — 28 Jul 2026 · Cheque register: a cheque marked treated greys out the whole line, and each amount is printed once per line (a matching credited/BIT amount shows “= cheque”, a differing one is shown in full and flagged). Cash AR ageing gains a Projected over 60 column — the same items aged to month end, so you see what tips past 60 days if nothing is collected. IRO statements: search several airwaybills at once separated by commas, and every statement now also carries the branch cash accounts (prefix now per-country configurable) that resellers raise airwaybills on."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.11 — 5 Aug 2026 · Journal evidence tabs now SHOW the deposit slip: a PDF bordereau is rendered (first page) and embedded, not silently skipped, and every evidence file is listed by name on the tab with where to find it in the pack."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
