@@ -486,7 +486,7 @@ bitcash._save({"current": {}, "history": {},
                                     "message": "Could not read big.xlsx"}})
 r = client.get("/tools/bit-cash-ar")
 check("failed upload surfaced on the page",
-      "The last upload failed" in r.text and "Could not read big.xlsx" in r.text)
+      "Upload failed" in r.text and "Could not read big.xlsx" in r.text)
 bitcash._save({"current": {}, "history": {}})
 
 # Real async round-trip: instant 303, counts land in the background.
@@ -682,7 +682,7 @@ check("stale sandbox resolves nothing (no mixed-up rows)",
       and view3["bit_candidates"] == [] and view3["ar_total"] == 0)
 page = client.get("/tools/bit-cash-ar/recon/feedbead0003")
 check("stale sandbox shows the replacement warning + re-run button",
-      "were replaced" in page.text and "Re-run" in page.text)
+      "replaced since" in page.text and "Re-run" in page.text)
 check("approval refused while stale",
       bitcash.set_status("feedbead0003", True, "t") == "stale")
 check("selection refused while stale",
@@ -1184,8 +1184,8 @@ check("sandbox carries the pre-read slip total (no second read)",
       and recy.get("slip_total") == 115700.0
       and (recy.get("slip") or {}).get("source") == "dep.png")
 check("portal page has search/filter and locked amount, no Excel upload",
-      (lambda t: "Search / filter" in " ".join(t.split())
-       and "filled automatically" in " ".join(t.split())
+      (lambda t: "Search" in " ".join(t.split())
+       and "not editable" in " ".join(t.split())
        and 'id="iro-banked"' in t
        and "awb_excel" not in t)(client.get(f"/operator/{tok1}").text))
 check("evidence-copy email skipped cleanly when SMTP is off",
@@ -1260,7 +1260,7 @@ check("draft auto-saved", r.status_code == 200 and r.json()["ok"] is True)
 r = client.get(f"/operator/{tok1}")
 flat5 = " ".join(r.text.split())
 check("draft restored on the next visit",
-      "were restored" in flat5 and 'value="DEP-5555-SGBC"' in r.text
+      "restored" in flat5 and 'value="DEP-5555-SGBC"' in r.text
       and 'value="2026-07-18"' in r.text)
 r = client.post(f"/operator/{tok1}/submit",
                 data={"awb": ["2080666324"],
@@ -1603,7 +1603,7 @@ check("slip reference pins the BIT line (reference-first)",
 r = client.get(f"/tools/bit-cash-ar/recon/{sub20['recon_token']}")
 flatz = " ".join(r.text.split())
 check("finance sees the slip reading on the sandbox",
-      "Read off the deposit slip" in flatz and "BICEC" in flatz
+      "Deposit slip:" in flatz and "BICEC" in flatz
       and "FONTEM FONKI A" in flatz and "012372" in flatz)
 
 # --- review fixes: anchor tiers, empty-info gate, portal JS repairs --------

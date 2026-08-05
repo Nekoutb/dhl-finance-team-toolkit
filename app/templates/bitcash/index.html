@@ -15,25 +15,24 @@
     <div class="alert alert-info">
       ⏳ <strong>Ingesting
       {% for f in processing.files %}{{ f.label }} ({{ f.source }}){% if not loop.last %} + {% endif %}{% endfor %}</strong>
-      — started {{ processing.started }}.
-      {% if processing.current %}Now on <strong>{{ processing.current }}</strong>
+      {% if processing.current %}— <strong>{{ processing.current }}</strong>
         · {{ processing.stage }}{% if processing.rows_total %} ·
         {{ "{:,}".format(processing.rows_done) }} of
         {{ "{:,}".format(processing.rows_total) }} row(s){% endif %}.{% endif %}
       <div class="progress" style="margin-top:6px;">
         <i style="width:{{ processing.pct or 2 }}%"></i></div>
       <div class="note-small" style="margin-top:4px;">
-        <strong>{{ processing.pct or 0 }}%</strong> ingested
+        <strong>{{ processing.pct or 0 }}%</strong>
         {% if processing.eta_seconds is defined and processing.eta_seconds is not none and processing.pct and processing.pct < 100 %}
           · about
           {% if processing.eta_seconds >= 60 %}{{ (processing.eta_seconds // 60) }} min {{ (processing.eta_seconds % 60) }} s
           {% else %}{{ processing.eta_seconds }} s{% endif %} left
         {% endif %}
-        — this page refreshes itself.
+— refreshes itself.
       </div>
     </div>
     {% elif processing_error %}
-    <div class="alert alert-error">✗ The last upload failed
+    <div class="alert alert-error">✗ Upload failed
       ({{ processing_error.at }}): {{ processing_error.message }} — fix the
       file and upload it again.</div>
     {% endif %}
@@ -48,7 +47,7 @@
           {{ cur.uploaded }}
           {% if age is not none %}
             {% if age > 7 %} — <strong>upload a fresher file.</strong>
-            {% elif age > 1 %} — consider a newer extract.{% endif %}
+            {% elif age > 1 %} — a newer extract would help.{% endif %}
           {% endif %}
         </div>
       {% else %}
@@ -90,21 +89,18 @@
       {% if ageing.date_col %}<span class="note-inline">(aged from the
         “{{ ageing.date_col }}” column)</span>{% endif %}</h2>
     {% if not ageing.has_dates %}
-    <div class="alert alert-error">No item date could be read from the Cash AR,
-      so every item shows as “no date”.
-      {% if ageing.date_col %}A “{{ ageing.date_col }}” column was found but its
-        values weren’t in a recognised date format.{% else %}No document/posting
-        date column was recognised in the file.{% endif %}
+    <div class="alert alert-error">No item date could be read{% if ageing.date_col %}
+      in “{{ ageing.date_col }}”{% endif %} — everything shows as “no
+      date”.
       <form action="/tools/bit-cash-ar/age-current" method="post"
             style="display:inline;margin-left:6px;">
         <button class="btn btn-small" type="submit"
                 title="Re-read the Cash AR already on record for its document dates — no re-upload needed">📅 Age the file on record</button>
       </form>
-      <span class="note-small">(re-reads the file on record; or re-upload it if
-        it still shows “no date”).</span></div>
+</div>
     {% elif ageing.totals.undated %}
     <div class="alert alert-info">{{ "{:,.0f}".format(ageing.totals.undated) }}
-      XAF of items have no readable date — shown under “No date”.</div>
+      XAF has no readable date — see “No date”.</div>
     {% endif %}
     <div class="table-wrap" style="max-height:420px;">
       <table class="tx-table">
@@ -142,10 +138,9 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">Aged from each item's <strong>document date</strong>;
-      above 60 days in red. <strong>Projected over 60</strong> ages the same
-      items to {{ ageing.month_end }} — what tips past 60 days by month end if
-      nothing is collected.</p>
+    <p class="note-small">Aged from the <strong>document date</strong>; over 60
+      in red. <strong>Projected over 60</strong> ages to
+      {{ ageing.month_end }}.</p>
     <style>.diff-warn { color: #b06f00; }</style>
   </section>
   {% endif %}
@@ -166,37 +161,33 @@
       </div>
       <button class="btn btn-primary" type="submit">Upload &amp; count open items</button>
     </form>
-    <p class="note-small">Upload one or both — each replaces the previous file
-      of its kind.</p>
+    <p class="note-small">Each upload replaces the previous file.</p>
   </section>
 
   <!-- Reconciliations: customer payment statements vs Cash AR + BIT -->
   <section class="panel">
     <h2 class="section-title">Reconciliations — customer payment statements</h2>
-    <p class="lead">Upload a customer payment statement — a sandbox opens to
-      confirm and approve it.</p>
+    <p class="lead">Upload a customer payment statement; a sandbox opens to
+      approve it.</p>
     {% if ai_ready %}
     <form action="/tools/bit-cash-ar/recon/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="filedrop">
         <input type="file" name="statement"
                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls" required>
-        <span class="filedrop-text">Choose the payment statement — read
-          automatically.</span>
+        <span class="filedrop-text">Choose the payment statement.</span>
       </label>
       <label class="field" style="max-width:420px;">
-        <span>Bank deposit slip (optional but recommended)</span>
+        <span>Bank deposit slip — anchors the BIT search (optional)</span>
         <input type="file" name="deposit_slip"
                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xlsm,.xls">
       </label>
-      <p class="note-small" style="margin:2px 0 6px;">The slip's banked amount
-        anchors the BIT search.</p>
       <button class="btn btn-primary" type="submit">📥 Upload &amp; reconcile</button>
     </form>
     {% else %}
-    <div class="alert alert-info">Scanned statements need the key under
-      <a href="/settings">Settings →
-      Document reading</a>; Excel works without it.</div>
+    <div class="alert alert-info">Scanned statements need the
+      <a href="/settings">Settings → Document reading</a> key; Excel does
+      not.</div>
     <form action="/tools/bit-cash-ar/recon/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="filedrop">
@@ -266,8 +257,8 @@
     {% endif %}
 
     {% if recons %}
-    <p class="note-small" style="margin-top:12px;">Tick the approved
-      reconciliations to journal — already-journalled ones are unticked.</p>
+    <p class="note-small" style="margin-top:12px;">Tick what to journal;
+      already-journalled ones are unticked.</p>
     <div class="table-wrap" style="margin-top:4px;max-height:none;">
       <table class="tx-table">
         <thead><tr><th>Journal?</th><th>Uploaded</th><th>Statement</th>

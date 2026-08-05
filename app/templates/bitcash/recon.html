@@ -18,8 +18,8 @@
     <script>setTimeout(function () { location.reload(); }, 5000);</script>
     <section class="panel">
       <h1>Reading the payment statement…</h1>
-      <p class="lead">{{ rec.source }} — reading and matching automatically;
-        this page refreshes itself.</p>
+      <p class="lead">{{ rec.source }} — reading and matching; refreshes
+        itself.</p>
       <div class="progress"><i style="width:45%"></i></div>
     </section>
   {% elif rec.status == 'error' %}
@@ -41,16 +41,14 @@
       {% if rec.status == 'approved' %}<span class="pill pill-ok">approved</span>
       {% else %}<span class="pill pill-watch">open</span>{% endif %}</h1>
     <p class="lead">Uploaded {{ rec.uploaded }}{% if rec.uploaded_by %} by
-      {{ rec.uploaded_by }}{% endif %} · statement date {{ s.date or '—' }} ·
-      total <strong>{{ "{:,.0f}".format(s.total) }} XAF</strong> ·
-      {{ s.lines|length }} invoice line(s).</p>
+      {{ rec.uploaded_by }}{% endif %} · statement date
+      {{ s.date or '—' }}.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     {% if view.stale %}
     <div class="alert alert-error">
-      ⚠ The BIT / Cash AR files were replaced since this was prepared — re-run
-      the matching:
+      ⚠ BIT / Cash AR replaced since this was prepared:
       <form action="/tools/bit-cash-ar/recon/{{ token }}/rematch" method="post"
             style="display:inline;margin-left:6px;">
         <button class="btn btn-primary" type="submit">🔄 Re-run
@@ -65,8 +63,8 @@
 
     <div class="alert alert-info">
       🧮 Evidences total <strong>{{ "{:,.0f}".format(s.total) }} XAF</strong>
-      from {{ s.lines|length }} AWB line(s){% if s.stated_total %} (file's own
-      total {{ "{:,.0f}".format(s.stated_total) }} ignored){% endif %}.
+      from {{ s.lines|length }} AWB line(s){% if s.stated_total %} (stated
+      {{ "{:,.0f}".format(s.stated_total) }} ignored){% endif %}.
       {% if view.slip_total %} <strong>Banked {{ "{:,.0f}".format(view.slip_total) }}</strong>.{% endif %}
       {% if view.payment_refs %} <strong>Ref(s): {{ view.payment_refs|join(", ") }}</strong>.{% endif %}
     </div>
@@ -205,10 +203,9 @@
   <section class="panel">
     <h2 class="section-title">Payment lines — statement total vs BIT</h2>
     {% if rec.bit_duplicate %}
-    <div class="alert alert-error">⚠ The exact payment amount of
-      <strong>{{ "{:,.0f}".format(s.total) }}</strong> appears
-      <strong>more than once</strong> in the BIT —
-      investigate and select the appropriate line below.</div>
+    <div class="alert alert-error">⚠ <strong>{{ "{:,.0f}".format(s.total) }}</strong>
+      appears <strong>more than once</strong> in the BIT — pick the right line
+      below.</div>
     {% endif %}
     {% if view.bit_candidates %}
     <div class="table-wrap" style="max-height:none;">
@@ -241,8 +238,7 @@
     </div>
     {% elif not view.stale %}
     <div class="alert alert-error">✗ No BIT line within
-      ±{{ "{:,.0f}".format(view.margin) }} of the banked/evidences amount — the
-      payment may not have reached the BIT yet.</div>
+      ±{{ "{:,.0f}".format(view.margin) }} — not in the BIT yet.</div>
     {% endif %}
 
     {% if open %}
@@ -254,22 +250,23 @@
 
   <!-- 3. MANUAL PLUG: absorb a remaining difference so the JE balances -->
   <section class="panel">
-    <h2 class="section-title">Manual plug — balance a remaining difference</h2>
+    <h2 class="section-title">Manual plug</h2>
     {% if view.plug %}
     <div class="alert {{ 'alert-warn' if view.residual else 'alert-ok' }}">
       Plug <strong>{{ "{:,.0f}".format(view.plug.amount) }} XAF</strong>
       on G/L <strong>{{ view.plug.account }}</strong>
       {%- if view.plug.note %} ({{ view.plug.note }}){% endif %} — difference
-      left <strong>{{ "{:,.0f}".format(view.residual) }}</strong>
-      (posting key {{ 40 if view.plug.amount > 0 else 50 }}).
+      left <strong>{{ "{:,.0f}".format(view.residual) }}</strong>.
+      Journals as {{ "{:,.0f}".format(-view.plug.amount) }} on keys 40 and
+      15.
     </div>
     {% elif view.difference %}
     <div class="alert alert-warn">Difference of
-      <strong>{{ "{:,.0f}".format(view.difference) }} XAF</strong> not yet
+      <strong>{{ "{:,.0f}".format(view.difference) }} XAF</strong> not
       plugged.{% if view.plug_account_default %} Pre-filled to
-      <strong>{{ view.plug_account_default }}</strong> — just save.{% endif %}</div>
+      <strong>{{ view.plug_account_default }}</strong>.{% endif %}</div>
     {% else %}
-    <p class="note-small">Nothing to plug — selected invoices and the BIT agree.</p>
+    <p class="note-small">Nothing to plug — invoices and BIT agree.</p>
     {% endif %}
 
     {% if open %}
@@ -296,7 +293,7 @@
         plug</button>
     </form>
     <p class="note-small">Positive covers a short BIT, negative an
-      over-payment; blank or 0 removes it.</p>
+      over-payment; 0 clears it.</p>
     {% endif %}
   </section>
 
@@ -308,8 +305,7 @@
       <a class="btn" href="/tools/bit-cash-ar/recon/{{ token }}/evidence/advice">📄
         View the payment advice ({{ rec.source }})</a>
       {% else %}
-      <span class="note-inline">No stored copy of the payment advice (older
-        upload).</span>
+      <span class="note-inline">No stored payment advice (older upload).</span>
       {% endif %}
       {% if view.slip %}
       <a class="btn" href="/tools/bit-cash-ar/recon/{{ token }}/evidence/slip">🏦
@@ -322,8 +318,8 @@
       {% endfor %}
     </div>
     {% if view.slip_info %}
-    <p class="note-small" style="margin-top:8px;">🏦 <strong>Read off the
-      deposit slip:</strong>
+    <p class="note-small" style="margin-top:8px;">🏦 <strong>Deposit
+      slip:</strong>
       {% if view.slip_info.amount %}{{ "{:,.0f}".format(view.slip_info.amount) }} XAF{% endif %}
       {% if view.slip_info.bank %} · bank <strong>{{ view.slip_info.bank }}</strong>{% endif %}
       {% if view.slip_info.date %} · {{ view.slip_info.date }}{% endif %}
@@ -365,7 +361,7 @@
       on {{ view.variance_email.at }}.
       {% if view.variance_email.mode == 'eml' and view.variance_email.eml %}
       <a href="/download/{{ view.variance_email.eml }}">⬇ Download the
-        ready-to-send email</a> and send it from your mailbox.
+        email</a> and send it.
       {% endif %}
     </div>
     {% endif %}
@@ -373,9 +369,9 @@
     <div class="alert alert-error">⚠ The
       {% if view.difference > 0 %}<strong>short payment</strong>
       {% else %}<strong>excess payment</strong>{% endif %} of
-      <strong>{{ "{:,.0f}".format(view.difference|abs) }} XAF</strong> is
-      above the {{ "{:,.0f}".format(view.email_threshold) }} XAF threshold —
-      clarify the position with the account holder before posting.</div>
+      <strong>{{ "{:,.0f}".format(view.difference|abs) }} XAF</strong> is above
+      the {{ "{:,.0f}".format(view.email_threshold) }} threshold — clarify
+      before posting.</div>
     <form action="/tools/bit-cash-ar/recon/{{ token }}/email" method="post"
           class="upload-form-stack">
       <div class="inline-fields">
@@ -399,9 +395,9 @@ Regards, DHL Express Cameroon — Finance</textarea>
       <button class="btn btn-primary" type="submit">✉ Send the
         clarification email</button>
     </form>
-    <p class="note-small">The payment advice is attached automatically.</p>
+    <p class="note-small">The payment advice is attached.</p>
     {% elif not view.variance_email %}
-    <p class="note-small">No clarification needed — difference is within the
+    <p class="note-small">Difference is within the
       {{ "{:,.0f}".format(view.email_threshold) }} XAF threshold.</p>
     {% endif %}
   </section>

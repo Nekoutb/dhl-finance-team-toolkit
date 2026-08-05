@@ -1294,11 +1294,14 @@ def set_plug(token, amount, account="", note=""):
     rec = load_recon(token)
     if not rec or rec.get("status") not in ("open",):
         return None
-    amt = _to_float(amount)
+    # Round FIRST: build_journal re-reads the stored value, so an amount that
+    # rounds to 0.00 must clear the plug rather than be kept as a plug the
+    # journal will never write.
+    amt = round(_to_float(amount), 2)
     if not amt:
         rec.pop("plug", None)
     else:
-        rec["plug"] = {"amount": round(amt, 2),
+        rec["plug"] = {"amount": amt,
                        "account": str(account or "").strip(),
                        "note": str(note or "").strip()}
     save_recon(rec)

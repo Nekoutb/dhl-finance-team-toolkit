@@ -4,31 +4,28 @@
   <section class="panel">
     <h1>Statement of account — {{ entry.name or entry.account }}</h1>
     <p class="lead">Account <strong>{{ entry.account }}</strong> ·
-      {{ entry.count }} open airwaybill(s) ·
-      total <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong>. Tick what
-      you paid, enter the amount actually paid and the payment reference,
-      attach your evidence and submit.
-      {%- if entry.cash_count %} Includes {{ entry.cash_count }} airwaybill(s)
-      raised on the branch <strong>cash</strong> accounts — tick only the ones
-      you raised.{% endif %}</p>
+      {{ entry.count }} open ·
+      <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong><br>
+      Tick what you paid, enter the amount and reference, submit.
+      {%- if entry.cash_count %} {{ entry.cash_count }} are branch
+      <strong>cash</strong> — tick only yours.{% endif %}</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     <div id="iro-error" class="alert alert-error" style="display:none;"></div>
     {% if draft and draft.ticks %}
-    <div class="alert alert-info">📝 Your unsent selections from
-      {{ draft.saved_at }} were restored.</div>
+    <div class="alert alert-info">📝 Unsent selections from
+      {{ draft.saved_at }} restored.</div>
     {% endif %}
 
     {% if not entry.rows %}
-      <div class="alert alert-ok">Nothing is open on your account — all
-        airwaybills are matched or under review. Thank you!</div>
+      <div class="alert alert-ok">Nothing open — every airwaybill is matched
+        or under review. Thank you!</div>
     {% else %}
     <form action="/operator/{{ token }}/submit" method="post"
           enctype="multipart/form-data" id="iro-form">
 
       <div class="inline-fields" style="margin-bottom:6px;">
         <label class="field" style="min-width:280px;">
-          <span>🔎 Search / filter — paste several airwaybills separated by
-            commas</span>
+          <span>🔎 Search — several airwaybills, comma-separated</span>
           <input type="text" id="iro-filter"
                  placeholder="e.g. 1005475881, 1011864556, 1013751944">
         </label>
@@ -55,7 +52,7 @@
                          {% if r.awb in posted_ticks or (not posted_ticks and r.awb in drefs) %}checked{% endif %}></td>
               <td><strong>{{ r.awb or r.assignment }}</strong>
                 {%- if r.cash_account %} <span class="pill pill-watch"
-                  title="Raised on the branch cash account {{ r.cash_account }} — tick it if this one is yours">cash</span>{% endif %}</td>
+                  title="Branch cash account {{ r.cash_account }} — tick if yours">cash</span>{% endif %}</td>
               <td>{{ r.reference }}</td>
               <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
               <td><input type="text" name="ref_{{ r.awb }}" maxlength="40"
@@ -143,8 +140,8 @@
       <!-- Everything below is READ OFF THE SLIP and locked -->
       <div id="iro-slipinfo" style="border:1px solid rgba(100,116,139,.35);
            border-radius:10px;padding:10px;margin:8px 0 10px;">
-        <p class="note-small" style="margin:0 0 6px;"><strong>Read from your
-          evidence</strong> — filled automatically, cannot be changed:</p>
+        <p class="note-small" style="margin:0 0 6px;"><strong>From your
+          evidence</strong> — not editable:</p>
         <div class="inline-fields">
           <label class="field" style="min-width:160px;">
             <span>Amount banked (XAF)</span>
@@ -185,11 +182,8 @@
         Submit payment references</button>
       <p class="note-small" id="iro-draft-note" style="margin-top:6px;"></p>
       <p class="note-small" style="margin-top:4px;">Attaching evidence is
-        optional — you can submit the payment references on their own.
-        Amounts are read off your
-        slip and can't be changed; a slip already reported is rejected. If your
-        payment doesn't match the ticked airwaybills exactly, the balance is
-        held on your account.</p>
+        optional. Amounts come from your slip; differences stay on your
+        account.</p>
     </form>
 
     <script>

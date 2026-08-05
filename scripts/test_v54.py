@@ -69,7 +69,7 @@ try:
     assert "Welcome EMPLOYEE.TEST" in r.text, "welcome banner missing"
     assert "Users &amp; settings" not in r.text, "employee sees Admin nav"
     r = client.get("/settings", cookies=emp_cookie)
-    assert "signed in as an" in r.text and "employee" in r.text
+    assert "You are an" in r.text and "employee" in r.text
     assert "Onboard a new user" not in r.text
     assert "SMTP host" not in r.text and "Anthropic API key" not in r.text
     r = client.post("/settings/users/add",

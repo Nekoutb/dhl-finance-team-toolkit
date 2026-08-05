@@ -3,20 +3,18 @@
 {% block content %}
   <section class="panel">
     <h1>✅ Submission received — thank you</h1>
-    <p class="lead">{{ count }} airwaybill(s) reported for account
+    <p class="lead">{{ count }} airwaybill(s) reported on
       <strong>{{ rec.account }}</strong>
       {% if refs %} · reference(s):
       <strong>{{ refs|join(", ") }}</strong>{% endif %}{% if slip_total %} ·
       deposit slip:
       <strong>{{ "{:,.0f}".format(slip_total) }} XAF</strong>{% endif %}.
-      Finance will contact you only if clarification is needed.
-      {% if copy_state == 'sent' %}A copy was emailed to the DHL finance
-      mailbox.{% endif %}</p>
+      Finance will contact you only if needed.{% if copy_state == 'sent' %}
+      A copy went to DHL finance.{% endif %}</p>
     <div class="download-row">
       <a class="btn" href="/operator/{{ token }}">← Back to your
         statement</a>
     </div>
-    <p class="note-small">Matched airwaybills disappear from your statement
-      automatically.</p>
+    <p class="note-small">Matched airwaybills leave your statement.</p>
   </section>
 {% endblock %}

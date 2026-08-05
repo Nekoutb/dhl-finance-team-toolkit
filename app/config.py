@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.12 — 5 Aug 2026 · Usability: the generated journal now scrolls itself into view and the full pack starts downloading on its own; Cash Reconciliation (MyDHLPay) switched off; IRO payment methods now cover Bank deposit, Cash deposit, Mobile Money and Credit card; payment references can be submitted with no document attached; the stray deposit-list upload above Submit is gone; and the bank field reads DHL's Bank Account."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.13 — 5 Aug 2026 · Operator statements now remember exactly which IROs you ticked: a deselected operator is never silently re-ticked after a send, an operator that could not be sent stays ticked so you can retry it, and there is an all / none control. Across BIT & Cash AR the on-screen wording is about a third shorter. The manual plug panel now quotes posting key 15, the key the journal actually writes."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

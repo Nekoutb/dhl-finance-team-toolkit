@@ -201,7 +201,7 @@ check("a row matches when ANY term matches", "terms.some(" in op)
 check("the placeholder shows the comma-separated form",
       "1005475881, 1011864556" in op)
 check("cash rows are visually tagged on the portal",
-      "r.cash_account" in op and "branch cash account" in op)
+      "r.cash_account" in op and "Branch cash account" in op)
 
 if _fail:
     print(f"\n{_fail} CHECK(S) FAILED")

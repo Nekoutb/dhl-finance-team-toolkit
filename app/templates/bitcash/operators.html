@@ -8,36 +8,33 @@
 
   <section class="panel">
     <h1>👥 Operator statements — IRO returns</h1>
-    <p class="lead">Email each reseller their open airwaybills and a secure
-      link; returns open a sandbox.</p>
     {% if rows and rows[0].cash_count %}
-    <div class="alert alert-info">Every statement also carries the
-      {{ rows[0].cash_count }} open airwaybill(s) on the branch
-      <strong>cash</strong> accounts ({{ "{:,.0f}".format(rows[0].cash_total) }}
-      XAF). They are shared, so that amount is inside every operator's total —
-      the first operator to report one takes it off everyone else's
-      statement.</div>
+    <div class="alert alert-info">All statements share the
+      {{ rows[0].cash_count }} branch <strong>cash</strong> airwaybill(s)
+      ({{ "{:,.0f}".format(rows[0].cash_total) }} XAF) — first to report one
+      takes it.</div>
     {% endif %}
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     {% if not rows %}
-      <div class="alert alert-info">No open Cash AR items on record — upload
-        the Cash AR file in <a href="/tools/bit-cash-ar">BIT &amp; Cash
-        AR</a> first.</div>
+      <div class="alert alert-info">No open Cash AR items — upload the file in
+        <a href="/tools/bit-cash-ar">BIT &amp; Cash AR</a> first.</div>
     {% else %}
     <form action="/tools/bit-cash-ar/operators/send" method="post"
-          id="sendform"></form>
+          id="sendform" autocomplete="off"></form>
     <div class="table-wrap" style="max-height:none;">
       <table class="tx-table">
-        <thead><tr><th>Send</th><th>Account</th><th>Operator</th>
+        <thead><tr><th>Send<br><a href="#" id="sel-all" class="note-inline">all</a> ·
+          <a href="#" id="sel-none" class="note-inline">none</a></th><th>Account</th><th>Operator</th>
           <th>Open AWBs</th><th>Open amount (XAF)</th><th>Email</th>
           <th>Statement</th><th>Secure link</th><th>Returns</th></tr></thead>
         <tbody>
           {% for r in rows %}
           <tr>
             <td><input type="checkbox" name="accounts" value="{{ r.account }}"
-                       form="sendform" {% if r.email %}checked{% endif %}></td>
+                       form="sendform" class="opsel" autocomplete="off"
+                       {% if r.account in ticked %}checked{% endif %}></td>
             <td><strong>{{ r.account }}</strong></td>
             <td>{{ r.name or '—' }}</td>
             <td>{{ r.count }}</td>
@@ -46,6 +43,9 @@
               <form action="/tools/bit-cash-ar/operators/email" method="post"
                     style="display:flex;gap:4px;">
                 <input type="hidden" name="account" value="{{ r.account }}">
+                <input type="hidden" name="selmade" value="1">
+                <input type="hidden" name="sel" class="selmirror"
+                       value="{{ ticked|sort|join(',') }}">
                 <input type="email" name="email" value="{{ r.email }}"
                        placeholder="operator email" style="min-width:170px;">
                 <button class="btn btn-small" type="submit">Save</button>
@@ -60,6 +60,9 @@
                     method="post" style="display:inline;"
                     onsubmit="return confirm('Issue a NEW link for {{ r.account }}? The old link stops working.');">
                 <input type="hidden" name="account" value="{{ r.account }}">
+                <input type="hidden" name="selmade" value="1">
+                <input type="hidden" name="sel" class="selmirror"
+                       value="{{ ticked|sort|join(',') }}">
                 <button class="btn btn-small" type="submit">⟳</button>
               </form>
               {% else %}<span class="note-inline">issued on first send</span>{% endif %}
@@ -75,21 +78,22 @@
         statement + link to the ticked operators</button>
       <form action="/tools/bit-cash-ar/operators/fetch-mail" method="post"
             style="display:inline;">
+        <input type="hidden" name="selmade" value="1">
+                <input type="hidden" name="sel" class="selmirror"
+                       value="{{ ticked|sort|join(',') }}">
         <button class="btn" type="submit">📥 Fetch mail now</button>
       </form>
     </div>
-    <p class="note-small">Email subject:
-      <code>PAYREF &lt;account&gt;</code>.
+    <p class="note-small">Subject: <code>PAYREF &lt;account&gt;</code>.
       {% if not imap_on %}Email returns need IMAP in
-      <a href="/settings">Settings → Operator mailbox</a>; portal links still
-      work.{% endif %}</p>
+      <a href="/settings">Settings</a>; portal links work regardless.{% endif %}</p>
     {% endif %}
   </section>
 
   <section class="panel">
-    <h2 class="section-title">💳 Reported deposits — remove to allow re-submission</h2>
-    <p class="note-small">Delete a deposit so the operator can report that
-      reference again.</p>
+    <h2 class="section-title">💳 Reported deposits</h2>
+    <p class="note-small">Delete one to let the operator report it
+      again.</p>
     {% if deposits %}
     <div class="table-wrap" style="max-height:420px;">
       <table class="tx-table">
@@ -113,6 +117,9 @@
                 <input type="hidden" name="reference" value="{{ d.reference }}">
                 <input type="hidden" name="account" value="{{ d.account }}">
                 <input type="hidden" name="at" value="{{ d.at }}">
+                <input type="hidden" name="selmade" value="1">
+                <input type="hidden" name="sel" class="selmirror"
+                       value="{{ ticked|sort|join(',') }}">
                 <button class="btn btn-small" type="submit">🗑 Delete</button>
               </form>
             </td>
@@ -141,8 +148,42 @@
         </tbody>
       </table>
     </div>
-    <p class="note-small">Register the sender's email above, then “Fetch mail
-      now”.</p>
+    <p class="note-small">Register the sender's email above, then fetch.</p>
   </section>
   {% endif %}
+  <script>
+  (function () {
+    var boxes = function () {
+      return document.querySelectorAll("input.opsel"); };
+    // Mirror the live tick set into every form on the page, so whichever
+    // form the user submits carries the selection back with it.
+    var sync = function () {
+      var on = [];
+      boxes().forEach(function (b) { if (b.checked) { on.push(b.value); } });
+      on.sort();
+      document.querySelectorAll("input.selmirror").forEach(function (h) {
+        h.value = on.join(","); });
+    };
+    var set = function (v) {
+      return function (e) {
+        e.preventDefault();
+        boxes().forEach(function (b) { b.checked = v; });
+        sync(); }; };
+    var a = document.getElementById("sel-all"),
+        n = document.getElementById("sel-none");
+    if (a) { a.addEventListener("click", set(true)); }
+    if (n) { n.addEventListener("click", set(false)); }
+    document.addEventListener("change", function (e) {
+      if (e.target && e.target.classList.contains("opsel")) { sync(); } });
+    sync();
+    // A bfcache restore replays the OLD ticks over what the server rendered.
+    // Re-assert the server's answer so a deselection can never come back.
+    window.addEventListener("pageshow", function (e) {
+      if (!e.persisted) { return; }
+      boxes().forEach(function (b) {
+        b.checked = b.hasAttribute("checked"); });
+      sync();
+    });
+  })();
+  </script>
 {% endblock %}

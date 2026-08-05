@@ -2854,7 +2854,8 @@ _IRO_MAX_FILE = 15 * 1024 * 1024
 
 
 @app.get("/tools/bit-cash-ar/operators", response_class=HTMLResponse)
-def iro_panel(request: Request, message: str = "", error: str = ""):
+def iro_panel(request: Request, message: str = "", error: str = "",
+              sel: str = "", selmade: str = ""):
     groups = iro.operator_accounts()
     records = iro.all_records()
     base = str(request.base_url).rstrip("/")
@@ -2870,10 +2871,33 @@ def iro_panel(request: Request, message: str = "", error: str = ""):
     return templates.TemplateResponse("bitcash/operators.html", {
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "rows": rows, "quarantine": iro.quarantine_list(),
+        # Which operators are ticked, decided once. On a FRESH visit the page
+        # pre-ticks everyone with an email (convenience). Once any form on the
+        # page has expressed a selection, `selmade` is set and ONLY `sel` is
+        # ticked — so a deselection is never silently undone and an operator
+        # just sent is not left armed for a second send.
+        "ticked": ({a for a in (sel or "").split(",") if a} if selmade
+                   else {r["account"] for r in rows if r["email"]}),
         "imap_on": bool((load_config().get("imap") or {}).get("enabled")),
         "deposits": iro.list_deposits(),
         "message": message, "error": error,
     })
+
+
+def _ops_back(form, message: str = "", error: str = ""):
+    """Back to the operator panel, carrying the tick set the page posted.
+
+    Every form on that screen mirrors the current selection into hidden
+    `selmade`/`sel` fields. Without this, a redirect from any of these
+    sibling routes would re-render the page on its "everyone with an email"
+    default and silently undo a deselection — the bug v11.13 fixes for the
+    send route.
+    """
+    path = "/tools/bit-cash-ar/operators"
+    if form is not None and (form.get("selmade") or "").strip():
+        path += "?" + urlencode({"selmade": "1",
+                                 "sel": (form.get("sel") or "").strip()})
+    return redirect_msg(path, message=message, error=error)
 
 
 @app.post("/tools/bit-cash-ar/operators/deposit/delete")
@@ -2888,12 +2912,12 @@ async def iro_delete_deposit(request: Request):
                            account=(form.get("account") or "").strip(),
                            at=(form.get("at") or "").strip())
     if not n:
-        return redirect_msg("/tools/bit-cash-ar/operators",
-                            error="That deposit was not found — it may already "
-                                  "have been removed.")
-    return redirect_msg("/tools/bit-cash-ar/operators",
-                        message=f"Deposit {ref or '(reference)'} removed — the "
-                                "operator can report it again.")
+        return _ops_back(form,
+                         error="That deposit was not found — it may already "
+                               "have been removed.")
+    return _ops_back(form,
+                     message=f"Deposit {ref or '(reference)'} removed — the "
+                             "operator can report it again.")
 
 
 @app.post("/tools/bit-cash-ar/operators/email")
@@ -2902,11 +2926,9 @@ async def iro_set_email(request: Request):
     account = (form.get("account") or "").strip()
     email_addr = (form.get("email") or "").strip()
     if not account or (email_addr and "@" not in email_addr):
-        return redirect_msg("/tools/bit-cash-ar/operators",
-                            error="Give a valid operator email address.")
+        return _ops_back(form, error="Give a valid operator email address.")
     iro.set_email(account, email_addr)
-    return redirect_msg("/tools/bit-cash-ar/operators",
-                        message=f"Email saved for {account}.")
+    return _ops_back(form, message=f"Email saved for {account}.")
 
 
 @app.post("/tools/bit-cash-ar/operators/regenerate")
@@ -2914,9 +2936,9 @@ async def iro_regenerate(request: Request):
     form = await request.form()
     account = (form.get("account") or "").strip()
     iro.regenerate_token(account)
-    return redirect_msg("/tools/bit-cash-ar/operators",
-                        message=f"New secure link issued for {account} — "
-                                "the old link no longer works.")
+    return _ops_back(form,
+                     message=f"New secure link issued for {account} — "
+                             "the old link no longer works.")
 
 
 @app.post("/tools/bit-cash-ar/operators/send")
@@ -2924,12 +2946,12 @@ async def iro_send(request: Request):
     form = await request.form()
     accounts = [a for a in form.getlist("accounts") if a.strip()]
     if not accounts:
-        return redirect_msg("/tools/bit-cash-ar/operators",
-                            error="Tick at least one operator account.")
+        return _ops_back(form, error="Tick at least one operator account.")
     cfg = load_config()
     smtp = cfg.get("smtp", {})
     base = str(request.base_url).rstrip("/")
     sent, emls, skipped = [], [], []
+    delivered = []          # accounts that actually got a statement out
     for account in accounts:
         entry = iro.account_entry(account)
         if not entry or not entry["rows"]:
@@ -2950,6 +2972,7 @@ async def iro_send(request: Request):
                                       stmt)
                 iro.record_sent(account, rec["email"], "smtp")
                 sent.append(account)
+                delivered.append(account)
                 continue
             except Exception as exc:  # noqa: BLE001 — fall through to .eml
                 skipped.append(f"{account} (SMTP failed: {exc})")
@@ -2960,6 +2983,7 @@ async def iro_send(request: Request):
                           subject, body, stmt)
         iro.record_sent(account, rec["email"], "eml")
         emls.append(eml.name)
+        delivered.append(account)
     bits = []
     if sent:
         bits.append(f"statement emailed to {len(sent)} operator(s)")
@@ -2969,18 +2993,26 @@ async def iro_send(request: Request):
                     + " · ".join(f"/download/{n}" for n in emls))
     if skipped:
         bits.append("skipped: " + "; ".join(skipped))
-    return redirect_msg("/tools/bit-cash-ar/operators",
-                        message=" — ".join(bits) or "Nothing to send.")
+    # Keep ticked only what was picked but NOT successfully sent (e.g. skipped
+    # for a missing email), so the list reflects what still needs doing rather
+    # than re-arming everyone.
+    done = set(delivered)
+    remaining = [a for a in accounts if a not in done]
+    return redirect_msg(
+        "/tools/bit-cash-ar/operators?" + urlencode(
+            {"selmade": "1", "sel": ",".join(remaining)}),
+        message=" — ".join(bits) or "Nothing to send.")
 
 
 @app.post("/tools/bit-cash-ar/operators/fetch-mail")
 async def iro_fetch_mail(request: Request):
+    form = await request.form()
     result = iro.poll_mailbox(load_config().get("imap"))
     if not result.get("ok"):
-        return redirect_msg("/tools/bit-cash-ar/operators",
-                            error=result.get("error", "Mailbox check failed."))
-    return redirect_msg(
-        "/tools/bit-cash-ar/operators",
+        return _ops_back(form,
+                         error=result.get("error", "Mailbox check failed."))
+    return _ops_back(
+        form,
         message=f"Mailbox checked — {result['seen']} new message(s): "
                 f"{result['created']} submission(s) created, "
                 f"{result['quarantined']} quarantined, "

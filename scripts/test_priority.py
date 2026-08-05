@@ -76,7 +76,7 @@ try:
     pri = client.get(f"/tools/ongoing-ctp-monitoring/results/{created_token}"
                      "/dashboard?priority=1")
     assert pri.status_code == 200
-    assert "priority customers only" in pri.text
+    assert "Manage the list on the" in pri.text
     m_full = re.search(r"(\d+) invoices", full.text)
     m_pri = re.search(r"(\d+) invoices", pri.text)
     assert m_pri and m_full and int(m_pri.group(1)) < int(m_full.group(1)), \
@@ -89,14 +89,14 @@ try:
     r = client.get(f"/tools/ongoing-ctp-monitoring/results/{created_token}"
                    "?priority=1")
     assert r.status_code == 200
-    assert "priority customer(s) found in" in r.text
+    assert "Priority customers only" in r.text
     assert "_priority.xlsx" in r.text
     print("ok: results page priority filter + dedicated priority Excel report")
 
     # --- 6. priority view discloses ALL customers — no further filter/cap -----
-    assert "All priority customers" in pri.text, \
+    assert "Manage the list on the" in pri.text, \
         "complete priority listing section missing"
-    assert "no further filtering or sorting applied" in pri.text
+    assert "unfiltered and unsorted" in pri.text
     assert "Showing top" not in pri.text, \
         "priority view must not truncate any table (top-N cap leaked in)"
     assert "All priority customers" not in full.text, \
