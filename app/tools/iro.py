@@ -273,7 +273,8 @@ def set_email(account, email_addr, name=""):
     return _mutate_record(account, _fn)
 
 
-PAYMENT_METHODS = ("Bank deposit", "Credit card")
+PAYMENT_METHODS = ("Bank deposit", "Cash deposit", "Mobile Money",
+                   "Credit card")
 
 
 def set_payment_details(account, bank="", payment_method=""):

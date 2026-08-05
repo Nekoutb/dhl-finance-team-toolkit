@@ -1304,6 +1304,11 @@ check("statement email is short and carries the essentials",
       and len([ln for ln in body5.splitlines() if ln.strip()]) <= 3)
 
 # === 17. v10.6 — MyDHLPay + Cash Reconciliation =============================
+# v11.12: MyDHLPay ships switched OFF; this section turns it on to exercise it.
+from app.config import save_user_config as _save_cfg  # noqa: E402
+
+_save_cfg({"mydhlpay": {"enabled": True}})
+
 from app.tools import mydhlpay  # noqa: E402
 
 mydhlpay.PAY_DIR = _tmp / "mydhlpay"
@@ -1536,9 +1541,12 @@ check("portal shows the locked slip panel + beneficiary bank box",
       "iro-slip-bank" in r.text and "Beneficiary bank" in flat20
       and "Bank deposit slip" in flat20
       and "iro-locked" in r.text)
-check("portal offers the deposit-list option",
-      "deposit slips list" in flat20.lower()
-      and "iro-deplist-table" in r.text)
+# v11.12: the deposit-slips-LIST upload was removed from the portal (it sat
+# just above Submit and confused operators). The parser + endpoint stay for the
+# email channel, so both are still exercised below.
+check("the deposit-list upload is no longer on the portal",
+      "deposit slips list" not in flat20.lower()
+      and "iro-deplist-table" not in r.text)
 
 dep_xlsx = _tmp / "deplist.xlsx"
 wbd = openpyxl.Workbook()
@@ -1626,9 +1634,12 @@ check("re-match keeps the slip anchors (no vanishing on file replacement)",
       and 0 in recheck2.get("ref_hits", []))
 
 r = client.get(f"/operator/{tok1}")
-check("portal defines its own error surface (deposit list is alive)",
+# The 'textContent = v' clause belonged to the deposit-list rows removed in
+# v11.12; the error surface itself is still asserted, and is still used by the
+# slip upload / discard paths.
+check("portal defines its own error surface",
       'id="iro-error"' in r.text and "function showError" in r.text
-      and "textContent = v" in r.text)
+      and "showError(" in r.text)
 
 # === 21. v11.0 — Cash AR Ageing + deposit release on sandbox delete ========
 from datetime import date as _date, timedelta as _td  # noqa: E402

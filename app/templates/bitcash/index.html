@@ -222,20 +222,47 @@
       <a class="btn" href="/tools/bit-cash-ar/operators">👥 Operator
         statements (IRO){% if op_pending %} —
         <strong>{{ op_pending }} return(s) awaiting review</strong>{% endif %}</a>
+      {% if cfg.mydhlpay and cfg.mydhlpay.enabled %}
       <a class="btn" href="/tools/bit-cash-ar/cash-recon">💵 Cash
         Reconciliation (MyDHLPay)</a>
+      {% endif %}
     </div>
     {% if journal or pack %}
-    <div class="download-row" style="margin-top:8px;">
+    <div class="download-row" id="journal-ready" style="margin-top:8px;
+         scroll-margin-top:80px;">
       {% if pack %}
-      <a class="btn btn-primary" href="/download/{{ pack }}">⬇ Full pack
-        (ZIP — payment advices + evidences Excel + journal)</a>
+      <a class="btn btn-primary" id="pack-dl" href="/download/{{ pack }}">
+        ⬇ Full pack (ZIP — payment advices + evidences Excel + journal)</a>
       {% endif %}
       {% if journal %}
       <a class="btn" href="/download/{{ journal }}{% if jname %}?download_as={{ jname|urlencode }}{% endif %}">⬇
         Journal entry only (Excel)</a>
       {% endif %}
+      <span class="note-inline" id="dl-note"></span>
     </div>
+    <script>
+      // The journal was just generated: bring the buttons into view and start
+      // the pack download automatically. Guarded by sessionStorage so a page
+      // refresh (or the back button) does not download it again.
+      (function () {
+        var row = document.getElementById("journal-ready");
+        if (!row) { return; }
+        row.scrollIntoView({behavior: "smooth", block: "center"});
+        var dl = document.getElementById("pack-dl");
+        if (!dl) { return; }
+        var key = "ft-dl-" + dl.getAttribute("href");
+        try {
+          if (sessionStorage.getItem(key)) { return; }
+          sessionStorage.setItem(key, "1");
+        } catch (e) { /* private mode: just download */ }
+        var note = document.getElementById("dl-note");
+        if (note) { note.textContent = "downloading the full pack…"; }
+        var f = document.createElement("iframe");   // no navigation away
+        f.style.display = "none";
+        f.src = dl.getAttribute("href");
+        document.body.appendChild(f);
+      })();
+    </script>
     {% endif %}
 
     {% if recons %}

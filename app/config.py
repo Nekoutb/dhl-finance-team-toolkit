@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.11 — 5 Aug 2026 · Journal evidence tabs now SHOW the deposit slip: a PDF bordereau is rendered (first page) and embedded, not silently skipped, and every evidence file is listed by name on the tab with where to find it in the pack."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.12 — 5 Aug 2026 · Usability: the generated journal now scrolls itself into view and the full pack starts downloading on its own; Cash Reconciliation (MyDHLPay) switched off; IRO payment methods now cover Bank deposit, Cash deposit, Mobile Money and Credit card; payment references can be submitted with no document attached; the stray deposit-list upload above Submit is gone; and the bank field reads DHL's Bank Account."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -57,6 +57,9 @@ DEFAULT_CONFIG = {
     # MyDHLPay: the public scan-to-pay page. The USSD template + merchant
     # number the Pay buttons dial (Orange Money merchant payment).
     "mydhlpay": {
+        # OFF by default — the scan-to-pay page and its Cash Reconciliation
+        # section stay hidden and refuse requests until this is turned on.
+        "enabled": False,
         "merchant": "675153953",
         "ussd_template": "*126*1*1*{merchant}*{amount}#",
     },

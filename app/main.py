@@ -2990,8 +2990,17 @@ async def iro_fetch_mail(request: Request):
 # --------------------------------------------------------------------------- #
 # MyDHLPay — public scan-to-pay page + the Cash Reconciliation section
 # --------------------------------------------------------------------------- #
+def _mydhlpay_off():
+    """MyDHLPay (the public scan-to-pay page and its Cash Reconciliation
+    section) is switched off unless config mydhlpay.enabled is true. Hiding the
+    link is not enough — the public /pay routes must refuse too."""
+    return not (load_config().get("mydhlpay") or {}).get("enabled")
+
+
 @app.get("/pay", response_class=HTMLResponse)
 def mydhlpay_page(request: Request, code: str = ""):
+    if _mydhlpay_off():
+        return HTMLResponse("<h1>Not available</h1><p>Online payment is not available at the moment.</p>", status_code=404)
     cfg = load_config()
     session = mydhlpay.load_session(code) if code else None
     pay_cfg = cfg.get("mydhlpay", {})
@@ -3013,6 +3022,8 @@ _PAY_PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 
 @app.post("/pay/read-receipt")
 async def mydhlpay_read_receipt(request: Request):
+    if _mydhlpay_off():
+        return JSONResponse({"error": "Online payment is not available."}, status_code=404)
     """Photo of the waybill / shipment receipt → the parsed confirm card.
     Nothing is added until the customer confirms what was read."""
     cfg = load_config()
@@ -3057,6 +3068,8 @@ async def mydhlpay_read_receipt(request: Request):
 
 @app.post("/pay/add")
 async def mydhlpay_add(request: Request):
+    if _mydhlpay_off():
+        return JSONResponse({"error": "Online payment is not available."}, status_code=404)
     form = await request.form()
     result = mydhlpay.add_awb(str(form.get("code") or "").strip(),
                               form.get("awb") or "",
@@ -3082,6 +3095,9 @@ async def mydhlpay_add(request: Request):
 @app.get("/tools/bit-cash-ar/cash-recon", response_class=HTMLResponse)
 def mydhlpay_cash_recon(request: Request, message: str = "",
                         error: str = ""):
+    if _mydhlpay_off():
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="Cash Reconciliation (MyDHLPay) is switched off.")
     return templates.TemplateResponse("bitcash/cashrecon.html", {
         "request": request, "cfg": load_config(), "tool": _BITCASH_TOOL,
         "sessions": mydhlpay.list_sessions(),
@@ -3091,6 +3107,9 @@ def mydhlpay_cash_recon(request: Request, message: str = "",
 
 @app.post("/tools/bit-cash-ar/cash-recon/{code}/sandbox")
 async def mydhlpay_sandbox(request: Request, code: str):
+    if _mydhlpay_off():
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="Cash Reconciliation (MyDHLPay) is switched off.")
     token = mydhlpay.create_sandbox(code)
     if token is None:
         return redirect_msg("/tools/bit-cash-ar/cash-recon",
@@ -3102,6 +3121,9 @@ async def mydhlpay_sandbox(request: Request, code: str):
 
 @app.post("/tools/bit-cash-ar/cash-recon/{code}/delete")
 async def mydhlpay_delete(request: Request, code: str):
+    if _mydhlpay_off():
+        return redirect_msg("/tools/bit-cash-ar",
+                            error="Cash Reconciliation (MyDHLPay) is switched off.")
     if mydhlpay.delete_session(code):
         return redirect_msg("/tools/bit-cash-ar/cash-recon",
                             message=f"Session {code} removed.")
@@ -3586,7 +3608,7 @@ async def bitcash_journal(request: Request):
                        "Download the journal or the full pack below."
                        + skipped_note,
             "journal": out.name, "jname": result["name"],
-            "pack": pack_name}),
+            "pack": pack_name}) + "#journal-ready",
         status_code=303)
 
 
