@@ -1,6 +1,6 @@
 {
  "app/config.py": {
-  "cameroon": 2,
+  "cameroon": 3,
   "cash_acct_prefix": 2,
   "momo_merchant": 1
  },
@@ -80,9 +80,9 @@
   "zero_dec_money": 3
  },
  "app/templates/bitcash/recon.html": {
-  "XAF": 13,
+  "XAF": 12,
   "cameroon": 1,
-  "zero_dec_money": 27
+  "zero_dec_money": 28
  },
  "app/templates/cheques/index.html": {
   "zero_dec_money": 5
@@ -109,7 +109,7 @@
   "zero_dec_money": 1
  },
  "app/templates/operator/statement.html": {
-  "XAF": 6,
+  "XAF": 7,
   "zero_dec_money": 2
  },
  "app/templates/orange/customers.html": {

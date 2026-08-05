@@ -6,7 +6,7 @@
     <p class="lead">Account <strong>{{ entry.account }}</strong> ·
       {{ entry.count }} open ·
       <strong>{{ "{:,.0f}".format(entry.total) }} XAF</strong><br>
-      Tick what you paid, enter the amount and reference, submit.
+      Tick what you paid, pick how you paid it, then submit.
       {%- if entry.cash_count %} {{ entry.cash_count }} are branch
       <strong>cash</strong> — tick only yours.{% endif %}</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
@@ -39,13 +39,16 @@
 
       <div class="table-wrap" style="max-height:none;">
         <table class="tx-table" id="iro-table">
-          <thead><tr><th>Paid?</th><th>Airwaybill</th><th>Reference</th>
+          <thead><tr><th>Paid?</th><th>Airwaybill</th>
+            <th>Mode of payment</th><th>Provider</th>
             <th>Amount (XAF)</th><th>Payment reference</th>
             <th>Amount actually paid</th><th>Difference</th>
             <th>Comments</th></tr></thead>
           <tbody>
-            {% for r in entry.rows %}
             {% set drefs = draft.ticks if draft and draft.ticks else {} %}
+            {% set dmodes = draft.modes if draft and draft.modes else {} %}
+            {% set dprov = draft.providers if draft and draft.providers else {} %}
+            {% for r in entry.rows %}
             <tr>
               <td><input type="checkbox" name="awb" value="{{ r.awb }}"
                          class="iro-tick" data-amt="{{ r.amount or 0 }}"
@@ -53,7 +56,21 @@
               <td><strong>{{ r.awb or r.assignment }}</strong>
                 {%- if r.cash_account %} <span class="pill pill-watch"
                   title="Branch cash account {{ r.cash_account }} — tick if yours">cash</span>{% endif %}</td>
-              <td>{{ r.reference }}</td>
+              <td>
+                <select name="mode_{{ r.awb }}" class="iro-mode">
+                  {% set rmode = posted_mode.get(r.awb) or dmodes.get(r.awb) or 'Bank' %}
+                  {% for m in payment_modes %}
+                  <option value="{{ m }}"{% if m == rmode %} selected{% endif %}>{{ m }}</option>
+                  {% endfor %}
+                </select></td>
+              <td>
+                {% set rprov = posted_provider.get(r.awb) or dprov.get(r.awb, '') %}
+                <select name="provider_{{ r.awb }}" class="iro-provider"
+                        data-value="{{ rprov }}" style="min-width:130px;"></select>
+                <input type="text" name="provider_{{ r.awb }}"
+                       class="iro-cashref" maxlength="40" disabled
+                       placeholder="deposit reference" value="{{ rprov }}"
+                       style="display:none;min-width:130px;"></td>
               <td>{{ "{:,.0f}".format(r.amount or 0) }}</td>
               <td><input type="text" name="ref_{{ r.awb }}" maxlength="40"
                          class="iro-ref" placeholder="e.g. DEP-4471-BICEC"
@@ -74,8 +91,9 @@
         </table>
       </div>
 
-      <p style="margin:10px 0 4px;">Total of ticked airwaybills:
-        <strong id="iro-total">0</strong> XAF</p>
+      <p style="margin:10px 0 4px;">Ticked airwaybills:
+        <strong id="iro-total">0</strong> XAF ·
+        Total amount paid: <strong id="iro-total-paid">0</strong> XAF</p>
 
       <div class="inline-fields" style="margin-bottom:8px;">
         <label class="field" style="min-width:230px;">
@@ -95,14 +113,6 @@
       </div>
 
       <div class="inline-fields" style="margin-bottom:8px;">
-        <label class="field" style="min-width:170px;">
-          <span>Payment method</span>
-          <select name="payment_method" id="iro-method">
-            {% for m in payment_methods %}
-            <option value="{{ m }}"{% if m == op_method %} selected{% endif %}>{{ m }}</option>
-            {% endfor %}
-          </select>
-        </label>
         <label class="field" style="min-width:200px;">
           <span>DHL's Bank Account</span>
           <select name="bank" id="iro-bank">
@@ -178,6 +188,8 @@
       <style>.iro-locked { background: rgba(100,116,139,.12);
         color: #64748b; }</style>
 
+      <div id="iro-confirm" class="alert alert-info"
+           style="display:none;"></div>
       <button class="btn btn-primary" type="submit" id="iro-submit">📨
         Submit payment references</button>
       <p class="note-small" id="iro-draft-note" style="margin-top:6px;"></p>
@@ -196,14 +208,74 @@
           e.style.display = msg ? "" : "none";
         }
         function total() {
-          var t = 0;
+          var t = 0, paid = 0;
           document.querySelectorAll(".iro-tick:checked").forEach(function (c) {
             t += parseFloat(c.getAttribute("data-amt") || "0");
+            var p = c.closest("tr").querySelector(".iro-paid");
+            var v = p ? parseFloat(p.value) : NaN;
+            if (!isNaN(v)) { paid += v; }
           });
           document.getElementById("iro-total").textContent = fmt(t);
+          document.getElementById("iro-total-paid").textContent = fmt(paid);
         }
+        // Ticking pre-fills the amount paid with the airwaybill amount (still
+        // editable, so variances can be typed and explained). Unticking
+        // clears it only when the pre-fill was never edited.
         document.querySelectorAll(".iro-tick").forEach(function (c) {
-          c.addEventListener("change", total);
+          c.addEventListener("change", function () {
+            var p = c.closest("tr").querySelector(".iro-paid");
+            if (c.checked) {
+              if (p && p.value.trim() === "") {
+                p.value = c.getAttribute("data-amt") || "";
+                p.dataset.auto = "1";
+                diffRow(p);
+              }
+            } else if (p && p.dataset.auto === "1" &&
+                       parseFloat(p.value) ===
+                       parseFloat(c.getAttribute("data-amt") || "0")) {
+              p.value = "";
+              delete p.dataset.auto;
+              diffRow(p);
+            }
+            total();
+          });
+        });
+        // Provider options follow the row's mode of payment; Cash swaps the
+        // dropdown for a deposit-reference box.
+        var PROVIDERS = {{ providers | tojson }};
+        function syncRow(modeSel) {
+          var tr = modeSel.closest("tr");
+          var prov = tr.querySelector(".iro-provider");
+          var cash = tr.querySelector(".iro-cashref");
+          var mode = modeSel.value;
+          if (mode === "Cash") {
+            prov.style.display = "none"; prov.disabled = true;
+            cash.style.display = ""; cash.disabled = false;
+            return;
+          }
+          cash.style.display = "none"; cash.disabled = true;
+          prov.style.display = "";
+          var list = PROVIDERS[mode] || [];
+          var want = prov.value || prov.getAttribute("data-value") || "";
+          prov.innerHTML = "";
+          if (!list.length) {
+            var none = document.createElement("option");
+            none.value = ""; none.textContent = "—";
+            prov.appendChild(none);
+            prov.disabled = true;
+            return;
+          }
+          prov.disabled = false;
+          list.forEach(function (name) {
+            var o = document.createElement("option");
+            o.value = name; o.textContent = name;
+            if (name === want) { o.selected = true; }
+            prov.appendChild(o);
+          });
+        }
+        document.querySelectorAll(".iro-mode").forEach(function (m) {
+          m.addEventListener("change", function () { syncRow(m); });
+          syncRow(m);
         });
         // Live per-row difference = amount actually paid − statement amount.
         function diffRow(inp) {
@@ -218,7 +290,11 @@
             : (d > 0 ? "#b06f00" : "#bd3727");
         }
         document.querySelectorAll(".iro-paid").forEach(function (inp) {
-          inp.addEventListener("input", function () { diffRow(inp); });
+          inp.addEventListener("input", function () {
+            delete inp.dataset.auto;      // edited by hand — keep on untick
+            diffRow(inp);
+            total();
+          });
         });
         // Apply ONE payment reference across every ticked airwaybill —
         // overwrites each ticked row's reference so a lumpsum payment is
@@ -248,16 +324,6 @@
             (bankSel.value === "__other__") ? "" : "none";
         }
         if (bankSel) { bankSel.addEventListener("change", syncBank); syncBank(); }
-        var methodSel = document.getElementById("iro-method");
-        var slipLabel = document.getElementById("iro-slip-label");
-        function syncMethod() {
-          if (slipLabel) {
-            slipLabel.textContent =
-              (methodSel.value === "Credit card")
-                ? "Credit-card payment receipt" : "Bank deposit slip";
-          }
-        }
-        if (methodSel) { methodSel.addEventListener("change", syncMethod); syncMethod(); }
 
         var filter = document.getElementById("iro-filter");
         var onlyTicked = document.getElementById("iro-onlyticked");
@@ -403,17 +469,23 @@
         var draftNote = document.getElementById("iro-draft-note");
         function saveDraft() {
           if (submitted) { return; }
-          var ticks = {};
+          var ticks = {}, modes = {}, provs = {};
           document.querySelectorAll(".iro-tick:checked").forEach(
             function (c) {
-              var ref = c.closest("tr").querySelector(".iro-ref");
+              var tr = c.closest("tr");
+              var ref = tr.querySelector(".iro-ref");
               ticks[c.value] = ref ? ref.value : "";
+              var m = tr.querySelector(".iro-mode");
+              if (m) { modes[c.value] = m.value; }
+              var pv = tr.querySelector(
+                m && m.value === "Cash" ? ".iro-cashref" : ".iro-provider");
+              if (pv && pv.value) { provs[c.value] = pv.value; }
             });
           fetch("/operator/{{ token }}/draft", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
-              ticks: ticks,
+              ticks: ticks, modes: modes, providers: provs,
               reference: document.getElementById("iro-globalref").value,
               payment_date: paydate.value })
           }).then(function (r) { return r.json(); })
@@ -431,12 +503,25 @@
           draftTimer = setTimeout(saveDraft, 900);
         }
         var submitted = false;
+        var confirmed = false;
+        // Any edit voids a confirmation already on screen: the summary no
+        // longer describes what would be sent, so it must be re-approved.
+        function unconfirm() {
+          if (submitted) { return; }
+          confirmed = false;
+          var box = document.getElementById("iro-confirm");
+          if (box && box.style.display !== "none") {
+            box.style.display = "none";
+          }
+        }
         document.getElementById("iro-form").addEventListener("input",
-          queueDraft);
+          function () { unconfirm(); queueDraft(); });
         document.getElementById("iro-form").addEventListener("change",
-          queueDraft);
+          function () { unconfirm(); queueDraft(); });
         document.getElementById("iro-form").addEventListener("submit",
           function (e) {
+            // Already sending — a second click must never post twice.
+            if (submitted) { e.preventDefault(); return; }
             // Every ticked airwaybill needs the amount actually paid, and any
             // difference needs an explanation (the server enforces this too).
             var bad = [], noWhy = [];
@@ -458,6 +543,7 @@
               });
             if (bad.length || noWhy.length) {
               e.preventDefault();
+              confirmed = false;      // whatever was approved is now void
               showError(bad.length
                 ? "Enter the amount actually paid for: " + bad.slice(0, 5).join(", ")
                   + (bad.length > 5 ? " …" : "")
@@ -465,6 +551,60 @@
                   + noWhy.slice(0, 5).join(", ")
                   + (noWhy.length > 5 ? " …" : ""));
               window.scrollTo({top: 0, behavior: "smooth"});
+              return;
+            }
+            // One look before it goes: the payments grouped by mode, each
+            // with its total and airwaybills, to confirm or step back.
+            if (!confirmed) {
+              e.preventDefault();
+              var groups = {}, orderM = [];
+              document.querySelectorAll(".iro-tick:checked").forEach(
+                function (c) {
+                  var tr = c.closest("tr");
+                  var mSel = tr.querySelector(".iro-mode");
+                  var mode = mSel ? mSel.value : "Bank";
+                  if (!groups[mode]) {
+                    groups[mode] = {total: 0, awbs: []};
+                    orderM.push(mode);
+                  }
+                  var pIn = tr.querySelector(".iro-paid");
+                  groups[mode].total += parseFloat(pIn.value) || 0;
+                  groups[mode].awbs.push(c.value);
+                });
+              var box = document.getElementById("iro-confirm");
+              var html = "<strong>Kindly confirm before sending:</strong><br>";
+              orderM.forEach(function (m) {
+                html += "Total payment by <strong>" + m.toUpperCase()
+                  + "</strong> is <strong>" + fmt(groups[m].total)
+                  + " XAF</strong> for " + groups[m].awbs.length
+                  + " airwaybill(s): " + groups[m].awbs.join(", ") + "<br>";
+              });
+              html += '<div style="margin-top:8px;">'
+                + '<button type="button" class="btn btn-primary" '
+                + 'id="iro-confirm-yes">✓ Confirm & send</button> '
+                + '<button type="button" class="btn" id="iro-confirm-no">'
+                + '✎ Go back</button></div>';
+              box.innerHTML = html;
+              box.style.display = "";
+              box.scrollIntoView({behavior: "smooth", block: "center"});
+              document.getElementById("iro-confirm-yes").addEventListener(
+                "click", function () {
+                  if (submitted) { return; }
+                  this.disabled = true;
+                  confirmed = true;
+                  var f = document.getElementById("iro-form");
+                  if (f.requestSubmit) { f.requestSubmit(); }
+                  else {
+                    submitted = true;
+                    var b = document.getElementById("iro-submit");
+                    b.disabled = true;
+                    b.textContent = "Sending…";
+                    if (draftTimer) { clearTimeout(draftTimer); }
+                    f.submit();
+                  }
+                });
+              document.getElementById("iro-confirm-no").addEventListener(
+                "click", function () { box.style.display = "none"; });
               return;
             }
             // The return is being SENT: no late autosave may resurrect it,

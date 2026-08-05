@@ -1223,14 +1223,14 @@
    10.0
   ],
   "H10": [
-   "MANUAL RECIEPT ",
+   "SHORT PAYMENT",
    "str",
    "General",
    "Arial",
    10.0
   ],
   "H11": [
-   "MANUAL RECIEPT ",
+   "SHORT PAYMENT",
    "str",
    "General",
    "Arial",
@@ -1517,7 +1517,7 @@
    10.0
   ],
   "N11": [
-   "payment difference on payment reference DEP-9999-UBA",
+   "DEP-4471-BICEC",
    "str",
    "@",
    "Arial",

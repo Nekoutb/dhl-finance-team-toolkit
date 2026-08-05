@@ -68,6 +68,15 @@
       {% if view.slip_total %} <strong>Banked {{ "{:,.0f}".format(view.slip_total) }}</strong>.{% endif %}
       {% if view.payment_refs %} <strong>Ref(s): {{ view.payment_refs|join(", ") }}</strong>.{% endif %}
     </div>
+    {% if view.mode_totals %}
+    <div class="alert alert-info">💳 As declared by the operator:
+      {% for g in view.mode_totals %}
+      <strong>{{ g.mode }}</strong> {{ "{:,.0f}".format(g.total) }} XAF
+      ({{ g.awbs|length }} AWB{% if g.providers %} ·
+      {{ g.providers|join(", ") }}{% endif %}){% if not loop.last %} · {% endif %}
+      {% endfor %}{% if view.bank_total %} — the Bank total anchors the BIT
+      search.{% endif %}</div>
+    {% endif %}
 
     <!-- Reconciliation difference -->
     <div class="kpi-strip">
@@ -284,7 +293,8 @@
                placeholder="e.g. cash over/short account">
       </label>
       <label class="field" style="min-width:220px;">
-        <span>Note (journal assignment)</span>
+        <span>Note (kept here — the journal carries the payment
+          reference)</span>
         <input type="text" name="note"
                value="{{ view.plug.note if view.plug else view.plug_note_default }}"
                placeholder="e.g. deposit rounded at bank">

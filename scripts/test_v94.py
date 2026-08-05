@@ -390,12 +390,19 @@ check("bank side split per AWB (first pair: 40 + 15, 53,639, AWB in Doc.Nr)",
       and jrows[1][11] == 53639.0 and jrows[1][6] == "4095823454")
 # v11.8: the plug books on the SAME two keys as every other line (40 / 15),
 # the direction carried by the amount's sign (short payment posts negative).
+# v11.15: the plug pair's TEXT column names the variance direction and the
+# customer-side assignment carries the payment reference (here the BIT line's
+# own reference, as this return submitted none) — the note stays off-journal.
 plug_pair = [r for r in jrows if r[11] == -71.0]
 check("plug booked as a balanced 40/15 pair (signed)",
       len(plug_pair) == 2
       and plug_pair[0][9] == 1263001293 and plug_pair[0][10] == 40
       and plug_pair[1][9] == 471000 and plug_pair[1][10] == 15
-      and plug_pair[1][13] == "BANKED SHORT")
+      and plug_pair[1][13] == "CMBUE")
+check("plug pair says SHORT PAYMENT in the text column",
+      all(r[7] == "SHORT PAYMENT" for r in plug_pair))
+check("AWB lines keep the MANUAL RECIEPT header text",
+      all(r[7] == "MANUAL RECIEPT " for r in jrows if r not in plug_pair))
 check("the journal uses ONLY posting keys 40 and 15",
       {r[10] for r in jrows} == {40, 15})
 sum40 = sum(r[11] for r in jrows if r[10] == 40)

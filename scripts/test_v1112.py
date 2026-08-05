@@ -114,8 +114,8 @@ bitcash.ROWS_PATH.write_text(json.dumps({
 tok = iro.ensure_token("4003025705")["token"]
 r = client.get(f"/operator/{tok}")
 check("the portal renders for the operator", r.status_code == 200)
-check("all four payment methods are offered on the page",
-      all(m in r.text for m in iro.PAYMENT_METHODS))
+check("all four modes of payment are offered on the page",
+      all(m in r.text for m in iro.PAYMENT_MODES))
 
 r = client.post(f"/operator/{tok}/submit", data={
     "awb": "7010101010", "ref_7010101010": "DEP-NODOC",

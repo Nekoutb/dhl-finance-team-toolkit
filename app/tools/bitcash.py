@@ -761,7 +761,7 @@ VARIANCE_EMAIL_THRESHOLD = 5000.0
 
 
 def automatch(statement, slip_total=None, payment_refs=None,
-              slip_refs=None):
+              slip_refs=None, bank_total=None):
     """Match a parsed statement against the stored Cash AR + BIT rows.
 
     The statement TOTAL is always recomputed arithmetically from its lines
@@ -771,9 +771,11 @@ def automatch(statement, slip_total=None, payment_refs=None,
 
     BIT anchors, strongest first: (1) ``payment_refs`` — bank references
     submitted with the evidence (operator returns) are looked up INSIDE the
-    BIT's reference/text/assignment; a unique hit auto-selects; (2) the
-    deposit-slip total (what was actually banked); (3) the evidence total,
-    within ±BIT_MATCH_MARGIN, closest first.
+    BIT's reference/text/assignment; a unique hit auto-selects; (2)
+    ``bank_total`` — the sum the IRO declared as paid BY BANK (only bank
+    money lands on a bank statement, so this beats every whole-statement
+    figure); (3) the deposit-slip total; (4) the evidence total, within
+    ±BIT_MATCH_MARGIN, closest first.
 
     Returns (lines, ar_selected, bit_candidates, bit_selected).
     """
@@ -803,27 +805,31 @@ def automatch(statement, slip_total=None, payment_refs=None,
 
     total = _to_float(statement.get("total"))
     slip = abs(_to_float(slip_total)) if slip_total else 0.0
+    bank = abs(_to_float(bank_total)) if bank_total else 0.0
     refs = list(payment_refs or []) + \
         [ln.get("payment_reference") for ln in lines
          if ln.get("payment_reference")]
     strong, agree, trail = _anchor_hits(refs, slip_refs, data["bit"], slip)
     ref_hits = strong + agree
-    targets = [t for t in (slip, abs(total or 0)) if t]
+    targets = [t for t in (bank, slip, abs(total or 0)) if t]
     cands, bit_selected = [], None
     if targets:
         def _dist(row):
             return min(abs(abs(row["amount"]) - t) for t in targets)
 
         def _rank(row):
-            # ZERO variance is the principle: the EXACT banked amount on
-            # the deposit slip is the primary suggestion, the exact
-            # evidence total second; the ±margin window is only a fallback.
+            # ZERO variance is the principle: the EXACT amount declared as
+            # paid by bank first (only bank money reaches the BIT), the
+            # exact banked amount on the deposit slip second, the exact
+            # evidence total third; the ±margin window is only a fallback.
             a = abs(row["amount"])
-            if slip and a == slip:
+            if bank and a == bank:
                 return (0, 0.0)
-            if total and a == abs(total):
+            if slip and a == slip:
                 return (1, 0.0)
-            return (2, _dist(row))
+            if total and a == abs(total):
+                return (2, 0.0)
+            return (3, _dist(row))
         near = sorted((r for r in data["bit"]
                        if _dist(r) <= BIT_MATCH_MARGIN),
                       key=lambda r: (*_rank(r), r["id"]))
@@ -933,11 +939,22 @@ def _read_slip_total(slip_path, slip_media, ai_cfg):
         .get("amount")
 
 
+def _bank_mode_total(rec):
+    """The sum the IRO declared as paid BY BANK — the primary BIT anchor.
+    None when the return carries no per-mode breakdown (older records,
+    email channel)."""
+    for g in rec.get("mode_totals") or []:
+        if str(g.get("mode", "")).lower() == "bank" and g.get("total"):
+            return g["total"]
+    return None
+
+
 def create_recon_async(stored_path, media_type, source, uploaded_by,
                        slip_path=None, slip_media=None, slip_source="",
                        extra_slips=None, payment_refs=None,
                        slip_total=None, slip_info=None,
-                       account="", operator_bank="", payment_method=""):
+                       account="", operator_bank="", payment_method="",
+                       mode_totals=None):
     """Create a sandbox stub and AI-read/match the statement on a background
     thread (a scanned PDF can take a minute — never block the request).
     Copies of the payment advice AND the bank deposit slip(s) are kept with
@@ -982,6 +999,9 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
                 "account": str(account or "").strip(),
                 "operator_bank": str(operator_bank or "").strip()[:60],
                 "payment_method": str(payment_method or "").strip()[:30],
+                # Per-mode breakdown of the return: [{mode, total, awbs,
+                # providers}] — the Bank group's total anchors the BIT hunt.
+                "mode_totals": mode_totals or [],
                 "statement": None, "error": ""})
     from ..config import load_config
 
@@ -1008,7 +1028,8 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
             refs = stub.get("payment_refs", [])
             lines, ar_sel, cands, bit_sel = automatch(
                 statement, resolved_slip_total, payment_refs=refs,
-                slip_refs=_slip_refs(info))
+                slip_refs=_slip_refs(info),
+                bank_total=_bank_mode_total(stub))
             statement["lines"] = lines
             all_refs = refs + [ln.get("payment_reference") for ln in lines
                                if ln.get("payment_reference")]
@@ -1022,9 +1043,10 @@ def create_recon_async(stored_path, media_type, source, uploaded_by,
                            for r in rows_store()["bit"]}
             tot = abs(_to_float(statement.get("total")) or 0)
             slp = abs(_to_float(resolved_slip_total) or 0)
+            bnk = abs(_to_float(_bank_mode_total(stub)) or 0)
             exact_n = max(
                 sum(1 for i in cands if bit_amounts.get(i) == t)
-                for t in (tot, slp)) if (tot or slp) else 0
+                for t in (tot, slp, bnk)) if (tot or slp or bnk) else 0
             rec = load_recon(token) or {}
             rec.update({
                 "status": "open", "statement": statement,
@@ -1057,7 +1079,8 @@ def rematch(token):
     lines, ar_sel, cands, bit_sel = automatch(
         statement, rec.get("slip_total"),
         payment_refs=rec.get("payment_refs", []),
-        slip_refs=_slip_refs(rec.get("slip_info")))
+        slip_refs=_slip_refs(rec.get("slip_info")),
+        bank_total=_bank_mode_total(rec))
     statement["lines"] = lines
     all_refs = rec.get("payment_refs", []) + \
         [ln.get("payment_reference") for ln in lines
@@ -1069,8 +1092,9 @@ def rematch(token):
     bit_amounts = {r["id"]: abs(r["amount"]) for r in rows_store()["bit"]}
     tot = abs(_to_float(statement.get("total")) or 0)
     slp = abs(_to_float(rec.get("slip_total")) or 0)
+    bnk = abs(_to_float(_bank_mode_total(rec)) or 0)
     exact_n = max(sum(1 for i in cands if bit_amounts.get(i) == t)
-                  for t in (tot, slp)) if (tot or slp) else 0
+                  for t in (tot, slp, bnk)) if (tot or slp or bnk) else 0
     rec.update({"statement": statement, "ar_selected": ar_sel,
                 "bit_candidates": cands, "bit_selected": bit_sel,
                 "bit_duplicate": exact_n > 1,
@@ -1248,6 +1272,8 @@ def recon_view(recon):
             "account": recon_account(recon),
             "operator_bank": recon.get("operator_bank", ""),
             "payment_method": recon.get("payment_method", ""),
+            "mode_totals": recon.get("mode_totals", []),
+            "bank_total": _bank_mode_total(recon),
             "plug_account_default": recon_account(recon),
             "plug_note_default": (
                 "payment difference on payment reference "
@@ -1628,13 +1654,15 @@ def build_journal(out_path, now=None, tokens=None):
         bank_rows.append(bit)
         # AWB split: the bank side mirrors the Cash AR one-for-one — a 40
         # line and a 15 line per AWB, each pair carrying the SAME individual
-        # amount and the AWB in the Ref/Doc.Nr column.
+        # amount and the AWB in the Ref/Doc.Nr column. Sixth element = the
+        # header-text column (the journal's only text column).
         entries = []
         for a in ars:
             awb = a["awb"] or a["assignment"]
             entries.append((bit["gl_account"], 40, a["amount"],
-                            bit["assignment"], awb))
-            entries.append((a["sap_acct"], 15, a["amount"], awb, awb))
+                            bit["assignment"], awb, _MANUAL))
+            entries.append((a["sap_acct"], 15, a["amount"], awb, awb,
+                            _MANUAL))
         # Manual plug: a balanced PAIR on the SAME two posting keys used by
         # every other line — 40 on the bank G/L, 15 on the customer/plug
         # account (these are the only two keys this journal uses). The
@@ -1642,15 +1670,23 @@ def build_journal(out_path, now=None, tokens=None):
         # posts -plug on both sides, which walks the bank debit down to the
         # amount actually banked and leaves the shortfall owed on the
         # account; an excess payment posts +plug on both sides.
+        # The plug pair's TEXT column names the variance direction, and its
+        # customer-side assignment carries the PAYMENT TRANSACTION REFERENCE
+        # (the reference the IRO submitted; the BIT line's own reference as
+        # fallback) — not the free-text note, which stays on the sandbox.
         plug = rec.get("plug") or {}
         plug_amt = _to_float(plug.get("amount"))
         if plug_amt and plug.get("account"):
-            note = plug.get("note") or "DIFFERENCE PLUG"
+            variance_txt = "SHORT PAYMENT" if plug_amt > 0 else "OVERPAYMENT"
+            pay_ref = ((rec.get("payment_refs") or [""])[0]
+                       or bit.get("reference") or plug.get("note")
+                       or "DIFFERENCE PLUG")
             signed = round(-plug_amt, 2)
             entries.append((bit["gl_account"], 40, signed,
-                            bit["assignment"], _MANUAL))
-            entries.append((plug["account"], 15, signed, note, _MANUAL))
-        for account, key, amount, assignment, doc_nr in entries:
+                            bit["assignment"], _MANUAL, variance_txt))
+            entries.append((plug["account"], 15, signed,
+                            str(pay_ref)[:40], _MANUAL, variance_txt))
+        for account, key, amount, assignment, doc_nr, header_txt in entries:
             ws.cell(row=r, column=1, value=li)                       # LI.
             ws.cell(row=r, column=2, value="CM01")                   # Comp code
             ws.cell(row=r, column=3, value="DZ")                     # Doc type
@@ -1660,7 +1696,7 @@ def build_journal(out_path, now=None, tokens=None):
             ref = ws.cell(row=r, column=7)                           # Doc. Nr
             ref.value = str(doc_nr)
             ref.number_format = "@"
-            ws.cell(row=r, column=8, value=_MANUAL)                  # Header txt
+            ws.cell(row=r, column=8, value=header_txt)               # Header txt
             # column 9 (Tax calculation) stays empty
             acct = ws.cell(row=r, column=10)                         # Account
             acct.value = int(account) if str(account).isdigit() else account

@@ -212,8 +212,12 @@ rows = [r for r in cm.iter_rows(min_row=4, values_only=True)
 check("company code CM01 on every line", all(r[1] == "CM01" for r in rows))
 check("document type DZ on every line", all(r[2] == "DZ" for r in rows))
 check("currency XAF on every line", all(r[5] == "XAF" for r in rows))
-check("header text 'MANUAL RECIEPT ' (sic) on every line",
-      all(r[7] == "MANUAL RECIEPT " for r in rows))
+check("header text 'MANUAL RECIEPT ' (sic) on every AWB line",
+      all(r[7] == "MANUAL RECIEPT " for r in rows if r[11] != -20000.0))
+check("the plug pair says SHORT PAYMENT and carries the payment reference",
+      all(r[7] == "SHORT PAYMENT" for r in rows if r[11] == -20000.0)
+      and any(r[13] == "DEP-4471-BICEC" and r[10] == 15
+              for r in rows if r[11] == -20000.0))
 check("SAP compact date 23626 in post + doc date",
       all(r[3] == 23626 and r[4] == 23626 for r in rows))
 check("posting keys are only 40 and 15", {r[10] for r in rows} == {40, 15})

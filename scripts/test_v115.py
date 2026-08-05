@@ -184,14 +184,18 @@ jwb2 = openpyxl.load_workbook(out2)
 cm = next(s for s in jwb2.sheetnames if s.startswith("CM01_"))
 ws2 = jwb2[cm]
 plug_line = None
+plug_text = None
 for row in range(4, ws2.max_row + 1):
     acct = str(ws2.cell(row=row, column=10).value or "")
     asg = str(ws2.cell(row=row, column=14).value or "")
-    if acct == "4003026257" and "difference" in asg.lower():
+    # v11.15: the plug's assignment is the payment reference, not the note.
+    if acct == "4003026257" and asg == "DEP-SHORT":
         plug_line = ws2.cell(row=row, column=11).value    # posting key
+        plug_text = ws2.cell(row=row, column=8).value     # text column
 # v11.8: only two posting keys are ever used — 40 and 15 (see test_v118 for
 # the full pair/sign/balance checks).
 check("plug on the reseller account posts on key 15", plug_line == 15)
+check("its text column reads SHORT PAYMENT", plug_text == "SHORT PAYMENT")
 gl_keys = [ws2.cell(row=row, column=11).value
            for row in range(4, ws2.max_row + 1)
            if str(ws2.cell(row=row, column=10).value or "") == "512000"]

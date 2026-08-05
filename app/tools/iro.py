@@ -276,6 +276,41 @@ def set_email(account, email_addr, name=""):
 PAYMENT_METHODS = ("Bank deposit", "Cash deposit", "Mobile Money",
                    "Credit card")
 
+# Per-AWB modes of payment on the operator statement. Providers per mode come
+# from config ("providers") so another country can swap the lists.
+PAYMENT_MODES = ("Bank", "Cash", "Mobile Money", "Credit card")
+
+
+def mode_groups(lines):
+    """Group submitted statement lines by mode of payment.
+
+    Returns [{mode, total, awbs, providers}] in first-seen order — the
+    confirmation summary the IRO approved, stored on the reconciliation and
+    (for the Bank group) the primary BIT anchor. Lines that never carried a
+    mode AT ALL (email channel, older forms) yield no groups — inventing a
+    Bank total equal to the whole return would promote the evidence total
+    above the deposit-slip anchor and silently reorder the old matching.
+    """
+    if not any("mode" in (ln or {}) for ln in (lines or [])):
+        return []
+    groups = {}
+    order = []
+    for ln in lines or []:
+        mode = str(ln.get("mode") or "Bank").strip() or "Bank"
+        g = groups.get(mode)
+        if g is None:
+            g = groups[mode] = {"mode": mode, "total": 0.0, "awbs": [],
+                                "providers": []}
+            order.append(mode)
+        paid = ln.get("amount_paid")
+        g["total"] = round(g["total"] + (paid if paid is not None
+                                         else (ln.get("amount") or 0)), 2)
+        g["awbs"].append(str(ln.get("awb") or ""))
+        prov = str(ln.get("provider") or "").strip()
+        if prov and prov not in g["providers"]:
+            g["providers"].append(prov)
+    return [groups[m] for m in order]
+
 
 def set_payment_details(account, bank="", payment_method=""):
     """Remember the operator's bank and payment method so their next statement
@@ -413,7 +448,8 @@ def build_evidence_xlsx(out_path, lines):
     # "Actually paid" / "Comments" carry the operator's per-AWB entries; the
     # headers avoid amount/reference keywords so the recon parser ignores them.
     ws.write_row(0, 0, ["Waybill", "Amount", "Payment reference",
-                        "Actually paid", "Comments"])
+                        "Actually paid", "Comments", "Mode of payment",
+                        "Provider"])
     for i, ln in enumerate(lines, start=1):
         ws.write(i, 0, str(ln["awb"]))
         ws.write_number(i, 1, float(ln["amount"] or 0))
@@ -422,6 +458,10 @@ def build_evidence_xlsx(out_path, lines):
             ws.write_number(i, 3, float(ln["amount_paid"]))
         if ln.get("comment"):
             ws.write(i, 4, str(ln["comment"]))
+        if ln.get("mode"):
+            ws.write(i, 5, str(ln["mode"]))
+        if ln.get("provider"):
+            ws.write(i, 6, str(ln["provider"]))
     wb.close()
     return Path(out_path)
 
@@ -455,7 +495,8 @@ def create_submission(account, lines=None, evidence_path=None,
         payment_refs=[r for r in (references or []) if r],
         slip_total=slip_total, slip_info=slip_info,
         account=str(account), operator_bank=bank,
-        payment_method=payment_method)
+        payment_method=payment_method,
+        mode_totals=mode_groups(lines) if lines else [])
     record_submission(account, {
         "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "references": [r for r in (references or []) if r][:10],
@@ -613,7 +654,8 @@ DRAFT_QUIET_SECONDS = 20       # a late autosave never resurrects a draft
 _MAX_DRAFT_TICKS = 500
 
 
-def save_draft(account, ticks, reference="", payment_date=""):
+def save_draft(account, ticks, reference="", payment_date="",
+               modes=None, providers=None):
     """Returns the saved draft, or None when the save was refused (a
     submission just cleared the draft — a late in-flight autosave from the
     old page must not bring the sent selections back)."""
@@ -627,7 +669,13 @@ def save_draft(account, ticks, reference="", payment_date=""):
         clean = {}
         for k, v in list((ticks or {}).items())[:_MAX_DRAFT_TICKS]:
             clean[str(k)[:20]] = str(v or "")[:40]
+
+        def _map(d):
+            return {str(k)[:20]: str(v or "")[:40]
+                    for k, v in list((d or {}).items())[:_MAX_DRAFT_TICKS]}
         rec["draft"] = {"ticks": clean,
+                        "modes": _map(modes),
+                        "providers": _map(providers),
                         "reference": str(reference or "")[:40],
                         "payment_date": str(payment_date or "")[:10],
                         "saved_at":

@@ -3183,15 +3183,16 @@ def operator_page(request: Request, token: str, error: str = "", posted=None):
         "entry": entry, "error": error, "token": token,
         "draft": rec.get("draft") or None,
         "banks": cfg.get("banks", []) or [],
-        "payment_methods": iro.PAYMENT_METHODS,
+        "payment_modes": iro.PAYMENT_MODES,
+        "providers": cfg.get("providers", {}) or {},
         "op_bank": posted.get("bank") or rec.get("bank", ""),
-        "op_method": (posted.get("payment_method")
-                      or rec.get("payment_method", "") or "Bank deposit"),
         # Re-fill what was typed (empty on a normal visit).
         "posted_paid": posted.get("paid") or {},
         "posted_comment": posted.get("comment") or {},
         "posted_ticks": posted.get("ticks") or [],
         "posted_refs": posted.get("refs") or {},
+        "posted_mode": posted.get("mode") or {},
+        "posted_provider": posted.get("provider") or {},
         "posted_reference": posted.get("reference", ""),
         "posted_payment_date": posted.get("payment_date", ""),
         "posted_slip_ids": posted.get("slip_ids") or []})
@@ -3268,7 +3269,12 @@ async def operator_draft(request: Request, token: str):
     draft = iro.save_draft(rec["account"],
                            payload.get("ticks") or {},
                            str(payload.get("reference", ""))[:60],
-                           str(payload.get("payment_date", ""))[:10])
+                           str(payload.get("payment_date", ""))[:10],
+                           modes=payload.get("modes")
+                           if isinstance(payload.get("modes"), dict) else None,
+                           providers=payload.get("providers")
+                           if isinstance(payload.get("providers"), dict)
+                           else None)
     if draft is None:      # a submission just cleared the draft — stay clear
         return JSONResponse({"ok": False})
     return JSONResponse({"ok": True, "saved_at": draft["saved_at"]})
@@ -3311,11 +3317,6 @@ async def operator_submit(request: Request, token: str):
     rec = iro.find_by_token(token)
     if rec is None:
         return HTMLResponse("<h1>Link not valid</h1>", status_code=404)
-    if iro.open_submission_count(rec) >= iro.MAX_OPEN_SUBMISSIONS:
-        return operator_page(request, token,
-                             error="Too many submissions are already "
-                                   "awaiting review — the finance team "
-                                   "must treat those first.")
     entry = iro.account_entry(rec["account"]) or {"rows": []}
     open_by_awb = {r["awb"]: r for r in entry.get("rows", [])
                    if r.get("awb")}
@@ -3335,11 +3336,22 @@ async def operator_submit(request: Request, token: str):
         except ValueError:
             paid = None
         comment = str(form.get(f"comment_{awb}") or "").strip()[:120]
+        # Mode of payment + provider per airwaybill. An unknown/missing mode
+        # counts as Bank (older forms, the email channel). For Cash the
+        # provider box holds the DEPOSIT REFERENCE — it joins the reference
+        # pool so the deposit can be traced.
+        mode = str(form.get(f"mode_{awb}") or "").strip()
+        if mode not in iro.PAYMENT_MODES:
+            mode = "Bank"
+        provider = str(form.get(f"provider_{awb}") or "").strip()[:40]
         lines.append({"awb": row["awb"], "amount": row["amount"],
                       "reference": pref, "amount_paid": paid,
-                      "comment": comment})
+                      "comment": comment, "mode": mode,
+                      "provider": provider})
         if pref:
             refs.append(pref)
+        if mode == "Cash" and provider and provider not in refs:
+            refs.append(provider)
     global_ref = str(form.get("reference") or "").strip()[:40]
     if global_ref:
         refs.append(global_ref)
@@ -3366,6 +3378,10 @@ async def operator_submit(request: Request, token: str):
                     for a in form.getlist("awb")},
         "refs": {str(a): str(form.get(f"ref_{a}") or "")
                  for a in form.getlist("awb")},
+        "mode": {str(a): str(form.get(f"mode_{a}") or "")
+                 for a in form.getlist("awb")},
+        "provider": {str(a): str(form.get(f"provider_{a}") or "")
+                     for a in form.getlist("awb")},
         "reference": global_ref,
         "payment_date": str(form.get("payment_date") or "")[:10],
         "slip_ids": [str(s) for s in form.getlist("slip_id") if str(s).strip()],
@@ -3373,7 +3389,13 @@ async def operator_submit(request: Request, token: str):
     }
 
     # Cheap validations FIRST — a rejected form must never burn a deposit
-    # claim.
+    # claim. Every refusal re-renders with ``posted`` so nothing typed is
+    # lost — including this cap, which used to wipe the whole form.
+    if iro.open_submission_count(rec) >= iro.MAX_OPEN_SUBMISSIONS:
+        return operator_page(request, token, posted=posted,
+                             error="Too many submissions are already "
+                                   "awaiting review — the finance team "
+                                   "must treat those first.")
     if not lines:
         return operator_page(request, token, posted=posted,
                              error="Tick at least one airwaybill your "

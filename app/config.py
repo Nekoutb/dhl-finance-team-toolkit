@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.14 — 5 Aug 2026 · Cheque register: when a bank returns a whole statement page as one block, the register no longer quotes that block as the clearing line — the run of dates and the 120-digit amount are replaced by “not isolated”. The cheque stays matched, because the reference in the block is genuine; only the date and amount that belong to the page rather than the cheque are withheld. A properly read statement line always wins over a block."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.15 — 5 Aug 2026 · IRO statements: each airwaybill now carries a Mode of payment (Bank, Cash, Mobile Money, Credit card) and a Provider that follows it — banks for Bank, MTN/ORANGE for Mobile Money, a deposit reference for Cash. Ticking pre-fills the amount paid and keeps running totals; a confirmation summary per mode gates the send; the deposit slip stays optional. The Bank-mode total is what is hunted in the BIT, and the plug's journal lines now read SHORT PAYMENT / OVERPAYMENT with the payment reference in the assignment."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -85,6 +85,14 @@ DEFAULT_CONFIG = {
     # their own account, so every operator statement carries them. Cameroon's
     # are CASHCM<branch>; another country sets its own prefix here.
     "cash_account_prefix": "CASHCM",
+    # Payment providers offered on the IRO statement, per mode of payment.
+    # Bank -> the banks money can be deposited into; Mobile Money -> the
+    # mobile networks. Cash shows a deposit-reference box instead, and
+    # Credit card needs no provider.
+    "providers": {
+        "Bank": ["BICEC", "ECOBANK", "Société Générale Cameroun"],
+        "Mobile Money": ["MTN", "ORANGE"],
+    },
     # Bank statements: the admin defines the banks (one slot each) in Settings.
     # Each configured bank holds exactly one current statement; re-uploading
     # overrides it. Empty = no slots yet (configure in Settings → Bank statements).

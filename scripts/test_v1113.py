@@ -252,8 +252,10 @@ for rel in FILES:
 if before:
     cut = 100 * (before - after) // before
     print(f"       guidance text: {before} -> {after} words ({cut}% shorter)")
-    check(f"the BIT / Cash AR screens lost at least a third of their words "
-          f"({cut}%)", cut >= 33)
+    # v11.15 added the per-mode payment disclosure (recon alert + portal
+    # confirm step), spending a few of the freed words on required content.
+    check(f"the BIT / Cash AR screens stay well under the v11.12 wordcount "
+          f"({cut}%)", cut >= 30)
 else:
     print("       (no v11.12-baseline tag — word-count comparison skipped)")
 
