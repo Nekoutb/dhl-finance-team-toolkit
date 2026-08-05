@@ -221,24 +221,31 @@
         // Ticking pre-fills the amount paid with the airwaybill amount (still
         // editable, so variances can be typed and explained). Unticking
         // clears it only when the pre-fill was never edited.
-        document.querySelectorAll(".iro-tick").forEach(function (c) {
-          c.addEventListener("change", function () {
+        function prefill(c) {
+          var p = c.closest("tr").querySelector(".iro-paid");
+          if (p && p.value.trim() === "") {
+            p.value = c.getAttribute("data-amt") || "";
+            p.dataset.auto = "1";
+            diffRow(p);
+          }
+        }
+        function onTick(c) {
+          if (c.checked) {
+            prefill(c);
+          } else {
             var p = c.closest("tr").querySelector(".iro-paid");
-            if (c.checked) {
-              if (p && p.value.trim() === "") {
-                p.value = c.getAttribute("data-amt") || "";
-                p.dataset.auto = "1";
-                diffRow(p);
-              }
-            } else if (p && p.dataset.auto === "1" &&
-                       parseFloat(p.value) ===
-                       parseFloat(c.getAttribute("data-amt") || "0")) {
+            if (p && p.dataset.auto === "1" &&
+                parseFloat(p.value) ===
+                parseFloat(c.getAttribute("data-amt") || "0")) {
               p.value = "";
               delete p.dataset.auto;
               diffRow(p);
             }
-            total();
-          });
+          }
+          total();
+        }
+        document.querySelectorAll(".iro-tick").forEach(function (c) {
+          c.addEventListener("change", function () { onTick(c); });
         });
         // Provider options follow the row's mode of payment; Cash swaps the
         // dropdown for a deposit-reference box.
@@ -313,6 +320,10 @@
             });
             total();
           });
+        // Rows that arrive ALREADY ticked (a restored draft, a refused
+        // submit) never fired a change event — give them the same pre-fill,
+        // or the operator sees a tick with a blank amount.
+        document.querySelectorAll(".iro-tick:checked").forEach(prefill);
         total();
 
         // Bank selector: reveal the free-type box only for "Other"; the method
@@ -327,6 +338,144 @@
 
         var filter = document.getElementById("iro-filter");
         var onlyTicked = document.getElementById("iro-onlyticked");
+        // An AWB typed in the search box that is on NOBODY's visible list is
+        // looked up across the whole Cash AR and added as a normal row —
+        // ticked, pre-filled, ready to match. First to report it takes it.
+        var lookedUp = {};
+        function esc(t) {
+          // Also escape quotes — the output is spliced into HTML attributes,
+          // and cell values come from uploaded files.
+          var d = document.createElement("div");
+          d.textContent = String(t == null ? "" : t);
+          return d.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        }
+        // What a REFUSED submit or a saved draft held for each airwaybill —
+        // a re-fetched row must come back with the operator's own numbers,
+        // never a fresh pre-fill that hides the variance they typed.
+        var RESTORE = {
+          paid: {{ posted_paid | tojson }},
+          refs: {{ posted_refs | tojson }},
+          comment: {{ posted_comment | tojson }},
+          mode: {{ posted_mode | tojson }},
+          provider: {{ posted_provider | tojson }},
+          dref: {{ drefs | tojson }},
+          dmode: {{ dmodes | tojson }},
+          dprov: {{ dprov | tojson }}
+        };
+        function addFetchedRow(row) {
+          var have = document.querySelector(
+            '.iro-tick[value="' + row.awb + '"]');
+          if (have) { return; }
+          var amt = row.amount || 0;
+          var tr = document.createElement("tr");
+          var modes = {{ payment_modes | list | tojson }};
+          tr.innerHTML =
+            '<td><input type="checkbox" name="awb" value="' + esc(row.awb) +
+            '" class="iro-tick" data-amt="' + amt + '"></td>' +
+            '<td><strong>' + esc(row.awb) + '</strong> ' +
+            '<span class="pill pill-watch" title="Not on your statement — ' +
+            'found in the accounts records by your search' +
+            (row.cash_account ? " (" + esc(row.cash_account) + ")" : "") +
+            '">found</span></td>' +
+            '<td><select name="mode_' + esc(row.awb) +
+            '" class="iro-mode">' +
+            modes.map(function (m) {
+              return '<option value="' + esc(m) + '">' + esc(m) +
+                '</option>';
+            }).join("") + '</select></td>' +
+            '<td><select name="provider_' + esc(row.awb) +
+            '" class="iro-provider" data-value="" ' +
+            'style="min-width:130px;"></select>' +
+            '<input type="text" name="provider_' + esc(row.awb) +
+            '" class="iro-cashref" maxlength="40" disabled ' +
+            'placeholder="deposit reference" ' +
+            'style="display:none;min-width:130px;"></td>' +
+            '<td>' + fmt(amt) + '</td>' +
+            '<td><input type="text" name="ref_' + esc(row.awb) +
+            '" maxlength="40" class="iro-ref" ' +
+            'placeholder="e.g. DEP-4471-BICEC" style="min-width:150px;">' +
+            '</td>' +
+            '<td><input type="number" step="any" name="paid_' +
+            esc(row.awb) + '" class="iro-paid" data-amt="' + amt +
+            '" placeholder="0" style="width:120px;"></td>' +
+            '<td class="iro-diff" style="text-align:right;">—</td>' +
+            '<td><input type="text" name="comment_' + esc(row.awb) +
+            '" maxlength="120" class="iro-comment" placeholder="optional" ' +
+            'style="min-width:140px;"></td>';
+          document.querySelector("#iro-table tbody")
+            .insertBefore(tr, document.querySelector("#iro-table tbody")
+              .firstChild);
+          var tick = tr.querySelector(".iro-tick");
+          tick.addEventListener("change", function () { onTick(tick); });
+          var m = tr.querySelector(".iro-mode");
+          m.addEventListener("change", function () { syncRow(m); });
+          var paidIn = tr.querySelector(".iro-paid");
+          paidIn.addEventListener("input", function () {
+            delete paidIn.dataset.auto;
+            diffRow(paidIn);
+            total();
+          });
+          // Put back what the operator had typed for this airwaybill before
+          // ticking, so the pre-fill only fills a genuinely EMPTY box.
+          var a = row.awb;
+          var mode = RESTORE.mode[a] || RESTORE.dmode[a] || "";
+          if (mode) { m.value = mode; }
+          syncRow(m);
+          var provWant = RESTORE.provider[a] || RESTORE.dprov[a] || "";
+          if (provWant) {
+            var box = tr.querySelector(
+              m.value === "Cash" ? ".iro-cashref" : ".iro-provider");
+            if (box) { box.value = provWant; }
+          }
+          var refBox = tr.querySelector(".iro-ref");
+          refBox.value = RESTORE.refs[a] || RESTORE.dref[a] || "";
+          if (RESTORE.paid[a] !== undefined && RESTORE.paid[a] !== "") {
+            paidIn.value = RESTORE.paid[a];
+            diffRow(paidIn);
+          }
+          var cBox = tr.querySelector(".iro-comment");
+          if (RESTORE.comment[a]) { cBox.value = RESTORE.comment[a]; }
+          tick.checked = true;
+          onTick(tick);
+          // A row that appears after the summary was rendered voids it, and
+          // the new tick must reach the draft without waiting for an edit.
+          unconfirm();
+          queueDraft();
+        }
+        var lookupTimer = null;
+        var lookupPending = {};
+        function lookupMissing(terms) {
+          // Accumulate into a pending set and only mark a term as looked-up
+          // when its fetch is actually issued — a debounce reset must never
+          // strand a term unfetched and unfetchable.
+          var fresh = 0;
+          terms.forEach(function (t) {
+            if (/^\d{8,}$/.test(t) && !lookedUp[t] && !lookupPending[t]) {
+              lookupPending[t] = true;
+              fresh += 1;
+            }
+          });
+          if (!fresh) { return; }
+          if (lookupTimer) { clearTimeout(lookupTimer); }
+          lookupTimer = setTimeout(function () {
+            var batch = Object.keys(lookupPending);
+            lookupPending = {};
+            if (!batch.length) { return; }
+            batch.forEach(function (t) { lookedUp[t] = true; });
+            fetch("/operator/{{ token }}/lookup?awb=" +
+                  encodeURIComponent(batch.join(",")))
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                (d.found || []).forEach(function (row) {
+                  addFetchedRow(row);
+                });
+                if ((d.found || []).length) { applyFilter(); }
+              })
+              .catch(function () {
+                batch.forEach(function (t) { delete lookedUp[t]; });
+              });
+          }, 350);
+        }
         function applyFilter() {
           // Comma-separated search: "1005475881, 1011864556" shows BOTH rows.
           // Each term is matched on its own; a row hits if ANY term matches.
@@ -352,8 +501,43 @@
             });
           document.getElementById("iro-filter-count").textContent =
             shown + " row(s)";
+          if (terms.length && !only) {
+            var unmatched = terms.filter(function (t) {
+              var hit = false;
+              document.querySelectorAll("#iro-table tbody tr").forEach(
+                function (tr) {
+                  var hay = tr.textContent.toLowerCase()
+                    .replace(/[\s,]/g, "");
+                  var refin = tr.querySelector(".iro-ref");
+                  if (refin && refin.value) {
+                    hay += refin.value.toLowerCase().replace(/[\s,]/g, "");
+                  }
+                  if (hay.indexOf(t) !== -1) { hit = true; }
+                });
+              return !hit;
+            });
+            lookupMissing(unmatched);
+          }
         }
         filter.addEventListener("input", applyFilter);
+        // A ticked AWB that came from a search is not on the server-rendered
+        // statement — after a refused submit or a restored draft, fetch it
+        // back so the tick (and its pre-filled amount) survives the reload.
+        var restoreAwbs = {{ (posted_ticks or (drefs.keys() | list)) | tojson }};
+        var missingRestore = restoreAwbs.filter(function (a) {
+          return /^\d{8,}$/.test(String(a)) && !document.querySelector(
+            '.iro-tick[value="' + a + '"]');
+        });
+        if (missingRestore.length) {
+          fetch("/operator/{{ token }}/lookup?awb=" +
+                encodeURIComponent(missingRestore.join(",")))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              (d.found || []).forEach(addFetchedRow);
+              applyFilter();
+            })
+            .catch(function () {});
+        }
         if (onlyTicked) { onlyTicked.addEventListener("change", applyFilter); }
         // Move every ticked airwaybill to the top of the table (stable order).
         document.getElementById("iro-ticktop").addEventListener("click",

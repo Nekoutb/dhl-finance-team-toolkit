@@ -82,12 +82,15 @@ check("Reference column replaced by Mode of payment",
       "<th>Reference</th>" not in r.text
       and "<th>Mode of payment</th>" in r.text
       and "<th>Provider</th>" in r.text)
+import re as _re
+
+_MARKUP = _re.sub(r"<script.*?</script>", "", r.text, flags=_re.S)
 check("all four modes offered per row",
-      all(f'value="{m}"' in r.text for m in iro.PAYMENT_MODES)
-      and r.text.count('class="iro-mode"') == len(AWBS))
+      all(f'value="{m}"' in _MARKUP for m in iro.PAYMENT_MODES)
+      and _MARKUP.count('class="iro-mode"') == len(AWBS))
 check("provider select + cash deposit-reference box per row",
-      r.text.count('class="iro-provider"') == len(AWBS)
-      and r.text.count('class="iro-cashref"') == len(AWBS))
+      _MARKUP.count('class="iro-provider"') == len(AWBS)
+      and _MARKUP.count('class="iro-cashref"') == len(AWBS))
 check("providers piped from config to the script",
       "BICEC" in r.text and "MTN" in r.text
       and ("Société Générale Cameroun" in r.text

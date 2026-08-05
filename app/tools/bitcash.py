@@ -1356,10 +1356,37 @@ def set_selection(token, ar_ids, bit_id):
     return rec
 
 
+def _claimed_awbs_elsewhere(token, data):
+    """AWBs selected or frozen by every OTHER open/approved reconciliation —
+    the approve-time guard against clearing the same Cash AR row twice.
+    (The portal search widened who can claim a row, so two operators racing
+    the same AWB can both reach an open sandbox; approval is the last gate.)
+    """
+    gen_now = rows_generation(data)
+    cash_by_id = {r["id"]: r for r in data["cash"]}
+    claimed = set()
+    for other in list_recons():
+        if other.get("token") == token:
+            continue
+        if other.get("status") == "approved":
+            for row in (other.get("frozen") or {}).get("ar_rows", []):
+                if row.get("awb"):
+                    claimed.add(row["awb"])
+            continue
+        if other.get("status") == "open" \
+                and (other.get("rows_gen") or {}) == gen_now:
+            for i in other.get("ar_selected", []):
+                row = cash_by_id.get(i)
+                if row and row.get("awb"):
+                    claimed.add(row["awb"])
+    return claimed
+
+
 def set_status(token, approved, by):
     """Approve (freezing the selected rows in time) or reopen a sandbox.
-    Returns the record, None when not possible, or "stale" when approval is
-    refused because the files were replaced since matching."""
+    Returns the record, None when not possible, "stale" when the files were
+    replaced since matching, or ("conflict", awbs) when another open or
+    approved reconciliation already claims one of the selected AWBs."""
     rec = load_recon(token)
     if not rec or rec.get("status") not in ("open", "approved"):
         return None
@@ -1368,6 +1395,12 @@ def set_status(token, approved, by):
         if (rec.get("rows_gen") or {"bit": "", "cash": ""}) \
                 != rows_generation(data):
             return "stale"
+        cash_now = {r["id"]: r for r in data["cash"]}
+        mine = {cash_now[i]["awb"] for i in rec.get("ar_selected", [])
+                if i in cash_now and cash_now[i].get("awb")}
+        overlap = mine & _claimed_awbs_elsewhere(token, data)
+        if overlap:
+            return ("conflict", sorted(overlap))
         # Freeze the resolved rows: the approval is fixed in time and can
         # never change when newer BIT / Cash AR files are uploaded.
         cash_by_id = {r["id"]: r for r in data["cash"]}

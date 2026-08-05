@@ -3218,6 +3218,24 @@ async def operator_discard_slip(request: Request, token: str):
     return JSONResponse({"ok": True})
 
 
+@app.get("/operator/{token}/lookup")
+def operator_lookup(token: str, awb: str = ""):
+    """Search the WHOLE Cash AR for airwaybills the operator typed that are
+    not on their statement — found rows are added to the page so they can be
+    ticked and matched. Token-gated like every other portal route."""
+    if iro.find_by_token(token) is None:
+        return JSONResponse({"error": "invalid link"}, status_code=404)
+    found, seen = [], set()
+    covered = iro.matched_awbs()        # computed once, not per term
+    rows = bitcash.rows_store()["cash"]
+    for term in str(awb or "").split(",")[:20]:
+        row = iro.lookup_open_awb(term, _covered=covered, _rows=rows)
+        if row and row["awb"] not in seen:
+            seen.add(row["awb"])
+            found.append(row)
+    return JSONResponse({"found": found})
+
+
 @app.post("/operator/{token}/read-slip")
 async def operator_read_slip(request: Request, token: str,
                              slip: UploadFile = File(...)):
@@ -3322,8 +3340,19 @@ async def operator_submit(request: Request, token: str):
                    if r.get("awb")}
     form = await request.form()
     lines, refs = [], []
+    seen_awbs = set()
     for awb in form.getlist("awb"):
+        # A repeated value would double the declared totals — the figures
+        # the BIT matcher trusts most.
+        if str(awb) in seen_awbs:
+            continue
+        seen_awbs.add(str(awb))
         row = open_by_awb.get(str(awb))
+        if not row:
+            # Not on this operator's statement — accept it if it is an OPEN
+            # Cash AR row anywhere in the file (the portal search offers
+            # exactly those); anything else is dropped.
+            row = iro.lookup_open_awb(awb)
         if not row:
             continue
         pref = str(form.get(f"ref_{awb}") or "").strip()[:40]
@@ -3572,6 +3601,13 @@ async def bitcash_recon_approve(request: Request, token: str):
                                   "Cash AR invoice before approving.")
     rec = bitcash.set_status(token, True,
                              getattr(request.state, "user", None))
+    if isinstance(rec, tuple) and rec[0] == "conflict":
+        return redirect_msg(
+            f"/tools/bit-cash-ar/recon/{token}",
+            error="Refused — airwaybill(s) " + ", ".join(rec[1][:5])
+                  + (" …" if len(rec[1]) > 5 else "")
+                  + " are already claimed by another reconciliation. "
+                    "Deselect them (or reopen the other one) first.")
     if rec == "stale":
         return redirect_msg(f"/tools/bit-cash-ar/recon/{token}",
                             error="The BIT / Cash AR files were replaced "

@@ -281,6 +281,31 @@ PAYMENT_METHODS = ("Bank deposit", "Cash deposit", "Mobile Money",
 PAYMENT_MODES = ("Bank", "Cash", "Mobile Money", "Credit card")
 
 
+def lookup_open_awb(awb, _covered=None, _rows=None):
+    """Find an OPEN Cash AR row by airwaybill ANYWHERE in the file — any
+    account, not just the searching operator's statement.
+
+    Backs the portal search: an IRO who paid an AWB that was raised on
+    another account (a colleague's, an unassigned till) types it in the
+    search box and gets it back immediately so it can be ticked and matched.
+    Already-matched AWBs stay invisible — first to report one takes it.
+    Returns {awb, amount, reference, account, cash_account} or None.
+    """
+    digits = re.sub(r"\D", "", str(awb or ""))
+    if len(digits) < 8:                 # too short to be an airwaybill
+        return None
+    if digits in (matched_awbs() if _covered is None else _covered):
+        return None
+    rows = bitcash.rows_store()["cash"] if _rows is None else _rows
+    for row in rows:
+        if str(row.get("awb") or row.get("assignment") or "") == digits:
+            return {"awb": digits, "amount": row.get("amount"),
+                    "reference": str(row.get("reference") or ""),
+                    "account": str(row.get("sap_acct") or ""),
+                    "cash_account": row_cash_account(row)}
+    return None
+
+
 def mode_groups(lines):
     """Group submitted statement lines by mode of payment.
 
