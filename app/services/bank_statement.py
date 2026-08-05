@@ -122,6 +122,35 @@ def parse_amount(value):
         return 0.0
 
 
+# A statement line is ONE transaction. A reader that returns a page column
+# instead — every date in one cell, every amount in another — produces a
+# "line" that is really a block. Those blocks are poison downstream: their
+# date is a run of dates, their amount parses to an absurd number (a merged
+# digit run such as 5.7e+119), and because they carry every reference on the
+# page they match almost any cheque number, so a cheque gets stamped cleared
+# against a line that is not a transaction at all.
+MAX_LINE_DATES = 3          # a narration may cite 2 dates (op. + value date)
+MAX_LINE_AMOUNT = 1e13      # no single statement line is 10 trillion
+_LINE_DATE_RE = re.compile(r"\b\d{1,4}[/.\-]\d{1,2}[/.\-]\d{2,4}\b")
+
+
+def is_transaction_line(text, amount=None):
+    """False when a "line" is really a merged block of a statement page.
+
+    Deliberately narrow: only shapes no genuine transaction line can have —
+    three or more dates in the narration, or an amount past any real-world
+    magnitude. Anything ambiguous is kept, because dropping a true line would
+    silently leave a cheque unmatched.
+    """
+    if amount is not None:
+        try:
+            if abs(float(amount)) >= MAX_LINE_AMOUNT:
+                return False
+        except (TypeError, ValueError):
+            pass
+    return len(_LINE_DATE_RE.findall(str(text or ""))) < MAX_LINE_DATES
+
+
 def read_bank(path):
     """Return {lines, metadata, columns} from a bank statement (Excel or PDF).
 

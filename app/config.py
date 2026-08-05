@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.13 — 5 Aug 2026 · Operator statements now remember exactly which IROs you ticked: a deselected operator is never silently re-ticked after a send, an operator that could not be sent stays ticked so you can retry it, and there is an all / none control. Across BIT & Cash AR the on-screen wording is about a third shorter. The manual plug panel now states the journal it really produces — the negated amount on posting keys 40 and 15."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.14 — 5 Aug 2026 · Cheque register: when a bank returns a whole statement page as one block, the register no longer quotes that block as the clearing line — the run of dates and the 120-digit amount are replaced by “not isolated”. The cheque stays matched, because the reference in the block is genuine; only the date and amount that belong to the page rather than the cheque are withheld. A properly read statement line always wins over a block."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

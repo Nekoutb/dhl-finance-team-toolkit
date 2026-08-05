@@ -19,6 +19,7 @@
                padding: 5px 9px; font-size: 12px; line-height: 1.35; }
     .diff-ok  { color: #157a4a; font-weight: 700; }
     .diff-bad { color: #bd3727; font-weight: 700; }
+    .diff-warn { color: #b06f00; font-style: italic; cursor: help; }
     /* Treated in accounting = done. The whole line greys back so the eye
        skips it and lands on what still needs work. */
     tr.treated td { color: #94a3b8; background: rgba(100, 116, 139, .06); }
@@ -246,8 +247,13 @@
               {% else %}<span class="pill pill-stop" title="Cheque number not found on any bank statement on file">✗</span>{% endif %}
             </td>
             <td>{{ r.cleared.bank if r.cleared else '—' }}</td>
-            <td>{{ r.cleared.date if r.cleared else '—' }}</td>
             <td>{% if not r.cleared %}—
+              {%- elif r.cleared.partial %}<span class="diff-warn"
+                  title="The bank returned this page as a single block, so this cheque&#39;s own transaction line could not be isolated. The reference IS on the statement — check the date and amount on the statement itself.">not isolated</span>
+              {%- else %}{{ r.cleared.date or '—' }}{% endif %}</td>
+            <td>{% if not r.cleared %}—
+              {%- elif r.cleared.partial or r.cleared.amount is none %}<span
+                  class="diff-warn" title="The bank returned this page as a single block, so this cheque&#39;s own transaction line could not be isolated. The reference IS on the statement — check the date and amount on the statement itself.">not isolated</span>
               {%- elif r.amount is not none and (r.cleared.amount or 0) == r.amount %}
                 <span class="same-as" title="Same as the cheque amount">= cheque</span>
               {%- else %}<span class="diff-bad" title="Differs from the cheque amount">{{ "{:,.0f}".format(r.cleared.amount or 0) }} ⚠</span>{% endif %}</td>

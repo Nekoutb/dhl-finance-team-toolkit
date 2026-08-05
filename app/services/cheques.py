@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from ..config import DATA_DIR, load_config
-from . import ai_ocr
+from . import ai_ocr, bank_statement
 
 BATCH_DIR = DATA_DIR / "cheques"
 MAX_CHEQUES = 25
@@ -37,16 +37,29 @@ def find_appearances(cheque_no, bank_rows):
     'CHQ 123456' but neither the longer '1234567' nor a different '12345'.
     Exact (no leading-zero stripping) on purpose: for a reconciliation a false
     "cleared" is worse than a "not found — check manually". Each appearance:
-    {bank, amount, date, text} — ``text`` is the statement narration the cheque
-    reference was seen in. De-duplicated on (bank, amount, date).
+    {bank, amount, date, text, partial} — ``text`` is the statement narration
+    the cheque reference was seen in. De-duplicated on (bank, amount, date).
+
+    ``partial`` is True when the reader returned a whole statement page as one
+    row: the reference is genuinely there, but the row's date and amount
+    describe the page, not this cheque, so both are left empty rather than
+    quoted. ``primary_appearance`` prefers a properly isolated line over one
+    of these.
     """
     cheque_no = re.sub(r"\D", "", str(cheque_no or ""))
     if len(cheque_no) < MIN_CHEQUE_DIGITS:
         return []
     seen, out = set(), []
     for r in bank_rows:
-        if cheque_no not in _digit_runs(r.get("text")):
+        text = str(r.get("text") or "")
+        if cheque_no not in _digit_runs(text):
             continue
+        # Some readers hand back a whole page as ONE "line": every date in one
+        # cell, every amount in another. The cheque reference in it is real —
+        # it is the statement's own narration — but the date and amount on
+        # that row belong to the whole page, not to this cheque. Keep the
+        # match, refuse to quote a date or an amount we cannot isolate.
+        isolated = bank_statement.is_transaction_line(text, r.get("amount"))
         # The same clearing event often shows on several statement extracts
         # (e.g. the Jan-2 extract and the fuller Jan-3 one both carry the Jan-1
         # transaction) — key on bank+amount+date so it is disclosed ONCE.
@@ -54,14 +67,32 @@ def find_appearances(cheque_no, bank_rows):
             amt = round(float(r.get("amount") or 0), 2)
         except (TypeError, ValueError):
             amt = r.get("amount")
-        key = (r.get("bank", ""), amt, r.get("date", ""))
+        if not isolated:
+            amt = None
+        key = (r.get("bank", ""), amt, r.get("date", "") if isolated else "")
         if key in seen:
             continue
         seen.add(key)
-        out.append({"bank": r.get("bank", ""), "amount": r.get("amount"),
-                    "date": r.get("date", ""),
-                    "text": str(r.get("text", ""))[:120]})
+        out.append({
+            "bank": r.get("bank", ""),
+            "amount": r.get("amount") if isolated else None,
+            "date": r.get("date", "") if isolated else "",
+            # Centre a block's text on the reference — its first 120
+            # characters are just the page's date column.
+            "text": (text[:120] if isolated
+                     else _around(text, cheque_no, 120)),
+            "partial": not isolated,
+        })
     return out
+
+
+def _around(text, needle, width):
+    """``width`` characters of ``text`` centred on ``needle``."""
+    pos = str(text).find(str(needle))
+    if pos < 0:
+        return str(text)[:width]
+    start = max(0, pos - width // 2)
+    return str(text)[start:start + width]
 
 
 def primary_appearance(appearances):
@@ -70,7 +101,8 @@ def primary_appearance(appearances):
     repeating the same event are deduplicated upstream)."""
     if not appearances:
         return None
-    return max(appearances, key=lambda a: str(a.get("date") or ""))
+    return max(appearances, key=lambda a: (not a.get("partial"),
+                                           str(a.get("date") or "")))
 
 
 def ref_snippet(appearance, cheque_no, window=24):
