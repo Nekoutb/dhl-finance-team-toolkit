@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.16 — 5 Aug 2026 · IRO statement fixes: an airwaybill that arrives already ticked (a restored draft, a refused submit) now gets its Amount actually paid pre-filled at once — no more untick-and-tick. And an airwaybill typed in the search box that is on nobody's visible list is looked up across the whole Cash AR and added to the statement immediately — ticked, pre-filled and ready to match; first to report it takes it."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.17 — 6 Aug 2026 · Upload reliability, after the audit of this week's reports: the CtP refresh button no longer errors on a stored analysis (every click used to fail), and every upload's disk write and file parse now runs off the serving thread — a slow disk or a big file can no longer freeze the whole worker mid-upload, which is what killed an upload on 06.08 and forced a re-login."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

@@ -572,12 +572,19 @@ def reapply_master(result):
 
 
 # --- Persistence so results can be revisited & hold toggles re-render --------
+def _iso(value):
+    """A date/datetime becomes its ISO string; a string (a result loaded
+    back from disk and saved again, e.g. by the refresh action) passes
+    through untouched. Round-trip safety — refresh used to crash here."""
+    return value.isoformat() if hasattr(value, "isoformat") else (value or None)
+
+
 def _serialize(result):
     out = dict(result)
-    out["as_of"] = result["as_of"].isoformat()
+    out["as_of"] = _iso(result["as_of"])
     out["invoices"] = [
-        {**i, "invoice_date": i["invoice_date"].isoformat() if i["invoice_date"] else None,
-         "due_date": i["due_date"].isoformat() if i["due_date"] else None}
+        {**i, "invoice_date": _iso(i.get("invoice_date")),
+         "due_date": _iso(i.get("due_date"))}
         for i in result["invoices"]
     ]
     return out

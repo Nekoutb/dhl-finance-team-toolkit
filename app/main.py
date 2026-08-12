@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response)
@@ -79,6 +80,20 @@ def _access_denied(request, read_only):
     return templates.TemplateResponse("error.html", {
         "request": request, "cfg": load_config(), "icon": "🔒",
         "heading": heading, "detail": detail, "ref": ""}, status_code=403)
+
+
+async def _spool(upload, dest):
+    """Write an uploaded file to ``dest`` OFF the event loop.
+
+    Upload handlers used to call dest.write_bytes(...) directly on the loop
+    thread; on a swap-pressured disk a stalled write froze the whole worker
+    (heartbeat missed -> gunicorn SIGKILL -> the uploader saw a dead page).
+    The disk write now runs in the threadpool, so a slow disk only slows
+    this one upload — never the worker.
+    """
+    blob = await upload.read()
+    await run_in_threadpool(dest.write_bytes, blob)
+    return dest
 
 
 @app.middleware("http")
@@ -598,10 +613,10 @@ async def orange_upload(request: Request, file: UploadFile = File(...)):
 
     token = uuid.uuid4().hex
     dest = UPLOAD_DIR / f"{token}{ext}"
-    dest.write_bytes(await file.read())
+    await _spool(file, dest)
 
     try:
-        model = orange.parse_for_review(dest)
+        model = await run_in_threadpool(orange.parse_for_review, dest)
     except Exception as exc:  # noqa: BLE001 - surface any parse error to the user
         return _err(f"Could not read that file: {exc}")
 
@@ -787,9 +802,9 @@ async def _store_master_upload(files):
             return (f"Master file type '{ext or 'unknown'}' not supported "
                     "— use .xlsx or .xls.")
         dest = UPLOAD_DIR / f"master_{uuid.uuid4().hex[:8]}{ext}"
-        dest.write_bytes(await file.read())
+        await _spool(file, dest)
         try:
-            parsed_list.append(ar_master.parse_master(dest))
+            parsed_list.append(await run_in_threadpool(ar_master.parse_master, dest))
         except Exception as exc:  # noqa: BLE001
             return f"Could not read master file '{file.filename}': {exc}"
         names.append(file.filename)
@@ -904,7 +919,7 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
                                "supported — use .xlsx or .xls.",
                 recent=ctp.list_results(), master=_master_summary()), status_code=400)
         tb_dest = UPLOAD_DIR / f"tb_{uuid.uuid4().hex[:8]}{tb_ext}"
-        tb_dest.write_bytes(await tb_file.read())
+        await _spool(tb_file, tb_dest)
         try:
             tb = ctp.parse_trial_balance(tb_dest)
         except Exception as exc:  # noqa: BLE001
@@ -912,7 +927,8 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
                 request, error=f"Could not read the trial balance: {exc}",
                 recent=ctp.list_results(), master=_master_summary()), status_code=400)
         try:
-            parsed_tb = ar_master.parse_master(tb_dest)
+            parsed_tb = await run_in_threadpool(ar_master.parse_master,
+                                                tb_dest)
             if (parsed_tb["stats"].get("has_hold_column")
                     or parsed_tb["stats"].get("has_critical_column")):
                 tb_holds = parsed_tb
@@ -930,7 +946,7 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
 
     token = uuid.uuid4().hex
     dest = UPLOAD_DIR / f"{token}{ext}"
-    dest.write_bytes(await file.read())
+    await _spool(file, dest)
 
     # Hold/critical come from the AR trial balance when present (it wins), else
     # the master file. Merge so both customer data sets are available.
@@ -939,8 +955,9 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
     effective_master = (ar_master.combine(parts) if len(parts) > 1
                         else (parts[0] if parts else None))
     try:
-        result = ctp.analyze(dest, as_of=as_of_date, default_rank=rank,
-                             master=effective_master, tb=tb)
+        result = await run_in_threadpool(
+            lambda: ctp.analyze(dest, as_of=as_of_date, default_rank=rank,
+                                master=effective_master, tb=tb))
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse("ongoing/upload.html", _ongoing_ctx(
             request, error=f"Could not analyse that file: {exc}",
@@ -956,7 +973,9 @@ async def ongoing_analyze(request: Request, file: UploadFile = File(...),
     # The same AR transaction file also refreshes the remittance portal so its
     # customer links always show the latest position (stable links are reused).
     try:
-        remittance.build_statements_from_gl(dest, result.get("source", "AR file"))
+        await run_in_threadpool(
+            remittance.build_statements_from_gl, dest,
+            result.get("source", "AR file"))
     except Exception:  # noqa: BLE001 — remittance refresh must never break CtP analysis
         pass
     return RedirectResponse(
@@ -1215,9 +1234,11 @@ async def remittance_upload(request: Request, file: UploadFile = File(...)):
 
     token = uuid.uuid4().hex
     dest = UPLOAD_DIR / f"gl_{token}{ext}"
-    dest.write_bytes(await file.read())
+    await _spool(file, dest)
     try:
-        batch = remittance.build_statements_from_gl(dest, file.filename or "general_ledger.xlsx")
+        batch = await run_in_threadpool(
+            remittance.build_statements_from_gl, dest,
+            file.filename or "general_ledger.xlsx")
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse("remittance/upload.html", {
             "request": request, "cfg": load_config(), "tool": _REMIT_TOOL,
@@ -1620,7 +1641,7 @@ async def alloc_eno_key(request: Request, file: UploadFile = File(...)):
                                 "Upload the allocation key as an Excel file.",
                                 status_code=303)
     dest = UPLOAD_DIR / f"enokey_{uuid.uuid4().hex[:8]}{ext}"
-    dest.write_bytes(await file.read())
+    await _spool(file, dest)
     try:
         parsed = eno_allocation.parse_key_workbook(dest)
     except Exception as exc:  # noqa: BLE001
@@ -1654,7 +1675,8 @@ async def alloc_eno_extract(request: Request):
     refs = key.get("order") or list(key["customers"].keys())
     cfg = load_config()
     try:
-        extraction = ai_ocr.extract_eneo_invoice(pdf_bytes, refs, cfg.get("ai"))
+        extraction = await run_in_threadpool(
+            ai_ocr.extract_eneo_invoice, pdf_bytes, refs, cfg.get("ai"))
     except (ai_ocr.AiNotConfigured, ai_ocr.AiReadError) as exc:
         return templates.TemplateResponse("allocation/index.html", _alloc_ctx(
             request, error=f"Document reading failed: {exc}"))
@@ -1713,7 +1735,7 @@ async def alloc_eno_generate(request: Request):
     upload = form.get("invoice_pdf")
     if upload is not None and getattr(upload, "filename", ""):
         if Path(upload.filename).suffix.lower() == ".pdf":
-            (_ENO_DIR / f"{token}.pdf").write_bytes(await upload.read())
+            await _spool(upload, _ENO_DIR / f"{token}.pdf")
     else:
         # Invoice staged by the AI-read step — attach it as evidence.
         pdf_token = (form.get("pdf_token") or "").strip()
@@ -1834,7 +1856,7 @@ async def variance_analyze(request: Request):
                 _variance_ctx(request, error=f"{up.filename}: upload Excel "
                               "files (.xlsx/.xls)."))
         dest = UPLOAD_DIR / f"var_{key}_{uuid.uuid4().hex[:8]}{ext}"
-        dest.write_bytes(await up.read())
+        await _spool(up, dest)
         files[key] = dest
     try:
         result = variance.build_analysis(
@@ -2358,7 +2380,7 @@ async def bank_upload(request: Request, bank_name: str = Form("", alias="bank"),
                               "statements as .xlsx, .xlsm, .xls or .pdf.",
                               status_code=400)
         dest = UPLOAD_DIR / f"bankstmt_{uuid.uuid4().hex[:8]}{ext}"
-        dest.write_bytes(await f.read())
+        await _spool(f, dest)
         stored.append((dest, f.filename or "statement.xlsx"))
     ai_cfg = cfg.get("ai")
     ai_key = bool((ai_cfg or {}).get("api_key", "").strip())
@@ -2622,7 +2644,7 @@ async def bitcash_upload(request: Request,
             return _bitcash_home(request, error=f"{f.filename}: upload Excel "
                                  "files (.xlsx/.xls).", status_code=400)
         dest = UPLOAD_DIR / f"bitcash_{kind}_{uuid.uuid4().hex[:8]}{ext}"
-        dest.write_bytes(await f.read())
+        await _spool(f, dest)
         jobs.append((kind, dest, f.filename or ""))
     # Big extracts take longer than a web request may — parse in the
     # background and let the page refresh itself until the counts land.
@@ -2682,7 +2704,7 @@ async def bitcash_recon_upload(request: Request,
                                  "→ Document reading to read scanned "
                                  "statements.", status_code=400)
     dest = UPLOAD_DIR / f"stmt_{uuid.uuid4().hex[:8]}{ext}"
-    dest.write_bytes(await statement.read())
+    await _spool(statement, dest)
     # Optional bank deposit slip, uploaded together with the statement — its
     # total anchors the BIT search (it is what was actually banked).
     slip_dest = slip_media = None
@@ -2696,7 +2718,7 @@ async def bitcash_recon_upload(request: Request,
             else (ai_ocr.media_type_for(deposit_slip.filename)
                   or "application/pdf")
         slip_dest = UPLOAD_DIR / f"slip_{uuid.uuid4().hex[:8]}{s_ext}"
-        slip_dest.write_bytes(await deposit_slip.read())
+        await _spool(deposit_slip, slip_dest)
         slip_name = deposit_slip.filename
     token = bitcash.create_recon_async(
         dest, media, statement.filename or "statement",
@@ -2789,11 +2811,12 @@ async def bitcash_recon_slip(request: Request, token: str,
                                   "Excel file.")
     bitcash.FILES_DIR.mkdir(parents=True, exist_ok=True)
     name = f"slip_{token}{ext}"
-    (bitcash.FILES_DIR / name).write_bytes(await slip.read())
+    await _spool(slip, bitcash.FILES_DIR / name)
     slip_media = "excel" if ext in (".xlsx", ".xlsm", ".xls") \
         else (ai_ocr.media_type_for(slip.filename) or "application/pdf")
-    info = bitcash._read_slip_info(bitcash.FILES_DIR / name, slip_media,
-                                   load_config().get("ai"))
+    info = await run_in_threadpool(
+        bitcash._read_slip_info, bitcash.FILES_DIR / name, slip_media,
+        load_config().get("ai"))
     total = (info or {}).get("amount")
     rec = bitcash.set_slip(token, name, slip.filename or name, total, info)
     if rec is None:
@@ -3253,9 +3276,10 @@ async def operator_read_slip(request: Request, token: str,
     if len(blob) > _IRO_MAX_FILE:
         return JSONResponse({"error": "The slip is bigger than 15 MB."},
                             status_code=400)
-    side = iro.preread_slip(blob, slip.filename or "slip",
-                            load_config().get("ai"),
-                            account=rec["account"])
+    side = await run_in_threadpool(
+        lambda: iro.preread_slip(blob, slip.filename or "slip",
+                                 load_config().get("ai"),
+                                 account=rec["account"]))
     if side.get("duplicate"):
         return JSONResponse({"error": side["duplicate"]}, status_code=409)
     return JSONResponse({"slip_id": side["slip_id"],
