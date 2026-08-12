@@ -80,6 +80,13 @@
       <span class="nav-label">BIT &amp; Cash AR</span></a>{% endif %}
     {% endif %}
 
+    {% if _allowed is none or 'revenue-analysis' in _allowed %}
+    <div class="nav-section">Sales</div>
+    <a class="nav-item {% if 'revenue-analysis' in path %}active{% endif %}" href="/tools/revenue-analysis">
+      <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5V18a2 2 0 0 0 2 2h14"/><path d="M7.5 16v-4M11.5 16V8.5M15.5 16v-6M19.5 16V6"/></svg></span>
+      <span class="nav-label">Revenue analysis</span></a>
+    {% endif %}
+
     {% if request.state.is_admin is not defined or request.state.is_admin %}
     <div class="nav-section">Account</div>
     <a class="nav-item {% if path == '/profile' %}active{% endif %}" href="/profile">

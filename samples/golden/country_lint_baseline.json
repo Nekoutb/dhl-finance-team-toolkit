@@ -155,6 +155,10 @@
  "app/templates/remittance/batch.html": {
   "zero_dec_money": 4
  },
+ "app/templates/revenue/index.html": {
+  "XAF": 4,
+  "zero_dec_money": 19
+ },
  "app/templates/settings.html": {
   "momo_merchant": 1
  },

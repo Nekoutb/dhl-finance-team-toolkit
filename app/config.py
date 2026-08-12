@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.17 — 6 Aug 2026 · Upload reliability, after the audit of this week's reports: the CtP refresh button no longer errors on a stored analysis (every click used to fail), and every upload's disk write and file parse now runs off the serving thread — a slow disk or a big file can no longer freeze the whole worker mid-upload, which is what killed an upload on 06.08 and forced a re-login."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.18 — 12 Aug 2026 · New: Sales ▸ Revenue Analysis. Upload the monthly IB434 revenue detail; the dashboard shows net revenue (taxes and duties excluded) per billable day, per shipment and per kilo for every month on record, with the running month as a live run-rate against the completed months' average. Billable days come from the data itself — a day with no billing is not billable, Sundays never count, two Saturdays count as one. The Pricing panel ranks the top 10 customers with their weight-charge price per kilo against the file average."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

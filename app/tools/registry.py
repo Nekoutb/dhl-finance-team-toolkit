@@ -12,6 +12,7 @@ List order = display order on the landing page.
 
 O2C = "Order to Cash"
 R2R = "Record to Report"
+SALES = "Sales"
 
 TOOLS = [
     # ---- Order to Cash ------------------------------------------------------
@@ -153,6 +154,20 @@ TOOLS = [
         "description": (
             "Convert other approved Excel files to PDF. "
             "Awaiting your detailed procedure."
+        ),
+    },
+    # ---- Sales --------------------------------------------------------------
+    {
+        "slug": "revenue-analysis",
+        "name": "Revenue Analysis",
+        "category": SALES,
+        "icon": "📈",
+        "status": "live",
+        "description": (
+            "Upload the monthly IB434 revenue detail. Net revenue per "
+            "billable day, per shipment and per kilo — months side by side, "
+            "the running month as a live run-rate — plus top-customer "
+            "pricing against the file average."
         ),
     },
 ]

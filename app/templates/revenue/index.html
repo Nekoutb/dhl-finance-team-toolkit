@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Revenue Analysis · {{ cfg.app_name }}{% endblock %}
+{% block content %}
+  <nav class="crumbs"><a href="/">Dashboard</a> / Sales / {{ tool.name }}</nav>
+
+  <section class="panel">
+    <h1>{{ tool.icon }} {{ tool.name }}</h1>
+    <p class="lead">Net revenue (excl. taxes and duties) per billable day,
+      per shipment and per kilo — the running month as a live run-rate.</p>
+    {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if processing %}
+    <script>setTimeout(function () {
+      window.location.replace('/tools/revenue-analysis'); }, 5000);</script>
+    <div class="alert alert-info">⏳ Reading
+      {{ processing.files | join(" + ") }} — refreshes itself.</div>
+    {% endif %}
+    {% if processing_error %}
+    <div class="alert alert-error">✗ {{ processing_error.message }}</div>
+    {% endif %}
+
+    {% if not view.months %}
+      <div class="alert alert-info">No revenue file on record yet — upload
+        the monthly IB434 revenue detail below.</div>
+    {% else %}
+
+    <div class="stat-row" style="display:flex;gap:12px;flex-wrap:wrap;">
+      {% for m in view.months %}
+      <div class="stat-card" style="flex:1;min-width:170px;border:1px solid
+           rgba(100,116,139,.25);border-radius:12px;padding:12px 14px;">
+        <div class="note-small">{{ m.label }}
+          {% if m.ongoing %}<span class="pill pill-watch"
+            title="Month in progress — figures are the position to date">in
+            progress</span>{% endif %}</div>
+        <div style="font-size:1.35rem;font-weight:700;">
+          {{ "{:,.0f}".format(m.net) }} <span class="note-inline">XAF</span></div>
+        <div class="note-small">{{ "{:,.0f}".format(m.shipments) }} shipment(s)
+          · {{ "{:,.0f}".format(m.kilos) }} kg</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if view.kpis %}
+    <h2 class="section-title" style="margin-top:18px;">
+      {{ view.ongoing.label }} — run-rate vs the
+      {{ view.months | rejectattr("ongoing") | list | length }} complete
+      month(s)</h2>
+    <div class="stat-row" style="display:flex;gap:12px;flex-wrap:wrap;">
+      {% for k in view.kpis %}
+      <div class="stat-card" style="flex:1;min-width:190px;border:1px solid
+           rgba(100,116,139,.25);border-radius:12px;padding:12px 14px;">
+        <div class="note-small">{{ k.label }}</div>
+        <div style="font-size:1.25rem;font-weight:700;">
+          {% if k.value is not none %}{{ "{:,.0f}".format(k.value) }}
+          {% else %}—{% endif %}</div>
+        {% if k.delta_pct is not none %}
+        <div class="note-small" style="color:{{ '#1b7f4b' if k.delta_pct >= 0
+             else '#bd3727' }};">
+          {{ "{:+.1f}".format(k.delta_pct) }}% vs
+          {{ "{:,.0f}".format(k.baseline) }} avg</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <h2 class="section-title" style="margin-top:18px;">Months side by side</h2>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th></th>
+          {% for m in view.months %}<th>{{ m.label }}
+            {%- if m.ongoing %} *{% endif %}</th>{% endfor %}
+        </tr></thead>
+        <tbody>
+          <tr><td><strong>Net revenue (XAF)</strong></td>
+            {% for m in view.months %}
+            <td><strong>{{ "{:,.0f}".format(m.net) }}</strong></td>
+            {% endfor %}</tr>
+          <tr><td>Billable days</td>
+            {% for m in view.months %}
+            <td>{{ "{:g}".format(m.billable_days) }}</td>{% endfor %}</tr>
+          <tr><td><strong>Revenue / day</strong></td>
+            {% for m in view.months %}
+            <td>{% if m.rev_per_day %}{{ "{:,.0f}".format(m.rev_per_day) }}
+              {% else %}—{% endif %}</td>{% endfor %}</tr>
+          <tr><td>Shipments</td>
+            {% for m in view.months %}
+            <td>{{ "{:,.0f}".format(m.shipments) }}</td>{% endfor %}</tr>
+          <tr><td><strong>Revenue / shipment</strong></td>
+            {% for m in view.months %}
+            <td>{% if m.rev_per_shipment %}
+              {{ "{:,.0f}".format(m.rev_per_shipment) }}
+              {% else %}—{% endif %}</td>{% endfor %}</tr>
+          <tr><td>Billed kilos</td>
+            {% for m in view.months %}
+            <td>{{ "{:,.0f}".format(m.kilos) }}</td>{% endfor %}</tr>
+          <tr><td><strong>Revenue / kg</strong></td>
+            {% for m in view.months %}
+            <td>{% if m.rev_per_kg %}{{ "{:,.0f}".format(m.rev_per_kg) }}
+              {% else %}—{% endif %}</td>{% endfor %}</tr>
+          <tr><td class="note-small">of which taxes (excluded)</td>
+            {% for m in view.months %}
+            <td class="note-small">{{ "{:,.0f}".format(m.totals.tax) }}</td>
+            {% endfor %}</tr>
+          <tr><td class="note-small">of which duties (excluded)</td>
+            {% for m in view.months %}
+            <td class="note-small">{{ "{:,.0f}".format(m.totals.duty) }}</td>
+            {% endfor %}</tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note-small">Billable days come from the data: a day with no
+      billing is not billable; Sundays never count; two Saturdays count as
+      one day. * = month in progress.</p>
+    {% endif %}
+  </section>
+
+  {% if view.months %}
+  <section class="panel">
+    <h2 class="section-title">💶 Pricing — top 10 customers,
+      {{ pricing_label }}</h2>
+    <div class="download-row" style="margin-bottom:8px;">
+      {% for m in view.months %}
+      <a class="btn btn-small {% if m.period == view.pricing_period %}btn-primary{% endif %}"
+         href="/tools/revenue-analysis?pricing={{ m.period }}">{{ m.label }}</a>
+      {% endfor %}
+    </div>
+    {% if view.pricing.file_avg %}
+    <p class="note-small">Price/kg = <strong>weight charge ÷ billed
+      kilos</strong>. File average:
+      <strong>{{ "{:,.0f}".format(view.pricing.file_avg) }} XAF/kg</strong>.</p>
+    {% endif %}
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>#</th><th>Customer</th><th>Net revenue (XAF)</th>
+          <th>Billed kg</th><th>Price / kg</th><th>File average</th>
+          <th>Variance</th></tr></thead>
+        <tbody>
+          {% for c in view.pricing.rows %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ c.name }}</strong>
+              <span class="note-inline">{{ c.account }}</span></td>
+            <td>{{ "{:,.0f}".format(c.net) }}</td>
+            <td>{{ "{:,.0f}".format(c.kilos) }}</td>
+            <td>{% if c.per_kg is not none %}
+              <strong>{{ "{:,.0f}".format(c.per_kg) }}</strong>
+              {% else %}—{% endif %}</td>
+            <td>{% if view.pricing.file_avg %}
+              {{ "{:,.0f}".format(view.pricing.file_avg) }}{% else %}—{% endif %}</td>
+            <td>{% if c.variance_pct is not none %}
+              <strong style="color:{{ '#1b7f4b' if c.variance_pct >= 0
+                else '#bd3727' }};">{{ "{:+.1f}".format(c.variance_pct) }}%</strong>
+              {% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2 class="section-title">Upload the monthly revenue detail</h2>
+    <form action="/tools/revenue-analysis/upload" method="post"
+          enctype="multipart/form-data" class="upload-form-stack">
+      <label class="filedrop">
+        <input type="file" name="files" multiple accept=".xlsx,.xlsm" required>
+        <span class="filedrop-text">IB434 revenue detail — one or several
+          months; re-uploading a month replaces it.</span>
+      </label>
+      <button class="btn btn-primary" type="submit">📥 Upload</button>
+    </form>
+    {% if view.months %}
+    <div class="table-wrap" style="margin-top:10px;">
+      <table class="tx-table">
+        <thead><tr><th>Month</th><th>File</th><th>Uploaded</th>
+          <th>Lines</th><th></th></tr></thead>
+        <tbody>
+          {% for m in view.months %}
+          <tr>
+            <td><strong>{{ m.label }}</strong></td>
+            <td>{{ m.source }}</td>
+            <td>{{ m.uploaded }}</td>
+            <td>{{ "{:,.0f}".format(m.rows) }}</td>
+            <td>
+              <form action="/tools/revenue-analysis/delete" method="post"
+                    style="display:inline;"
+                    onsubmit="return confirm('Remove {{ m.label }} from the dashboard? The month comes back by uploading its file again.');">
+                <input type="hidden" name="period" value="{{ m.period }}">
+                <button class="btn btn-small" type="submit">🗑 Remove</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+{% endblock %}

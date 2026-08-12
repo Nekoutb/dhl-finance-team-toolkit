@@ -28,7 +28,8 @@ from .services import (ai_ocr, ar_master, auth, bank_statement,
                        emailer, eno_allocation, evidence_img, holds,
                        remittance_pdf, remittance_store, turnstile, variance,
                        xlsx_report)
-from .tools import account_stop, bank, bitcash, iro, mydhlpay, quickstmt
+from .tools import (account_stop, bank, bitcash, iro, mydhlpay,
+                    quickstmt, revenue)
 from .tools import ongoing_ctp as ctp
 from .tools import orange_cameroun as orange
 from .tools import registry
@@ -2569,6 +2570,80 @@ def quick_statement_generate(request: Request, key: str = ""):
 # --------------------------------------------------------------------------- #
 # BIT & Cash AR — daily open-items tracking
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Sales — Revenue Analysis (IB434 monthly revenue detail)
+# --------------------------------------------------------------------------- #
+_REVENUE_TOOL = registry.by_slug("revenue-analysis")
+
+
+def _month_label(period):
+    try:
+        return datetime.strptime(period, "%Y-%m").strftime("%B %Y")
+    except ValueError:
+        return period
+
+
+@app.get("/tools/revenue-analysis", response_class=HTMLResponse)
+def revenue_home(request: Request, pricing: str = "",
+                 message: str = "", error: str = ""):
+    view = revenue.dashboard()
+    if pricing and re.fullmatch(r"\d{4}-\d{2}", pricing):
+        chosen = revenue.pricing_for(pricing)
+        if chosen is not None:
+            view["pricing"] = chosen
+            view["pricing_period"] = pricing
+    for m in view["months"]:
+        m["label"] = _month_label(m["period"])
+    st = revenue.status()
+    return templates.TemplateResponse("revenue/index.html", {
+        "request": request, "cfg": load_config(), "tool": _REVENUE_TOOL,
+        "view": view, "pricing_label": _month_label(view["pricing_period"]),
+        "processing": st["processing"],
+        "processing_error": st["processing_error"],
+        "message": message, "error": error,
+    })
+
+
+@app.post("/tools/revenue-analysis/upload")
+async def revenue_upload(request: Request,
+                         files: list[UploadFile] = File(...)):
+    real = [f for f in (files or []) if f and f.filename]
+    if not real:
+        return redirect_msg("/tools/revenue-analysis",
+                            error="Choose at least one revenue detail file.")
+    jobs = []
+    for f in real:
+        ext = Path(f.filename or "").suffix.lower()
+        # .xls is refused here: the reader only opens .xlsx/.xlsm, and an
+        # old-format file would die mid-ingest with a cryptic error.
+        if ext not in (".xlsx", ".xlsm"):
+            return redirect_msg(
+                "/tools/revenue-analysis",
+                error=f"{f.filename}: upload the revenue detail as .xlsx "
+                      "(save-as in Excel if it came out as .xls).")
+        revenue.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        dest = revenue.UPLOAD_DIR / f"rev_{uuid.uuid4().hex[:8]}{ext}"
+        await _spool(f, dest)
+        jobs.append((dest, f.filename or dest.name))
+    revenue.ingest_async(jobs)
+    return redirect_msg("/tools/revenue-analysis",
+                        message=f"{len(jobs)} file(s) received — reading "
+                                "now; this page refreshes itself until the "
+                                "month lands.")
+
+
+@app.post("/tools/revenue-analysis/delete")
+async def revenue_delete(request: Request):
+    form = await request.form()
+    period = str(form.get("period") or "").strip()
+    if not revenue.delete_period(period):
+        return redirect_msg("/tools/revenue-analysis",
+                            error="That month was not on record.")
+    return redirect_msg("/tools/revenue-analysis",
+                        message=f"{_month_label(period)} removed — upload "
+                                "the file again to restore it.")
+
+
 _BITCASH_TOOL = registry.by_slug("bit-cash-ar")
 
 
