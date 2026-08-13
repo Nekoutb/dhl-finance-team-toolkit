@@ -10,9 +10,11 @@ Definitions (agreed with the finance lead):
   VAT ("Taxes to Applicable Charges") and customs money ("Imp/Exp Duties &
   Taxes") are excluded — neither is DHL revenue.
 * BILLABLE DAYS come from the DATA, not a calendar: a day with no billing
-  activity is assumed non-billable (public holidays fall out automatically).
+  is assumed non-billable (public holidays fall out automatically).
   Sundays never count; an active Saturday counts HALF a day ("two Saturdays
-  count as one day"); an active weekday counts one.
+  count as one day"); an active weekday counts one. Counted on the INVOICE
+  date — the same axis the revenue sits on, so a partial month never
+  divides one span's revenue by another span's days.
 * Credit-and-rebill pairs (negative reversal + positive rebill on the same
   airwaybill) are handled by SIGNED sums throughout — never de-duplicate.
 * PRICING uses the Weight Charge alone ("the weight charge is the revenue
@@ -48,7 +50,11 @@ _REQUIRED = [
     "Billed Weight (Kilos)", "LCU Weight Charge", "LCU Fuel Surcharges",
     "LCU Other Charges", "LCU Discount", "LCU Imp/Exp Duties & Taxes",
     "LCU Taxes to Applicable Charges", "LCU Total",
+    "Service Type", "Orgn", "Dest",
 ]
+
+# lanes kept per direction, biggest first — bounded so the store stays small
+MAX_LANES = 40
 
 
 def _norm_h(h):
@@ -138,10 +144,11 @@ def parse_file(path, source=""):
         kilos = 0.0
         rows = 0
         period_votes = {}
-        daily_net = {}
+        daily = {}          # invoice day -> {net, kilos, awb_net{}}
         ship_days = {}
         awb_net = {}
         customers = {}
+        lanes = {"OB": {}, "IB": {}}
         for r in rows_iter:
             if not any(v not in (None, "") for v in r):
                 continue
@@ -168,13 +175,32 @@ def parse_file(path, source=""):
             kilos += kg
             inv_day = _iso_day(r[ix["Invoice Date"]])
             if inv_day:
-                daily_net[inv_day] = daily_net.get(inv_day, 0.0) + net
+                dd = daily.get(inv_day)
+                if dd is None:
+                    dd = daily[inv_day] = {"net": 0.0, "kilos": 0.0,
+                                           "awb_net": {}}
+                dd["net"] += net
+                dd["kilos"] += kg
             ship_day = _iso_day(r[ix["Shipment Date"]])
             if ship_day:
                 ship_days[ship_day] = ship_days.get(ship_day, 0) + 1
             awb = str(r[ix["Air waybill"]] or "").strip()
             if awb:
                 awb_net[awb] = awb_net.get(awb, 0.0) + net
+                if inv_day:
+                    dd["awb_net"][awb] = dd["awb_net"].get(awb, 0.0) + net
+            # Lanes: OB = leaving the country, IB = coming in. The lane is
+            # the origin->destination pair as the file writes it.
+            svc = str(r[ix["Service Type"]] or "").strip().upper()
+            orgn = str(r[ix["Orgn"]] or "").strip().upper()
+            dest = str(r[ix["Dest"]] or "").strip().upper()
+            if svc in lanes and orgn and dest:
+                lane = lanes[svc].setdefault(f"{orgn}-{dest}", {
+                    "net": 0.0, "kilos": 0.0, "awb_net": {}})
+                lane["net"] += net
+                lane["kilos"] += kg
+                if awb:
+                    lane["awb_net"][awb] = lane["awb_net"].get(awb, 0.0) + net
             acct = str(r[ix["Bill To Account"]] or "").strip()
             if acct:
                 c = customers.get(acct)
@@ -197,6 +223,23 @@ def parse_file(path, source=""):
     for c in customers.values():
         for k in ("net", "weight", "kilos"):
             c[k] = round(c[k], 2)
+    daily_out = {}
+    for day, dd in sorted(daily.items()):
+        awbs = sorted(a for a, v in dd["awb_net"].items() if v > 0.005)
+        daily_out[day] = {
+            "net": round(dd["net"], 2), "kilos": round(dd["kilos"], 2),
+            "shipments": len(awbs),
+            # the AWBs themselves, so a partial-month window counts each
+            # shipment ONCE even when it is invoiced across two days
+            "awbs": awbs}
+    lanes_out = {}
+    for svc, table in lanes.items():
+        top = sorted(table.items(), key=lambda kv: -kv[1]["net"])[:MAX_LANES]
+        lanes_out[svc] = {
+            k: {"net": round(v["net"], 2), "kilos": round(v["kilos"], 2),
+                "shipments": sum(1 for x in v["awb_net"].values()
+                                 if x > 0.005)}
+            for k, v in top}
     return {
         "period": period,
         "source": str(source or Path(path).name),
@@ -207,7 +250,8 @@ def parse_file(path, source=""):
         # A shipment = an airwaybill whose SIGNED net is positive this
         # period; a fully reversed billing nets to zero and is not one.
         "shipments": sum(1 for v in awb_net.values() if v > 0.005),
-        "daily_net": {k: round(v, 2) for k, v in sorted(daily_net.items())},
+        "daily": daily_out,
+        "lanes": lanes_out,
         "ship_days": dict(sorted(ship_days.items())),
     }, {acct: c for acct, c in customers.items()}
 
@@ -298,13 +342,23 @@ def status():
 # Metrics
 # --------------------------------------------------------------------------- #
 def _union_ship_days(periods):
-    """Shipment activity per calendar day across EVERY uploaded file — a
-    June shipment billed late sits in July's file but still proves June's
-    day was worked."""
+    """Billing activity per calendar day across EVERY uploaded file.
+
+    Counted on the INVOICE date — the owner's rule is "where you don't see
+    any billing, it was not a billable day", and the revenue being divided
+    is invoice-dated, so the divisor must sit on the same axis or a partial
+    month compares two different spans. Records written before that detail
+    existed fall back to their shipment dates.
+    """
     union = {}
     for rec in periods.values():
-        for day, n in (rec.get("ship_days") or {}).items():
-            union[day] = union.get(day, 0) + n
+        daily = rec.get("daily")
+        if daily:
+            for day, dd in daily.items():
+                union[day] = union.get(day, 0) + (dd.get("shipments") or 0)
+        else:
+            for day, n in (rec.get("ship_days") or {}).items():
+                union[day] = union.get(day, 0) + n
     return union
 
 
@@ -346,6 +400,162 @@ def month_metrics(rec, union_days):
         "kilos": kilos,
         "rev_per_kg": (net / kilos) if kilos > 0 else None,
     }
+
+
+def _month_billable_sequence(month_key, union_days):
+    """The month's billable days in date order as [(iso_day, weight)]."""
+    seq = []
+    for day, n in sorted(union_days.items()):
+        if not day.startswith(month_key) or n < MIN_ACTIVE_ROWS:
+            continue
+        try:
+            wd = date.fromisoformat(day).weekday()
+        except ValueError:
+            continue
+        if wd == 6:
+            continue
+        seq.append((day, 0.5 if wd == 5 else 1.0))
+    return seq
+
+
+def same_days_window(rec, union_days, target_days):
+    """A month's position after its FIRST ``target_days`` billable days —
+    the fair yardstick for an ongoing month ("compare it to the same number
+    of days in the prior month", not to a full month's average).
+
+    Uses the invoice-dated daily detail; None when the record predates that
+    detail or the window cannot be built."""
+    daily = rec.get("daily")
+    if not daily or not target_days:
+        return None
+    seq = _month_billable_sequence(rec["period"], union_days)
+    if not seq:
+        return None
+    cum, cutoff = 0.0, None
+    for day, w in seq:
+        cum += w
+        cutoff = day
+        if cum >= target_days - 1e-9:
+            break
+    net = kilos = 0.0
+    seen = set()
+    counted = 0
+    for day, dd in daily.items():
+        if day.startswith(rec["period"]) and day <= cutoff:
+            net += dd.get("net", 0.0)
+            kilos += dd.get("kilos", 0.0)
+            awbs = dd.get("awbs")
+            if awbs is None:            # pre-v11.19 detail: best effort
+                counted += dd.get("shipments", 0)
+            else:
+                seen.update(awbs)
+    ships = len(seen) + counted
+    return {"days": cum, "through": cutoff, "net": round(net, 2),
+            "kilos": round(kilos, 2), "shipments": ships,
+            "rev_per_day": (net / cum) if cum else None,
+            "rev_per_shipment": (net / ships) if ships else None,
+            "rev_per_kg": (net / kilos) if kilos > 0 else None}
+
+
+def _graph_series(months):
+    """Pixel-ready polylines for the three KPIs: a SOLID line through the
+    complete months and a DASHED closing segment to the ongoing month, so
+    the reader sees at a glance that the last point is provisional."""
+    W, H, PAD = 460, 132, 30
+    out = []
+    for key, label in (("rev_per_day", "Revenue / day"),
+                       ("rev_per_shipment", "Revenue / shipment"),
+                       ("rev_per_kg", "Revenue / kg")):
+        pts = [(m["label"], m[key], m["ongoing"])
+               for m in months if m.get(key)]
+        if len(pts) < 2:
+            continue
+        vals = [v for _l, v, _o in pts]
+        lo, hi = min(vals), max(vals)
+        flat = (hi - lo) < 1e-9
+        span = (hi - lo) or 1.0
+        step = (W - 2 * PAD) / (len(pts) - 1)
+        coords = []
+        for i, (lab, v, ongoing) in enumerate(pts):
+            # A flat series would otherwise pin every point to the floor of
+            # the chart, reading as a collapse — draw it mid-height instead.
+            frac = 0.5 if flat else (v - lo) / span
+            coords.append({
+                "x": round(PAD + i * step, 1),
+                "y": round(H - PAD - frac * (H - 2 * PAD), 1),
+                "v": v, "label": lab, "ongoing": ongoing})
+        solid = [c for c in coords if not c["ongoing"]]
+        dashed = coords[-2:] if coords[-1]["ongoing"] else []
+        out.append({
+            "key": key, "label": label, "coords": coords, "w": W, "h": H,
+            "solid_points": " ".join(f"{c['x']},{c['y']}" for c in solid),
+            "dash_points": " ".join(f"{c['x']},{c['y']}" for c in dashed)})
+    return out
+
+
+def lanes_for(period, top_n=10):
+    """Top outbound + inbound lanes of a month by net revenue, with net
+    revenue per kilo per lane."""
+    data = _load()
+    rec = (data.get("periods") or {}).get(str(period))
+    if not rec:
+        return None
+    out = {}
+    for svc, label in (("OB", "outbound"), ("IB", "inbound")):
+        rows = []
+        for lane, v in sorted((rec.get("lanes") or {}).get(svc, {}).items(),
+                              key=lambda kv: -kv[1]["net"])[:top_n]:
+            rows.append({
+                "lane": lane.replace("-", " → "), "net": v["net"],
+                "kilos": v["kilos"], "shipments": v["shipments"],
+                "per_kg": (v["net"] / v["kilos"]) if v["kilos"] > 0
+                else None})
+        out[label] = rows
+    return out
+
+
+def active_customers(top_n=20, now=None):
+    """The top traders BY WEIGHT over the last three complete months, and
+    what they are moving in the current month — the point is spotting a big
+    trader who has gone quiet (or is trading while on credit stop)."""
+    data = _load()
+    periods = data.get("periods") or {}
+    now = now or datetime.now()
+    this_month = now.strftime("%Y-%m")
+    complete = [p for p in sorted(periods) if p != this_month]
+    last3 = complete[-3:]
+    if not last3:
+        return None
+    ongoing_rec = periods.get(this_month)
+
+    def by_name(rec):
+        table = {}
+        for acct, c in (rec.get("customers") or {}).items():
+            key = (c.get("name") or acct).strip().upper()
+            g = table.setdefault(key, {"name": c.get("name") or acct,
+                                      "kilos": 0.0})
+            g["kilos"] += c.get("kilos", 0.0)
+        return table
+
+    maps = {pkey: by_name(periods[pkey]) for pkey in last3}
+    cur = by_name(ongoing_rec) if ongoing_rec else {}
+    keys = set()
+    for m in maps.values():
+        keys |= set(m)
+    rows = []
+    for k in keys:
+        kgs = {pkey: round(maps[pkey].get(k, {}).get("kilos", 0.0), 1)
+               for pkey in last3}
+        avg = round(sum(kgs.values()) / len(last3), 1)
+        name = next((maps[pkey][k]["name"] for pkey in last3
+                     if k in maps[pkey]), k)
+        rows.append({"key": k, "name": name, "avg_kilos": avg,
+                     "months": kgs,
+                     "current": round(cur.get(k, {}).get("kilos", 0.0), 1)
+                     if ongoing_rec else None})
+    rows.sort(key=lambda r: -r["avg_kilos"])
+    return {"months": last3, "current_period": this_month
+            if ongoing_rec else "", "rows": rows[:top_n]}
 
 
 def pricing_top(rec, top_n=10):
@@ -391,6 +601,7 @@ def dashboard(now=None):
     """Everything the page needs, months ascending. The month equal to the
     CURRENT calendar month is flagged ongoing — its per-day figure divides
     by the billable days elapsed in the data, i.e. a live run-rate."""
+    from ..services.ctp_rules import EUR_RATES
     data = _load()
     periods = data.get("periods") or {}
     union_days = _union_ship_days(periods)
@@ -400,21 +611,33 @@ def dashboard(now=None):
               for _k, rec in sorted(periods.items())]
     for m in months:
         m["ongoing"] = m["period"] == this_month
+        try:
+            m["label"] = datetime.strptime(m["period"],
+                                           "%Y-%m").strftime("%B %Y")
+        except ValueError:
+            m["label"] = m["period"]
     complete = [m for m in months if not m["ongoing"]]
     ongoing = next((m for m in months if m["ongoing"]), None)
-    # the three KPI boxes: the ongoing month against the average of the
-    # complete months on record
-    baseline = {}
-    if complete:
-        for key in ("rev_per_day", "rev_per_shipment", "rev_per_kg"):
-            vals = [m[key] for m in complete if m[key]]
-            baseline[key] = (sum(vals) / len(vals)) if vals else None
+    # The three KPI boxes: the ongoing month against the PRIOR month over
+    # the SAME number of elapsed billable days ("compare it to the same
+    # number of days in the prior month" — a full-month average would make
+    # a two-day-old month look like a collapse). Falls back to the prior
+    # month's full average when its daily detail predates this feature.
     kpis = []
-    if ongoing:
+    window = None
+    prior = complete[-1] if complete else None
+    if ongoing and prior:
+        window = same_days_window(periods[prior["period"]], union_days,
+                                  ongoing["billable_days"])
+        # A window that caught no billing is not a baseline — fall back to
+        # the prior month's full average rather than divide by nothing.
+        if window and not window["net"]:
+            window = None
         for key, label in (("rev_per_day", "Revenue / day"),
                            ("rev_per_shipment", "Revenue / shipment"),
                            ("rev_per_kg", "Revenue / kg")):
-            cur, base = ongoing[key], baseline.get(key)
+            cur = ongoing[key]
+            base = (window or prior)[key]
             kpis.append({
                 "key": key, "label": label, "value": cur, "baseline": base,
                 # a negative baseline would invert the sign — suppress it
@@ -424,11 +647,22 @@ def dashboard(now=None):
     # days in would put noise in the price/kg column. The page offers every
     # month (the ongoing one included) as a selector.
     default = complete[-1] if complete else (months[-1] if months else None)
+    # Months stored before the lane/daily detail existed still show their
+    # headline figures, but cannot feed the lanes panel or the same-days
+    # comparison. Name them so the user knows a re-upload unlocks those.
+    stale = [m["label"] for m in months
+             if not periods[m["period"]].get("daily")
+             or not periods[m["period"]].get("lanes")]
     return {"months": months, "ongoing": ongoing, "kpis": kpis,
-            "baseline": baseline,
+            "needs_reupload": stale,
+            "compare": {"prior_label": prior["label"] if prior else "",
+                        "window": window},
+            "graphs": _graph_series(months),
+            "eur_rate": EUR_RATES["XAF"],
             "pricing_period": default["period"] if default else "",
             "pricing": pricing_top(periods[default["period"]])
-            if default else {"rows": [], "file_avg": None}}
+            if default else {"rows": [], "file_avg": None},
+            "lanes": lanes_for(default["period"]) if default else None}
 
 
 def pricing_for(period):

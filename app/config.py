@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.18 — 12 Aug 2026 · New: Sales ▸ Revenue Analysis. Upload the monthly IB434 revenue detail; the dashboard shows net revenue (taxes and duties excluded) per billable day, per shipment and per kilo for every month on record, with the running month as a live run-rate against the completed months' average. Billable days come from the data itself — a day with no billing is not billable, Sundays never count, two Saturdays count as one. The Pricing panel ranks the top 10 customers with their weight-charge price per kilo against the file average."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.19 — 13 Aug 2026 · Revenue Analysis now reports in EUR, charts the KPI evolution (solid for completed months, dotted for the month in progress), and compares the running month against the SAME number of billable days in the prior month rather than a full-month average. Two new panels: Lanes — top 10 outbound and inbound routes with revenue per kilo — and Active customers — the top 20 traders by weight over the last three months against what they are moving now, with anyone on credit stop flagged red."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

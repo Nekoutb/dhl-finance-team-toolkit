@@ -38,11 +38,12 @@ HDR = ["Bill To Account Name", "Billing Period", "LCU Weight Charge",
        "Air waybill", "Shipment Date", "Invoice Date", "Bill To Account",
        "Billed Weight (Kilos)", "LCU Fuel Surcharges", "LCU Other Charges",
        "LCU Discount", "LCU Imp/Exp Duties & Taxes",
-       "LCU Taxes to Applicable Charges", "LCU Total"]
+       "LCU Taxes to Applicable Charges", "LCU Total",
+       "Service Type", "Orgn", "Dest"]
 
 
 def row(period, awb, acct, name, ship, inv, kg, w, f=0, o=0, d=0,
-        duty=0, tax=0):
+        duty=0, tax=0, svc="OB", orgn="DLA", dest="PAR"):
     total = w + f + o - d + duty + tax
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": acct, "Bill To Account Name": name,
@@ -51,7 +52,8 @@ def row(period, awb, acct, name, ship, inv, kg, w, f=0, o=0, d=0,
             "Billed Weight (Kilos)": kg, "LCU Weight Charge": w,
             "LCU Fuel Surcharges": f, "LCU Other Charges": o,
             "LCU Discount": d, "LCU Imp/Exp Duties & Taxes": duty,
-            "LCU Taxes to Applicable Charges": tax, "LCU Total": total}
+            "LCU Taxes to Applicable Charges": tax, "LCU Total": total,
+            "Service Type": svc, "Orgn": orgn, "Dest": dest}
 
 
 def build(path, rows):
@@ -64,45 +66,48 @@ def build(path, rows):
     wb.save(path)
 
 
-# June 2026 calendar: 1st = Monday. Fixture days by SHIPMENT date:
-#   Mon 01.06 (5 rows: 3 shipments + both reversal lines), Sat 06.06
-#   (3 rows -> half), Sun 07.06 (3 rows -> never), Tue 02.06 (2 rows <
-#   MIN_ACTIVE_ROWS -> holiday-like, not billable).
+# June 2026 calendar: 1st = Monday. The billable-day rule runs on the
+# INVOICE axis (the owner's rule is "where you don't see any billing"), so
+# the fixture bills on the day it ships. Days:
+#   Mon 01.06 — 3 billed shipments (+ a reversal pair that nets to zero)
+#   Sat 06.06 — 3 shipments  -> half a day
+#   Sun 07.06 — 3 shipments  -> never counts
+#   Tue 02.06 — 2 shipments  -> under MIN_ACTIVE_ROWS, holiday-like
 #   Expected billable days = 1 + 0.5 = 1.5.
 JUNE = [
     # Mon — three plain shipments + a discount/tax/duty line
     row("2026-06", "1000000001", "A1", "ALPHA LTD", "2026-06-01",
-        "2026-06-05", 10, 100000, f=20000, o=5000, d=5000, tax=19000,
+        "2026-06-01", 10, 100000, f=20000, o=5000, d=5000, tax=19000,
         duty=7000),
     row("2026-06", "1000000002", "A1", "ALPHA LTD", "2026-06-01",
-        "2026-06-05", 5, 50000),
+        "2026-06-01", 5, 50000),
     row("2026-06", "1000000003", "B2", "BETA SARL", "2026-06-01",
-        "2026-06-05", 20, 80000, f=10000),
+        "2026-06-01", 20, 80000, f=10000),
     # reversal PAIR on one AWB: bills 30k then fully reverses -> net 0,
     # kilos net 0, NOT a shipment
     row("2026-06", "1000000009", "B2", "BETA SARL", "2026-06-01",
-        "2026-06-06", 4, 30000),
+        "2026-06-01", 4, 30000),
     row("2026-06", "1000000009", "B2", "BETA SARL", "2026-06-01",
-        "2026-06-06", -4, -30000),
-    # Sat (3 rows, active -> 0.5 day)
+        "2026-06-01", -4, -30000),
+    # Sat (3 shipments, active -> 0.5 day)
     row("2026-06", "1000000004", "C3", "ALPHA LTD", "2026-06-06",
-        "2026-06-08", 2, 20000),
+        "2026-06-06", 2, 20000),
     row("2026-06", "1000000005", "C3", "ALPHA LTD", "2026-06-06",
-        "2026-06-08", 2, 20000),
+        "2026-06-06", 2, 20000),
     row("2026-06", "1000000006", "B2", "BETA SARL", "2026-06-06",
-        "2026-06-08", 1, 8000),
+        "2026-06-06", 1, 8000),
     # Sun (active but NEVER billable)
     row("2026-06", "1000000007", "B2", "BETA SARL", "2026-06-07",
-        "2026-06-09", 1, 9000),
+        "2026-06-07", 1, 9000),
     row("2026-06", "1000000010", "B2", "BETA SARL", "2026-06-07",
-        "2026-06-09", 1, 9000),
+        "2026-06-07", 1, 9000),
     row("2026-06", "1000000011", "B2", "BETA SARL", "2026-06-07",
-        "2026-06-09", 1, 9000),
-    # quiet Tue (2 rows, under the threshold -> not billable)
+        "2026-06-07", 1, 9000),
+    # quiet Tue (2 shipments, under the threshold -> not billable)
     row("2026-06", "1000000008", "A1", "ALPHA LTD", "2026-06-02",
-        "2026-06-09", 1, 7000),
+        "2026-06-02", 1, 7000),
     row("2026-06", "1000000012", "A1", "ALPHA LTD", "2026-06-02",
-        "2026-06-09", 1, 7000),
+        "2026-06-02", 1, 7000),
 ]
 build(_tmp / "june.xlsx", JUNE)
 
@@ -134,7 +139,8 @@ check("revenue/shipment and revenue/kg follow",
       and round(m["rev_per_kg"], 2) == round(NET / 45, 2))
 
 # a LATER file's shipments can prove an earlier month's day
-extra = {"ship_days": {"2026-06-03": 5}}     # Wed, proved by July's file
+extra = {"daily": {"2026-06-03": {"net": 1.0, "kilos": 1.0,
+                                  "shipments": 5, "awbs": ["a"]}}}  # Wed
 union2 = revenue._union_ship_days({"a": rec, "b": extra})
 check("activity in another file's rows adds the day to the union",
       revenue.billable_days("2026-06", union2) == 2.5)
@@ -180,11 +186,11 @@ check("delete removes the month", revenue.delete_period("2026-06")
 # === 5. Dashboard assembly ==================================================
 build(_tmp / "july.xlsx", [
     row("2026-07", "2000000001", "A1", "ALPHA LTD", "2026-07-01",
-        "2026-07-03", 10, 200000),
+        "2026-07-01", 10, 200000),
     row("2026-07", "2000000002", "A1", "ALPHA LTD", "2026-07-01",
-        "2026-07-03", 10, 200000),
+        "2026-07-01", 10, 200000),
     row("2026-07", "2000000003", "B2", "BETA SARL", "2026-07-01",
-        "2026-07-03", 10, 200000)])
+        "2026-07-01", 10, 200000)])
 build(_tmp / "aug.xlsx", [
     row("2026-08", "3000000001", "A1", "ALPHA LTD", "2026-08-03",
         "2026-08-04", 10, 100000),
@@ -200,7 +206,7 @@ check("months come out ascending",
       [m["period"] for m in view["months"]] == ["2026-07", "2026-08"])
 check("the current calendar month is flagged ongoing",
       view["ongoing"] and view["ongoing"]["period"] == "2026-08")
-check("KPI boxes compare the run-rate to the complete months",
+check("KPI boxes compare the run-rate to the prior month, same days",
       len(view["kpis"]) == 3 and all(k["baseline"] for k in view["kpis"]))
 kpi = {k["key"]: k for k in view["kpis"]}
 check("revenue/day delta is computed",

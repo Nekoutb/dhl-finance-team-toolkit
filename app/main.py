@@ -2592,12 +2592,31 @@ def revenue_home(request: Request, pricing: str = "",
         if chosen is not None:
             view["pricing"] = chosen
             view["pricing_period"] = pricing
-    for m in view["months"]:
-        m["label"] = _month_label(m["period"])
+            view["lanes"] = revenue.lanes_for(pricing)
+    # Active traders vs the credit-stop register: a top trader currently on
+    # stop is flagged in red on the table.
+    active = revenue.active_customers()
+    stopped_names = set()
+    try:
+        stopped, _meta = account_stop._latest_stopped()
+        # A CtP customer row names the customer under "customer" — not
+        # "name". Reading the wrong key made every trader look clean.
+        stopped_names = {str(c.get("customer") or c.get("name")
+                             or "").strip().upper() for c in stopped}
+        stopped_names.discard("")
+    except Exception:  # noqa: BLE001 — no CtP analysis yet: no flags
+        pass
+    if active:
+        for r in active["rows"]:
+            r["stopped"] = r["key"] in stopped_names
+        active["month_labels"] = [_month_label(p) for p in active["months"]]
+        active["current_label"] = _month_label(active["current_period"]) \
+            if active["current_period"] else ""
     st = revenue.status()
     return templates.TemplateResponse("revenue/index.html", {
         "request": request, "cfg": load_config(), "tool": _REVENUE_TOOL,
-        "view": view, "pricing_label": _month_label(view["pricing_period"]),
+        "view": view, "active": active,
+        "pricing_label": _month_label(view["pricing_period"]),
         "processing": st["processing"],
         "processing_error": st["processing_error"],
         "message": message, "error": error,
