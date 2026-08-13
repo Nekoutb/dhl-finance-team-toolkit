@@ -40,11 +40,11 @@ HDR = ["Billing Period", "Air waybill", "Bill To Account",
        "Billed Weight (Kilos)", "LCU Weight Charge", "LCU Fuel Surcharges",
        "LCU Other Charges", "LCU Discount", "LCU Imp/Exp Duties & Taxes",
        "LCU Taxes to Applicable Charges", "LCU Total",
-       "Service Type", "Orgn", "Dest"]
+       "Service Type", "Billing Type", "Orgn", "Dest"]
 
 
 def row(period, awb, acct, name, ship, inv, kg, w, svc="OB",
-        orgn="DLA", dest="PAR"):
+        orgn="DLA", dest="PAR", btype="R"):
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": acct, "Bill To Account Name": name,
             "Shipment Date": datetime.fromisoformat(ship),
@@ -53,7 +53,8 @@ def row(period, awb, acct, name, ship, inv, kg, w, svc="OB",
             "LCU Fuel Surcharges": 0, "LCU Other Charges": 0,
             "LCU Discount": 0, "LCU Imp/Exp Duties & Taxes": 0,
             "LCU Taxes to Applicable Charges": 0, "LCU Total": w,
-            "Service Type": svc, "Orgn": orgn, "Dest": dest}
+            "Service Type": svc, "Billing Type": btype,
+            "Orgn": orgn, "Dest": dest}
 
 
 def build(path, rows):
@@ -146,12 +147,12 @@ check("dotted segment connects the last complete month to the running one",
 lanes = view["lanes"]          # July (latest complete) by default
 check("outbound and inbound are separated",
       lanes and "outbound" in lanes and "inbound" in lanes)
-check("outbound lanes aggregate origin → destination",
-      lanes["outbound"][0]["lane"] == "DLA → PAR"
+check("outbound lanes aggregate COUNTRY → country",
+      lanes["outbound"][0]["lane"] == "CM → FR"
       and lanes["outbound"][0]["net"] == 720000.0
       and lanes["outbound"][0]["shipments"] == 6)
 check("inbound lanes likewise",
-      lanes["inbound"][0]["lane"] == "LOS → DLA"
+      lanes["inbound"][0]["lane"] == "NG → CM"
       and lanes["inbound"][0]["net"] == 240000.0)
 # v11.20 renamed the field to RPK and added the prior-months trend
 check("each lane carries its RPK",

@@ -39,11 +39,12 @@ HDR = ["Bill To Account Name", "Billing Period", "LCU Weight Charge",
        "Billed Weight (Kilos)", "LCU Fuel Surcharges", "LCU Other Charges",
        "LCU Discount", "LCU Imp/Exp Duties & Taxes",
        "LCU Taxes to Applicable Charges", "LCU Total",
-       "Service Type", "Orgn", "Dest"]
+       "Service Type", "Billing Type", "Orgn", "Dest"]
 
 
 def row(period, awb, acct, name, ship, inv, kg, w, f=0, o=0, d=0,
-        duty=0, tax=0, svc="OB", orgn="DLA", dest="PAR"):
+        duty=0, tax=0, svc="OB", orgn="DLA", dest="PAR",
+        btype="R"):
     total = w + f + o - d + duty + tax
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": acct, "Bill To Account Name": name,
@@ -53,7 +54,8 @@ def row(period, awb, acct, name, ship, inv, kg, w, f=0, o=0, d=0,
             "LCU Fuel Surcharges": f, "LCU Other Charges": o,
             "LCU Discount": d, "LCU Imp/Exp Duties & Taxes": duty,
             "LCU Taxes to Applicable Charges": tax, "LCU Total": total,
-            "Service Type": svc, "Orgn": orgn, "Dest": dest}
+            "Service Type": svc, "Billing Type": btype,
+            "Orgn": orgn, "Dest": dest}
 
 
 def build(path, rows):

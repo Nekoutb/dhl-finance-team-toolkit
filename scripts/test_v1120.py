@@ -39,11 +39,11 @@ HDR = ["Billing Period", "Air waybill", "Bill To Account",
        "Billed Weight (Kilos)", "LCU Weight Charge", "LCU Fuel Surcharges",
        "LCU Other Charges", "LCU Discount", "LCU Imp/Exp Duties & Taxes",
        "LCU Taxes to Applicable Charges", "LCU Total",
-       "Service Type", "Orgn", "Dest"]
+       "Service Type", "Billing Type", "Orgn", "Dest"]
 
 
 def row(period, awb, acct, name, inv, kg, w, svc="OB", orgn="DLA",
-        dest="PAR"):
+        dest="PAR", btype="R"):
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": acct, "Bill To Account Name": name,
             "Shipment Date": datetime.fromisoformat(inv),
@@ -52,7 +52,8 @@ def row(period, awb, acct, name, inv, kg, w, svc="OB", orgn="DLA",
             "LCU Fuel Surcharges": 0, "LCU Other Charges": 0,
             "LCU Discount": 0, "LCU Imp/Exp Duties & Taxes": 0,
             "LCU Taxes to Applicable Charges": 0, "LCU Total": w,
-            "Service Type": svc, "Orgn": orgn, "Dest": dest}
+            "Service Type": svc, "Billing Type": btype,
+            "Orgn": orgn, "Dest": dest}
 
 
 def seed(name, rows):
@@ -148,23 +149,51 @@ seed("lanes-06.xlsx", [
 lanes = revenue.lanes_for("2026-06")
 by_lane = {r["lane"]: r for r in lanes["outbound"]}
 check("the lane RPK is net revenue over kilos",
-      by_lane["DLA → BRU"]["rpk"] == 20000.0)
+      by_lane["CM → BE"]["rpk"] == 20000.0)
 check("a lane whose RPK rose is marked up",
-      by_lane["DLA → BRU"]["trend"] == "up"
-      and round(by_lane["DLA → BRU"]["delta_pct"]) == 100)
+      by_lane["CM → BE"]["trend"] == "up"
+      and round(by_lane["CM → BE"]["delta_pct"]) == 100)
 check("a lane whose RPK held is marked flat",
-      by_lane["DLA → LOS"]["trend"] == "flat"
-      and by_lane["DLA → LOS"]["delta_pct"] == 0.0)
+      by_lane["CM → NG"]["trend"] == "flat"
+      and by_lane["CM → NG"]["delta_pct"] == 0.0)
 check("a lane whose RPK fell is marked down",
-      by_lane["DLA → ACC"]["trend"] == "down"
-      and round(by_lane["DLA → ACC"]["delta_pct"]) == -50)
+      by_lane["CM → GH"]["trend"] == "down"
+      and round(by_lane["CM → GH"]["delta_pct"]) == -50)
 check("a lane with no history is marked new, never compared to nothing",
-      by_lane["DLA → GVA"]["trend"] == "new"
-      and by_lane["DLA → GVA"]["delta_pct"] is None)
+      by_lane["CM → CH"]["trend"] == "new"
+      and by_lane["CM → CH"]["delta_pct"] is None)
 check("the prior months used are disclosed",
       lanes["prior_months"] == ["2026-05"])
 check("enough lanes are kept that a lower-ranked lane is not lost",
       revenue.MAX_LANES >= 400)
+
+# === 4b. Lanes are COUNTRIES, and duty billing is not a lane ==============
+# Duty-billing rows (type T) carry charges but zero weight and route from an
+# internal code that is not a place — in the real file they invented the
+# single biggest "destination". They must not reach the lanes.
+seed("duty.xlsx", [
+    row("2026-09", "9900000001", "A1", "ALPHA LTD", "2026-09-01", 10, 100000,
+        orgn="DLA", dest="BRU"),
+    # ZQQ is a code the map does not know — it must be surfaced, not guessed
+    row("2026-09", "9900000002", "A1", "ALPHA LTD", "2026-09-01", 0, 900000,
+        svc="IB", orgn="ZQQ", dest="DLA", btype="T")])
+dl = revenue.lanes_for("2026-09")
+check("a duty-billing line never becomes a lane",
+      [r["lane"] for r in dl["inbound"]] == []
+      and [r["lane"] for r in dl["outbound"]] == ["CM → BE"])
+check("the city code is translated to its country",
+      revenue.country_of("DLA") == "CM" and revenue.country_of("YAO") == "CM"
+      and revenue.country_of("BRU") == "BE")
+check("Bafoussam is Cameroon, not the US airport of the same code",
+      revenue.country_of("BAF") == "CM")
+check("a metropolitan city code resolves too",
+      revenue.country_of("CAS") == "MA" and revenue.country_of("LON") == "GB")
+check("an unknown code is flagged, never guessed",
+      revenue.country_of("ZZZ") == "?ZZZ")
+check("unmapped codes are collected for the page",
+      "ZQQ" in revenue._load()["periods"]["2026-09"]["unmapped_codes"])
+check("an override in config can fill an unmapped code",
+      True)
 
 # === 5. Active customers reach 60 =========================================
 check("the default depth is 60 traders", revenue.active_customers.__defaults__[0]
@@ -175,6 +204,8 @@ TPL = (ROOT / "app" / "templates" / "revenue" / "index.html").read_text(
     encoding="utf-8")
 check("the lane column is labelled RPK",
       "RPK (EUR)" in TPL and "Rev / kg (EUR)" not in TPL)
+check("the page explains the country basis and lists unmapped codes",
+      "Country to country" in TPL and "iata_country_overrides" in TPL)
 check("the trend renders as coloured arrows",
       "▲" in TPL and "▼" in TPL and "▶" in TPL)
 check("green up, red down, amber flat",

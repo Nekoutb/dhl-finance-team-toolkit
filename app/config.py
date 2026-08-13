@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.20 — 13 Aug 2026 · Revenue Analysis: the KPI chart now cuts EVERY month back to the same number of billable days the running month has reached, so the lines compare like for like; the months table gains a “landing” column projecting where the running month ends at its current daily rate. Lanes show RPK against the prior three months' average with a green, amber or red arrow. Active customers now covers the top 60, rolled up to 20 with a reveal — and credit-stop matching survives the register's truncated names, which was hiding real stops."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.21 — 13 Aug 2026 · Revenue Analysis lanes now report COUNTRY to country (CM → US, CM → FR) instead of city codes, using a shipped IATA map with the corrections your own data proves — Bafoussam is Cameroon, not the American airport that shares its code. Duty-billing lines no longer create lanes: they carry charges but no weight and route from an internal code that is not a place, which is what made a phantom destination the biggest lane on the file. Any city code without a country is shown as ?XXX and listed on the page rather than guessed."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -85,6 +85,10 @@ DEFAULT_CONFIG = {
     # their own account, so every operator statement carries them. Cameroon's
     # are CASHCM<branch>; another country sets its own prefix here.
     "cash_account_prefix": "CASHCM",
+    # Revenue Analysis routes on IATA CITY codes; lanes report COUNTRIES.
+    # The shipped map covers ~7,900 codes — add anything it misses here as
+    # {"GHO": "ML"}. The Revenue Analysis page lists what is still unmapped.
+    "iata_country_overrides": {},
     # Payment providers offered on the IRO statement, per mode of payment.
     # Bank -> the banks money can be deposited into; Mobile Money -> the
     # mobile networks. Cash shows a deposit-reference box instead, and

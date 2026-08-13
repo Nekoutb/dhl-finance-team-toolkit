@@ -242,6 +242,15 @@
   <section class="panel">
     <h2 class="section-title">🛫 Lanes — top 10 outbound &amp; inbound,
       {{ pricing_label }}</h2>
+    <p class="note-small">Country to country, from the shipment's origin and
+      destination. Duty-billing lines are left out — they carry charges but
+      no weight and no real route.
+      {% if view.unmapped_codes %}<br>{{ view.unmapped_codes | length }} city
+      code(s) have no country on file and show as
+      <strong>?{{ view.unmapped_codes[0] }}</strong>-style entries:
+      {{ view.unmapped_codes | join(", ") }}. Add them under
+      <code>iata_country_overrides</code> in Settings to fold them into a
+      country.{% endif %}</p>
     <div style="display:flex;gap:16px;flex-wrap:wrap;">
       {% for direction, label in [("outbound", "Outbound — leaving Cameroon"),
                                   ("inbound", "Inbound — into Cameroon")] %}

@@ -50,15 +50,61 @@ _REQUIRED = [
     "Billed Weight (Kilos)", "LCU Weight Charge", "LCU Fuel Surcharges",
     "LCU Other Charges", "LCU Discount", "LCU Imp/Exp Duties & Taxes",
     "LCU Taxes to Applicable Charges", "LCU Total",
-    "Service Type", "Orgn", "Dest",
+    "Service Type", "Billing Type", "Orgn", "Dest",
 ]
 
-# Lanes kept per direction, biggest first. A real month has ~800 outbound
-# lanes; the top 10 are what the page shows, but the PRIOR months must keep
-# far more than 10 or a lane that simply ranked lower last month comes back
-# as "new" instead of being compared. 400 covers the long tail at a few
-# hundred KB a month.
+# Lanes kept per direction, biggest first. The PRIOR months must keep more
+# than the ten shown, or a lane that merely ranked lower last month comes
+# back as "new" instead of being compared.
 MAX_LANES = 400
+
+# Lanes are COUNTRY to country, not city to city — the file routes on IATA
+# city codes (DLA, YAO, BRU …) and the owner reports on countries. The map
+# ships with the app (samples/reference/iata_country.json, generated from an
+# open airport dataset with the corrections this file's own data proves —
+# chiefly BAF = Bafoussam CM, which an airport-keyed dataset places in the
+# USA). Anything unmapped renders as "?XXX" rather than guessed, and the
+# page lists those codes so they can be filled in.
+_IATA_PATH = (Path(__file__).resolve().parent.parent.parent
+              / "samples" / "reference" / "iata_country.json")
+_iata_cache = None
+
+# Billing type T is duty / customs billing: it carries charges but ZERO
+# weight, is billed to DHL itself, and its "origin" is an internal code
+# (MHN, ZJF …) that is not a place. Left in, it invents phantom lanes and
+# poisons every RPK it touches, so lanes exclude it. The money stays in the
+# month's revenue — it simply is not lane traffic.
+LANE_EXCLUDED_BILLING_TYPES = {"T"}
+
+
+def iata_countries():
+    """{IATA city code: ISO country}, config overrides applied last."""
+    global _iata_cache
+    if _iata_cache is None:
+        try:
+            base = json.loads(_IATA_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            base = {}
+        from ..config import load_config
+        override = (load_config().get("iata_country_overrides") or {})
+        base.update({str(k).strip().upper()[:3]: str(v).strip().upper()[:2]
+                     for k, v in override.items() if k and v})
+        _iata_cache = base
+    return _iata_cache
+
+
+def invalidate_iata_cache():
+    global _iata_cache
+    _iata_cache = None
+
+
+def country_of(code):
+    """ISO country for an IATA city code, or '?CODE' when unmapped."""
+    c = str(code or "").strip().upper()
+    if not c:
+        return ""
+    hit = iata_countries().get(c)
+    return hit if hit else f"?{c}"
 
 
 def _norm_h(h):
@@ -153,6 +199,7 @@ def parse_file(path, source=""):
         awb_net = {}
         customers = {}
         lanes = {"OB": {}, "IB": {}}
+        seen_codes = set()
         for r in rows_iter:
             if not any(v not in (None, "") for v in r):
                 continue
@@ -193,14 +240,21 @@ def parse_file(path, source=""):
                 awb_net[awb] = awb_net.get(awb, 0.0) + net
                 if inv_day:
                     dd["awb_net"][awb] = dd["awb_net"].get(awb, 0.0) + net
-            # Lanes: OB = leaving the country, IB = coming in. The lane is
-            # the origin->destination pair as the file writes it.
+            # Lanes: OB = leaving the country, IB = coming in, aggregated
+            # COUNTRY to country. Duty-billing rows are not lane traffic.
             svc = str(r[ix["Service Type"]] or "").strip().upper()
+            btype = str(r[ix["Billing Type"]] or "").strip().upper()
             orgn = str(r[ix["Orgn"]] or "").strip().upper()
             dest = str(r[ix["Dest"]] or "").strip().upper()
-            if svc in lanes and orgn and dest:
-                lane = lanes[svc].setdefault(f"{orgn}-{dest}", {
-                    "net": 0.0, "kilos": 0.0, "awb_net": {}})
+            if orgn:
+                seen_codes.add(orgn)
+            if dest:
+                seen_codes.add(dest)
+            if (svc in lanes and orgn and dest
+                    and btype not in LANE_EXCLUDED_BILLING_TYPES):
+                lane = lanes[svc].setdefault(
+                    f"{country_of(orgn)}-{country_of(dest)}", {
+                        "net": 0.0, "kilos": 0.0, "awb_net": {}})
                 lane["net"] += net
                 lane["kilos"] += kg
                 if awb:
@@ -256,6 +310,10 @@ def parse_file(path, source=""):
         "shipments": sum(1 for v in awb_net.values() if v > 0.005),
         "daily": daily_out,
         "lanes": lanes_out,
+        # city codes this file used that the country map does not know —
+        # surfaced on the page instead of being silently guessed
+        "unmapped_codes": sorted(c for c in seen_codes
+                                 if country_of(c).startswith("?")),
         "ship_days": dict(sorted(ship_days.items())),
     }, {acct: c for acct, c in customers.items()}
 
@@ -776,8 +834,11 @@ def dashboard(now=None):
     stale = [m["label"] for m in months
              if not periods[m["period"]].get("daily")
              or not periods[m["period"]].get("lanes")]
+    unmapped = sorted({c for rec in periods.values()
+                       for c in (rec.get("unmapped_codes") or [])})
     return {"months": months, "ongoing": ongoing, "kpis": kpis,
             "needs_reupload": stale,
+            "unmapped_codes": unmapped,
             "compare": {"prior_label": prior["label"] if prior else "",
                         "window": window},
             "landing": landing,
