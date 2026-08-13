@@ -2593,6 +2593,7 @@ def revenue_home(request: Request, pricing: str = "",
             view["pricing"] = chosen
             view["pricing_period"] = pricing
             view["lanes"] = revenue.lanes_for(pricing)
+            view["fuel"] = revenue.fuel_ranking(pricing)
     # Active traders vs the credit-stop register: a top trader currently on
     # stop is flagged in red on the table.
     active = revenue.active_customers()
@@ -2621,8 +2622,19 @@ def revenue_home(request: Request, pricing: str = "",
         active["month_labels"] = [_month_label(p) for p in active["months"]]
         active["current_label"] = _month_label(active["current_period"]) \
             if active["current_period"] else ""
+    # Twelve slots, one per month of the year in view — an empty slot is an
+    # upload target, a filled one shows what is on record.
+    year = (view["months"][-1]["period"][:4] if view["months"]
+            else datetime.now().strftime("%Y"))
+    on_record = {m["period"]: m for m in view["months"]}
+    slots = []
+    for mth in range(1, 13):
+        key = f"{year}-{mth:02d}"
+        slots.append({"period": key, "label": _month_label(key),
+                      "month": mth, "rec": on_record.get(key)})
     st = revenue.status()
     return templates.TemplateResponse("revenue/index.html", {
+        "slots": slots, "slot_year": year,
         "request": request, "cfg": load_config(), "tool": _REVENUE_TOOL,
         "view": view, "active": active,
         "pricing_label": _month_label(view["pricing_period"]),

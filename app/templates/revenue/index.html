@@ -8,8 +8,9 @@
 
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
-    <p class="lead">Net revenue (excl. taxes and duties) in EUR per billable
-      day, per shipment and per kilo — the running month as a live run-rate.</p>
+    <p class="lead">Revenue recognised (LCU total less taxes) in EUR, with
+      the per-day, per-shipment and per-kilo KPIs built on the weight
+      charge — the running month as a live run-rate.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if processing %}
@@ -133,13 +134,13 @@
             {{ view.landing.label }} †</th>{% endif %}
         </tr></thead>
         <tbody>
-          <tr><td><strong>Net revenue (EUR)</strong></td>
+          <tr><td><strong>Revenue recognised (EUR)</strong></td>
             {% for m in view.months %}
             <td><strong>{{ eur(m.net) }}</strong></td>
             {% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               <strong>{{ eur(view.landing.net) }}</strong></td>{% endif %}</tr>
-          <tr><td class="note-small">Net revenue (XAF)</td>
+          <tr><td class="note-small">Revenue recognised (XAF)</td>
             {% for m in view.months %}
             <td class="note-small">{{ "{:,.0f}".format(m.net) }}</td>
             {% endfor %}
@@ -151,7 +152,7 @@
             <td>{{ "{:g}".format(m.billable_days) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               {{ "{:g}".format(view.landing.typical_days) }}</td>{% endif %}</tr>
-          <tr><td><strong>Revenue / day (EUR)</strong></td>
+          <tr><td><strong>Weight charge / day (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_day) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
@@ -161,7 +162,7 @@
             <td>{{ "{:,.0f}".format(m.shipments) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               {{ "{:,.0f}".format(view.landing.shipments) }}</td>{% endif %}</tr>
-          <tr><td><strong>Revenue / shipment (EUR)</strong></td>
+          <tr><td><strong>Weight charge / shipment (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_shipment, 2) }}</td>{% endfor %}</tr>
           <tr><td>Billed kilos</td>
@@ -169,9 +170,15 @@
             <td>{{ "{:,.0f}".format(m.kilos) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               {{ "{:,.0f}".format(view.landing.kilos) }}</td>{% endif %}</tr>
-          <tr><td><strong>Revenue / kg (EUR)</strong></td>
+          <tr><td><strong>Weight charge / kg (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_kg, 2) }}</td>{% endfor %}</tr>
+          <tr><td class="note-small">Weight charge (KPI base, EUR)</td>
+            {% for m in view.months %}
+            <td class="note-small">{{ eur(m.weight) }}</td>{% endfor %}
+            {% if view.landing %}<td class="note-small"
+              style="border-left:3px solid #2563eb;">
+              {{ eur(view.landing.weight) }}</td>{% endif %}</tr>
           <tr><td class="note-small">of which taxes (excluded, EUR)</td>
             {% for m in view.months %}
             <td class="note-small">{{ eur(m.totals.tax) }}</td>
@@ -190,7 +197,10 @@
       {{ "{:g}".format(view.landing.typical_days) }} days, the average of the
       completed months. A projection, not a result.</p>
     {% endif %}
-    <p class="note-small">Converted at the fixed rate
+    <p class="note-small">Revenue recognised = LCU total − LCU taxes.
+      The three KPIs divide the <strong>weight charge</strong> (not the
+      recognised total) by billable days, shipments and kilos.
+      Converted at the fixed rate
       {{ view.eur_rate }} XAF/EUR. Billable days come from the data: a day
       with no billing is not billable; Sundays never count; two Saturdays
       count as one day. * = month in progress.</p>
@@ -384,8 +394,81 @@
   {% endif %}
   {% endif %}
 
+  {% if view.fuel and view.fuel.rows %}
   <section class="panel">
-    <h2 class="section-title">Upload the monthly revenue detail</h2>
+    <h2 class="section-title">⛽ Fuel surcharge — top 30 customers,
+      {{ pricing_label }}</h2>
+    <p class="note-small">Fuel surcharge as a percentage of the weight
+      charge, on the products that carry one
+      ({{ view.fuel.products | join(", ") }}).
+      {% if view.fuel.overall %}Overall
+      <strong>{{ "{:.2f}".format(view.fuel.overall) }}%</strong>
+      ({{ eur(view.fuel.fuel) }} fuel on {{ eur(view.fuel.weight) }} weight
+      charge, {{ view.fuel.customers_total }} customer(s)).{% endif %}</p>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>#</th><th>Customer</th>
+          <th>Weight charge (EUR)</th><th>Fuel (EUR)</th>
+          <th>Fuel %</th><th>vs overall</th><th>Lines</th></tr></thead>
+        <tbody>
+          {% for c in view.fuel.rows %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ c.name }}</strong></td>
+            <td>{{ eur(c.weight) }}</td>
+            <td>{{ eur(c.fuel) }}</td>
+            <td><strong>{{ "{:.2f}".format(c.pct) }}%</strong></td>
+            <td>{% if c.delta_pts is not none %}
+              <span style="color:{{ '#1b7f4b' if c.delta_pts >= 0
+                else '#bd3727' }};font-weight:700;">
+                {{ "{:+.2f}".format(c.delta_pts) }} pts</span>
+              {% else %}—{% endif %}</td>
+            <td class="note-small">{{ c.rows }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2 class="section-title">Upload the monthly revenue detail —
+      {{ slot_year }}</h2>
+    <p class="note-small">One slot per month. Uploading into a slot replaces
+      that month; the file's own billing period decides where it lands, so a
+      file dropped in the wrong slot still files itself correctly.</p>
+    <div style="display:grid;gap:8px;margin-bottom:12px;
+         grid-template-columns:repeat(auto-fill,minmax(180px,1fr));">
+      {% for sl in slots %}
+      <div style="border:1px solid rgba(100,116,139,.28);border-radius:10px;
+           padding:8px 10px;{% if sl.rec %}background:rgba(37,99,235,.06);{% endif %}">
+        <div class="note-small" style="font-weight:700;">{{ sl.label }}</div>
+        {% if sl.rec %}
+          <div style="font-size:1.05rem;font-weight:700;">
+            {{ eur(sl.rec.net) }} <span class="note-inline">EUR</span></div>
+          <div class="note-small">{{ "{:,.0f}".format(sl.rec.rows) }} line(s)
+            · {{ sl.rec.uploaded[:10] }}</div>
+          <form action="/tools/revenue-analysis/delete" method="post"
+                style="display:inline;"
+                onsubmit="return confirm('Remove {{ sl.label }}?');">
+            <input type="hidden" name="period" value="{{ sl.period }}">
+            <button class="btn btn-small" type="submit">🗑</button>
+          </form>
+        {% else %}
+          <div class="note-small" style="opacity:.7;">empty</div>
+          <form action="/tools/revenue-analysis/upload" method="post"
+                enctype="multipart/form-data" style="margin-top:4px;">
+            <input type="file" name="files" accept=".xlsx,.xlsm" required
+                   style="width:100%;font-size:11px;"
+                   onchange="this.form.submit();">
+          </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <h3 class="note-small" style="font-weight:700;">Or upload several months
+      at once</h3>
     <form action="/tools/revenue-analysis/upload" method="post"
           enctype="multipart/form-data" class="upload-form-stack">
       <label class="filedrop">

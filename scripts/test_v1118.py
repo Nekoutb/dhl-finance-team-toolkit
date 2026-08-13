@@ -39,12 +39,13 @@ HDR = ["Bill To Account Name", "Billing Period", "LCU Weight Charge",
        "Billed Weight (Kilos)", "LCU Fuel Surcharges", "LCU Other Charges",
        "LCU Discount", "LCU Imp/Exp Duties & Taxes",
        "LCU Taxes to Applicable Charges", "LCU Total",
-       "Service Type", "Billing Type", "Orgn", "Dest"]
+       "Service Type", "Billing Type", "Orgn", "Dest",
+       "Local Product Code"]
 
 
 def row(period, awb, acct, name, ship, inv, kg, w, f=0, o=0, d=0,
         duty=0, tax=0, svc="OB", orgn="DLA", dest="PAR",
-        btype="R"):
+        btype="R", product="P "):
     total = w + f + o - d + duty + tax
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": acct, "Bill To Account Name": name,
@@ -55,7 +56,7 @@ def row(period, awb, acct, name, ship, inv, kg, w, f=0, o=0, d=0,
             "LCU Discount": d, "LCU Imp/Exp Duties & Taxes": duty,
             "LCU Taxes to Applicable Charges": tax, "LCU Total": total,
             "Service Type": svc, "Billing Type": btype,
-            "Orgn": orgn, "Dest": dest}
+            "Orgn": orgn, "Dest": dest, "Local Product Code": product}
 
 
 def build(path, rows):
@@ -118,10 +119,17 @@ revenue.store_period(rec, cust)
 
 # === 1. Parse ===============================================================
 check("period read from the file", rec["period"] == "2026-06")
-NET = (100000 + 20000 + 5000 - 5000) + 50000 + 90000 + 0 \
-    + 40000 + 8000 + 27000 + 14000
-check("net revenue = W+F+O−D, taxes and duties excluded",
-      rec["totals"]["net"] == NET)
+# v11.22: revenue recognised = LCU Total − LCU Taxes, so DUTY stays in and
+# only VAT comes out; the KPIs are built on the WEIGHT CHARGE instead.
+WEIGHT = (100000 + 50000 + 80000 + 30000 - 30000 + 20000 + 20000 + 8000
+          + 9000 + 9000 + 9000 + 7000 + 7000)          # = 319,000
+NET = WEIGHT + 30000 + 5000 - 5000 + 7000        # + fuel + other − disc + duty
+check("revenue recognised = LCU Total − LCU Taxes (duty stays in)",
+      rec["totals"]["net"] == NET
+      and rec["totals"]["net"] == rec["totals"]["gross"]
+      - rec["totals"]["tax"])
+check("the weight charge is the separate KPI base",
+      rec["totals"]["weight"] == WEIGHT)
 check("tax and duty are carried separately",
       rec["totals"]["tax"] == 19000 and rec["totals"]["duty"] == 7000)
 check("kilos are SIGNED (the reversal pair nets to zero)",
@@ -134,11 +142,11 @@ union = revenue._union_ship_days({"2026-06": rec})
 check("Mon active = 1, Sat active = 0.5, Sun = never, quiet day = not billable",
       revenue.billable_days("2026-06", union) == 1.5)
 m = revenue.month_metrics(rec, union)
-check("revenue/day divides by the billable days",
-      round(m["rev_per_day"], 2) == round(NET / 1.5, 2))
-check("revenue/shipment and revenue/kg follow",
-      round(m["rev_per_shipment"], 2) == round(NET / 11, 2)
-      and round(m["rev_per_kg"], 2) == round(NET / 45, 2))
+check("the KPI divides the WEIGHT CHARGE by the billable days",
+      round(m["rev_per_day"], 2) == round(WEIGHT / 1.5, 2))
+check("per shipment and per kilo follow the same base",
+      round(m["rev_per_shipment"], 2) == round(WEIGHT / 11, 2)
+      and round(m["rev_per_kg"], 2) == round(WEIGHT / 45, 2))
 
 # a LATER file's shipments can prove an earlier month's day
 extra = {"daily": {"2026-06-03": {"net": 1.0, "kilos": 1.0,

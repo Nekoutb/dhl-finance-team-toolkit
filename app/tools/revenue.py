@@ -6,9 +6,12 @@ REPLACES it, which is how the running month grows through the month.
 
 Definitions (agreed with the finance lead):
 
-* NET REVENUE = Weight Charge + Fuel Surcharges + Other Charges − Discount.
-  VAT ("Taxes to Applicable Charges") and customs money ("Imp/Exp Duties &
-  Taxes") are excluded — neither is DHL revenue.
+* REVENUE RECOGNISED = LCU Total − LCU Taxes to Applicable Charges
+  (column BD less column BC). VAT comes out; everything else the invoice
+  carries stays in.
+* The KPIs (per day, per shipment, per kilo) are built on the WEIGHT CHARGE
+  alone (column AO / its LCU twin AX) — the carriage the country actually
+  sells — not on the recognised total, which carries fuel, fees and duty.
 * BILLABLE DAYS come from the DATA, not a calendar: a day with no billing
   is assumed non-billable (public holidays fall out automatically).
   Sundays never count; an active Saturday counts HALF a day ("two Saturdays
@@ -19,6 +22,8 @@ Definitions (agreed with the finance lead):
   airwaybill) are handled by SIGNED sums throughout — never de-duplicate.
 * PRICING uses the Weight Charge alone ("the weight charge is the revenue
   for the country"): price/kg = weight charge ÷ billed kilos.
+* FUEL SURCHARGE is measured as fuel ÷ weight charge, and only on the
+  products that carry one: D, N, P, T and Y.
 """
 import json
 import math
@@ -51,6 +56,7 @@ _REQUIRED = [
     "LCU Other Charges", "LCU Discount", "LCU Imp/Exp Duties & Taxes",
     "LCU Taxes to Applicable Charges", "LCU Total",
     "Service Type", "Billing Type", "Orgn", "Dest",
+    "Local Product Code",
 ]
 
 # Lanes kept per direction, biggest first. The PRIOR months must keep more
@@ -75,6 +81,10 @@ _iata_cache = None
 # poisons every RPK it touches, so lanes exclude it. The money stays in the
 # month's revenue — it simply is not lane traffic.
 LANE_EXCLUDED_BILLING_TYPES = {"T"}
+
+# Only these products carry a fuel surcharge. The file writes the code with
+# trailing spaces ("P "), so it is stripped before comparison.
+FUEL_PRODUCTS = {"D", "N", "P", "T", "Y"}
 
 
 def iata_countries():
@@ -191,6 +201,8 @@ def parse_file(path, source=""):
                     "revenue detail export?")
         totals = {k: 0.0 for k in ("weight", "fuel", "other", "discount",
                                    "duty", "tax", "net", "gross")}
+        fuel_base = {"weight": 0.0, "fuel": 0.0, "rows": 0}
+        fuel_cust = {}
         kilos = 0.0
         rows = 0
         period_votes = {}
@@ -213,8 +225,28 @@ def parse_file(path, source=""):
             d = _num(r[ix["LCU Discount"]])
             duty = _num(r[ix["LCU Imp/Exp Duties & Taxes"]])
             tax = _num(r[ix["LCU Taxes to Applicable Charges"]])
-            net = w + f + o - d
+            # Revenue recognised = LCU Total less LCU Taxes (BD - BC).
+            gross = _num(r[ix["LCU Total"]])
+            net = gross - tax
             kg = _num(r[ix["Billed Weight (Kilos)"]])
+            # Fuel surcharge is only levied on these products; measuring it
+            # across the rest would dilute the percentage with rows that can
+            # never carry one.
+            product = str(r[ix["Local Product Code"]] or "").strip().upper()
+            if product in FUEL_PRODUCTS:
+                fuel_base["weight"] += w
+                fuel_base["fuel"] += f
+                fuel_base["rows"] += 1
+                acct_name = str(r[ix["Bill To Account Name"]] or "").strip()
+                fkey = acct_name.upper() or "?"
+                fc = fuel_cust.get(fkey)
+                if fc is None:
+                    fc = fuel_cust[fkey] = {"name": acct_name or fkey,
+                                            "weight": 0.0, "fuel": 0.0,
+                                            "rows": 0}
+                fc["weight"] += w
+                fc["fuel"] += f
+                fc["rows"] += 1
             totals["weight"] += w
             totals["fuel"] += f
             totals["other"] += o
@@ -222,15 +254,16 @@ def parse_file(path, source=""):
             totals["duty"] += duty
             totals["tax"] += tax
             totals["net"] += net
-            totals["gross"] += _num(r[ix["LCU Total"]])
+            totals["gross"] += gross
             kilos += kg
             inv_day = _iso_day(r[ix["Invoice Date"]])
             if inv_day:
                 dd = daily.get(inv_day)
                 if dd is None:
-                    dd = daily[inv_day] = {"net": 0.0, "kilos": 0.0,
-                                           "awb_net": {}}
+                    dd = daily[inv_day] = {"net": 0.0, "weight": 0.0,
+                                           "kilos": 0.0, "awb_net": {}}
                 dd["net"] += net
+                dd["weight"] += w
                 dd["kilos"] += kg
             ship_day = _iso_day(r[ix["Shipment Date"]])
             if ship_day:
@@ -285,7 +318,8 @@ def parse_file(path, source=""):
     for day, dd in sorted(daily.items()):
         awbs = sorted(a for a, v in dd["awb_net"].items() if v > 0.005)
         daily_out[day] = {
-            "net": round(dd["net"], 2), "kilos": round(dd["kilos"], 2),
+            "net": round(dd["net"], 2), "weight": round(dd["weight"], 2),
+            "kilos": round(dd["kilos"], 2),
             "shipments": len(awbs),
             # the AWBs themselves, so a partial-month window counts each
             # shipment ONCE even when it is invoiced across two days
@@ -314,6 +348,14 @@ def parse_file(path, source=""):
         # surfaced on the page instead of being silently guessed
         "unmapped_codes": sorted(c for c in seen_codes
                                  if country_of(c).startswith("?")),
+        "fuel": {"weight": round(fuel_base["weight"], 2),
+                 "fuel": round(fuel_base["fuel"], 2),
+                 "rows": fuel_base["rows"],
+                 "customers": {k: {"name": v["name"],
+                                   "weight": round(v["weight"], 2),
+                                   "fuel": round(v["fuel"], 2),
+                                   "rows": v["rows"]}
+                               for k, v in fuel_cust.items()}},
         "ship_days": dict(sorted(ship_days.items())),
     }, {acct: c for acct, c in customers.items()}
 
@@ -443,7 +485,11 @@ def billable_days(month_key, union_days):
 
 
 def month_metrics(rec, union_days):
+    """Headline revenue is BD − BC; the three KPIs are built on the WEIGHT
+    CHARGE, which is the carriage the country sells — fuel, fees and duty
+    ride on top of it and would flatter every ratio."""
     net = rec["totals"]["net"]
+    weight = rec["totals"]["weight"]
     days = billable_days(rec["period"], union_days)
     shipments = rec.get("shipments") or 0
     kilos = rec.get("kilos") or 0.0
@@ -453,14 +499,15 @@ def month_metrics(rec, union_days):
         "uploaded": rec.get("uploaded", ""),
         "rows": rec.get("rows", 0),
         "net": net,
+        "weight": weight,
         "gross": rec["totals"]["gross"],
         "totals": rec["totals"],
         "billable_days": days,
-        "rev_per_day": (net / days) if days else None,
+        "rev_per_day": (weight / days) if days else None,
         "shipments": shipments,
-        "rev_per_shipment": (net / shipments) if shipments else None,
+        "rev_per_shipment": (weight / shipments) if shipments else None,
         "kilos": kilos,
-        "rev_per_kg": (net / kilos) if kilos > 0 else None,
+        "rev_per_kg": (weight / kilos) if kilos > 0 else None,
     }
 
 
@@ -499,12 +546,13 @@ def same_days_window(rec, union_days, target_days):
         cutoff = day
         if cum >= target_days - 1e-9:
             break
-    net = kilos = 0.0
+    net = kilos = weight = 0.0
     seen = set()
     counted = 0
     for day, dd in daily.items():
         if day.startswith(rec["period"]) and day <= cutoff:
             net += dd.get("net", 0.0)
+            weight += dd.get("weight", 0.0)
             kilos += dd.get("kilos", 0.0)
             awbs = dd.get("awbs")
             if awbs is None:            # pre-v11.19 detail: best effort
@@ -513,10 +561,11 @@ def same_days_window(rec, union_days, target_days):
                 seen.update(awbs)
     ships = len(seen) + counted
     return {"days": cum, "through": cutoff, "net": round(net, 2),
+            "weight": round(weight, 2),
             "kilos": round(kilos, 2), "shipments": ships,
-            "rev_per_day": (net / cum) if cum else None,
-            "rev_per_shipment": (net / ships) if ships else None,
-            "rev_per_kg": (net / kilos) if kilos > 0 else None}
+            "rev_per_day": (weight / cum) if cum else None,
+            "rev_per_shipment": (weight / ships) if ships else None,
+            "rev_per_kg": (weight / kilos) if kilos > 0 else None}
 
 
 def like_for_like(months, periods, union_days):
@@ -542,7 +591,8 @@ def like_for_like(months, periods, union_days):
             out.append({**m, "clipped": False})
             continue
         out.append({**m, "clipped": True, "billable_days": w["days"],
-                    "net": w["net"], "kilos": w["kilos"],
+                    "net": w["net"], "weight": w["weight"],
+                    "kilos": w["kilos"],
                     "shipments": w["shipments"],
                     "rev_per_day": w["rev_per_day"],
                     "rev_per_shipment": w["rev_per_shipment"],
@@ -563,6 +613,7 @@ def landing_estimate(ongoing, months):
     typical = sum(full) / len(full)
     rate = ongoing["net"] / ongoing["billable_days"]
     net = rate * typical
+    weight = ongoing["weight"] / ongoing["billable_days"] * typical
     ship_rate = ongoing["shipments"] / ongoing["billable_days"]
     kilo_rate = ongoing["kilos"] / ongoing["billable_days"]
     shipments = ship_rate * typical
@@ -571,7 +622,8 @@ def landing_estimate(ongoing, months):
             "period": ongoing["period"] + "-landing",
             "typical_days": round(typical, 1),
             "elapsed_days": ongoing["billable_days"],
-            "net": net, "billable_days": round(typical, 1),
+            "net": net, "weight": weight,
+            "billable_days": round(typical, 1),
             "shipments": shipments, "kilos": kilos,
             "rev_per_day": ongoing["rev_per_day"],
             "rev_per_shipment": ongoing["rev_per_shipment"],
@@ -735,6 +787,36 @@ def active_customers(top_n=60, now=None):
             if ongoing_rec else "", "rows": rows[:top_n]}
 
 
+def fuel_ranking(period, top_n=30):
+    """Top customers by FUEL SURCHARGE as a percentage of their weight
+    charge, on the products that carry one (D, N, P, T, Y).
+
+    Grouped by customer name, and only customers with a real weight charge
+    are ranked — a customer with fuel but no carriage would show an
+    infinite percentage."""
+    data = _load()
+    rec = (data.get("periods") or {}).get(str(period))
+    if not rec:
+        return None
+    fuel = rec.get("fuel") or {}
+    base_w, base_f = fuel.get("weight") or 0.0, fuel.get("fuel") or 0.0
+    overall = (100.0 * base_f / base_w) if base_w > 0 else None
+    rows = []
+    for c in (fuel.get("customers") or {}).values():
+        if (c.get("weight") or 0) <= 0:
+            continue
+        pct = 100.0 * c["fuel"] / c["weight"]
+        rows.append({"name": c["name"], "weight": c["weight"],
+                     "fuel": c["fuel"], "rows": c["rows"], "pct": pct,
+                     "delta_pts": (pct - overall) if overall is not None
+                     else None})
+    rows.sort(key=lambda r: -r["pct"])
+    return {"rows": rows[:top_n], "overall": overall,
+            "weight": base_w, "fuel": base_f,
+            "products": sorted(FUEL_PRODUCTS),
+            "customers_total": len(fuel.get("customers") or {})}
+
+
 def pricing_top(rec, top_n=10):
     """The month's top customers by net revenue (internal DHL included, per
     the owner's choice) with price/kg = WEIGHT CHARGE / kilos, against the
@@ -850,7 +932,8 @@ def dashboard(now=None):
             "pricing_period": default["period"] if default else "",
             "pricing": pricing_top(periods[default["period"]])
             if default else {"rows": [], "file_avg": None},
-            "lanes": lanes_for(default["period"]) if default else None}
+            "lanes": lanes_for(default["period"]) if default else None,
+            "fuel": fuel_ranking(default["period"]) if default else None}
 
 
 def pricing_for(period):

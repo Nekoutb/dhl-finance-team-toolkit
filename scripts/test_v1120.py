@@ -39,11 +39,12 @@ HDR = ["Billing Period", "Air waybill", "Bill To Account",
        "Billed Weight (Kilos)", "LCU Weight Charge", "LCU Fuel Surcharges",
        "LCU Other Charges", "LCU Discount", "LCU Imp/Exp Duties & Taxes",
        "LCU Taxes to Applicable Charges", "LCU Total",
-       "Service Type", "Billing Type", "Orgn", "Dest"]
+       "Service Type", "Billing Type", "Orgn", "Dest",
+       "Local Product Code"]
 
 
 def row(period, awb, acct, name, inv, kg, w, svc="OB", orgn="DLA",
-        dest="PAR", btype="R"):
+        dest="PAR", btype="R", product="P "):
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": acct, "Bill To Account Name": name,
             "Shipment Date": datetime.fromisoformat(inv),
@@ -53,7 +54,7 @@ def row(period, awb, acct, name, inv, kg, w, svc="OB", orgn="DLA",
             "LCU Discount": 0, "LCU Imp/Exp Duties & Taxes": 0,
             "LCU Taxes to Applicable Charges": 0, "LCU Total": w,
             "Service Type": svc, "Billing Type": btype,
-            "Orgn": orgn, "Dest": dest}
+            "Orgn": orgn, "Dest": dest, "Local Product Code": product}
 
 
 def seed(name, rows):

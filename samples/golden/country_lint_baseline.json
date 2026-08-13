@@ -158,7 +158,7 @@
  "app/templates/revenue/index.html": {
   "XAF": 3,
   "cameroon": 2,
-  "zero_dec_money": 13
+  "zero_dec_money": 14
  },
  "app/templates/settings.html": {
   "momo_merchant": 1

@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.21 — 13 Aug 2026 · Revenue Analysis lanes now report COUNTRY to country (CM → US, CM → FR) instead of city codes, using a shipped IATA map with the corrections your own data proves — Bafoussam is Cameroon, not the American airport that shares its code. Duty-billing lines no longer create lanes: they carry charges but no weight and route from an internal code that is not a place, which is what made a phantom destination the biggest lane on the file. Any city code without a country is shown as ?XXX and listed on the page rather than guessed."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.22 — 13 Aug 2026 · Revenue Analysis on the agreed definitions: revenue recognised is LCU total less LCU taxes (BD − BC), and the per-day, per-shipment and per-kilo KPIs are built on the WEIGHT CHARGE rather than the recognised total. New fuel-surcharge panel ranking the top 30 customers by fuel as a percentage of their weight charge, on the products that carry one (D, N, P, T, Y). The upload area is now twelve monthly slots for the year."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
