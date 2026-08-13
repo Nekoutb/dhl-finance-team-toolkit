@@ -2672,6 +2672,29 @@ async def revenue_upload(request: Request,
                                 "month lands.")
 
 
+@app.post("/tools/revenue-analysis/fuel-target")
+async def revenue_fuel_target(request: Request):
+    """Set (or clear) one month's fuel-surcharge target."""
+    form = await request.form()
+    period = str(form.get("period") or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", period):
+        return redirect_msg("/tools/revenue-analysis",
+                            error="Pick the month to set a target for.")
+    raw = str(form.get("target") or "").strip().replace(",", ".")
+    if raw and revenue.set_fuel_target(period, raw) is None:
+        return redirect_msg(f"/tools/revenue-analysis?pricing={period}",
+                            error="Give the target as a percentage between "
+                                  "0 and 200 — e.g. 42.5.")
+    if not raw:
+        revenue.set_fuel_target(period, None)
+        return redirect_msg(f"/tools/revenue-analysis?pricing={period}",
+                            message=f"{_month_label(period)} now follows the "
+                                    "default target.")
+    return redirect_msg(f"/tools/revenue-analysis?pricing={period}",
+                        message=f"Fuel target for {_month_label(period)} set "
+                                f"to {float(raw):g}%.")
+
+
 @app.post("/tools/revenue-analysis/delete")
 async def revenue_delete(request: Request):
     form = await request.form()

@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.22 — 13 Aug 2026 · Revenue Analysis on the agreed definitions: revenue recognised is LCU total less LCU taxes (BD − BC), and the per-day, per-shipment and per-kilo KPIs are built on the WEIGHT CHARGE rather than the recognised total. New fuel-surcharge panel ranking the top 30 customers by fuel as a percentage of their weight charge, on the products that carry one (D, N, P, T, Y). The upload area is now twelve monthly slots for the year."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.23 — 13 Aug 2026 · Fuel surcharge now has a target you set per month, on the Revenue Analysis page. Every customer is measured against that target instead of the average, and a “below target” list shows the top 40 who miss it — ranked by the money at stake (the gap in points applied to the carriage they already move), so the biggest recovery sits at the top rather than the worst percentage on a tiny account."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -85,6 +85,9 @@ DEFAULT_CONFIG = {
     # their own account, so every operator statement carries them. Cameroon's
     # are CASHCM<branch>; another country sets its own prefix here.
     "cash_account_prefix": "CASHCM",
+    # Fuel surcharge target (%) used when a month has none of its own. Set
+    # a month's target on the Revenue Analysis page itself.
+    "fuel_target_pct": 40.0,
     # Revenue Analysis routes on IATA CITY codes; lanes report COUNTRIES.
     # The shipped map covers ~7,900 codes — add anything it misses here as
     # {"GHO": "ML"}. The Revenue Analysis page lists what is still unmapped.

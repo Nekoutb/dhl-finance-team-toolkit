@@ -170,13 +170,88 @@ check("there is one upload slot per month of the year",
 check("a month on record shows its figures in its slot",
       "March 2026" in r.text and "line(s)" in r.text)
 check("the fuel panel is on the page",
-      "Fuel surcharge — top 30 customers" in r.text
-      and "vs overall" in r.text)
+      "Fuel surcharge" in r.text and "Top 30 by rate" in r.text
+      and "vs target" in r.text)
 check("the KPI labels say weight charge, not revenue",
       "Weight charge / day (EUR)" in r.text
       and "Weight charge / kg (EUR)" in r.text)
 check("the recognised-revenue basis is stated",
       "LCU total − LCU taxes" in r.text or "LCU total" in r.text)
+
+# === 5. The monthly fuel target and who misses it =========================
+# 2026-04 holds ALPHA at 50% and BETA at 20%, overall 35%.
+check("a month with no target of its own uses the configured default",
+      revenue.fuel_target("2026-04") == (40.0, "default"))
+fu = revenue.fuel_ranking("2026-04")
+check("the target rides on the ranking",
+      fu["target"] == 40.0 and fu["overall_meets"] is False)
+check("each customer is measured against the TARGET, not the average",
+      fu["rows"][0]["gap_pts"] == 10.0 and fu["rows"][0]["meets"] is True
+      and fu["rows"][1]["gap_pts"] == -20.0
+      and fu["rows"][1]["meets"] is False)
+check("only the ones under target are listed as below",
+      [r["name"] for r in fu["below"]] == ["BETA SARL"]
+      and fu["below_total"] == 1)
+check("money at stake = the gap in points on that customer's carriage",
+      round(fu["below"][0]["shortfall"], 2) == round(0.20 * 1000, 2))
+check("a customer at or above target has no shortfall",
+      fu["rows"][0]["shortfall"] == 0.0)
+check("the below list is capped at 40", revenue.FUEL_BELOW_TOP == 40)
+
+check("a month target can be set",
+      revenue.set_fuel_target("2026-04", 25) == 25.0)
+fu = revenue.fuel_ranking("2026-04")
+check("the new target reclassifies who is missing it",
+      fu["target"] == 25.0 and fu["target_source"] == "month"
+      and fu["overall_meets"] is True
+      and [r["name"] for r in fu["below"]] == ["BETA SARL"])
+check("the shortfall follows the new target",
+      round(fu["below"][0]["shortfall"], 2) == round(0.05 * 1000, 2))
+revenue.set_fuel_target("2026-04", 15)
+check("with a low enough target nobody is below",
+      revenue.fuel_ranking("2026-04")["below"] == [])
+
+revenue.set_fuel_target("2026-05", 60)
+check("one month's target does not leak into another",
+      revenue.fuel_target("2026-04")[0] == 15.0
+      and revenue.fuel_target("2026-05")[0] == 60.0)
+check("clearing a month falls back to the default",
+      revenue.set_fuel_target("2026-04", None) == 40.0
+      and revenue.fuel_target("2026-04") == (40.0, "default"))
+
+for bad in ("abc", "-5", "500"):
+    check(f"a target of {bad!r} is refused",
+          revenue.set_fuel_target("2026-04", bad) is None)
+check("and the month is still on the default after a refusal",
+      revenue.fuel_target("2026-04") == (40.0, "default"))
+
+# === 6. The target form and the below-target panel ========================
+r = client.post("/tools/revenue-analysis/fuel-target",
+                data={"period": "2026-04", "target": "37.5"},
+                follow_redirects=False)
+check("the route saves a target", r.status_code == 303
+      and revenue.fuel_target("2026-04")[0] == 37.5)
+r = client.post("/tools/revenue-analysis/fuel-target",
+                data={"period": "2026-04", "target": "nope"},
+                follow_redirects=False)
+check("the route refuses a bad target with a message",
+      r.status_code == 303 and "error=" in r.headers.get("location", ""))
+check("a refused save leaves the previous target intact",
+      revenue.fuel_target("2026-04")[0] == 37.5)
+client.post("/tools/revenue-analysis/fuel-target",
+            data={"period": "2026-04", "target": ""}, follow_redirects=False)
+check("an empty target clears back to the default",
+      revenue.fuel_target("2026-04") == (40.0, "default"))
+r = client.post("/tools/revenue-analysis/fuel-target",
+                data={"period": "nonsense", "target": "40"},
+                follow_redirects=False)
+check("a bad period is refused", "error=" in r.headers.get("location", ""))
+
+r = client.get("/tools/revenue-analysis?pricing=2026-04")
+check("the page offers the target box",
+      "Fuel surcharge target for" in r.text and "Save target" in r.text)
+check("the below-target list is on the page",
+      "Below target" in r.text and "At stake (EUR)" in r.text)
 
 if _fail:
     print(f"\n{_fail} CHECK(S) FAILED")

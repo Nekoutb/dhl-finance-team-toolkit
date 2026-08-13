@@ -396,20 +396,77 @@
 
   {% if view.fuel and view.fuel.rows %}
   <section class="panel">
-    <h2 class="section-title">⛽ Fuel surcharge — top 30 customers,
-      {{ pricing_label }}</h2>
+    <h2 class="section-title">⛽ Fuel surcharge — {{ pricing_label }}</h2>
+    <h3 class="section-title" style="font-size:1rem;">Top 30 by rate</h3>
     <p class="note-small">Fuel surcharge as a percentage of the weight
       charge, on the products that carry one
       ({{ view.fuel.products | join(", ") }}).
       {% if view.fuel.overall %}Overall
       <strong>{{ "{:.2f}".format(view.fuel.overall) }}%</strong>
       ({{ eur(view.fuel.fuel) }} fuel on {{ eur(view.fuel.weight) }} weight
-      charge, {{ view.fuel.customers_total }} customer(s)).{% endif %}</p>
+      charge, {{ view.fuel.customers_total }} customer(s)) against a target
+      of <strong>{{ "{:g}".format(view.fuel.target) }}%</strong> —
+      <span style="color:{{ '#1b7f4b' if view.fuel.overall_meets
+        else '#bd3727' }};font-weight:700;">
+        {{ "{:+.2f}".format(view.fuel.overall - view.fuel.target) }} pts</span>.
+      {% endif %}</p>
+    <form action="/tools/revenue-analysis/fuel-target" method="post"
+          class="inline-fields" style="margin-bottom:10px;align-items:flex-end;">
+      <input type="hidden" name="period" value="{{ view.pricing_period }}">
+      <label class="field" style="max-width:230px;">
+        <span>Fuel surcharge target for {{ pricing_label }} (%)</span>
+        <input type="number" step="0.01" min="0" max="200" name="target"
+               value="{{ "{:g}".format(view.fuel.target) }}"
+               placeholder="e.g. 40">
+      </label>
+      <button class="btn" type="submit" style="align-self:flex-end;">💾
+        Save target</button>
+      <span class="note-inline" style="align-self:flex-end;">
+        {%- if view.fuel.target_source == 'month' %}set for this month
+        {%- else %}using the default — save to pin one for this month
+        {%- endif %}</span>
+    </form>
+
+    {% if view.fuel.below %}
+    <h3 class="section-title" style="font-size:1rem;margin-top:4px;">
+      🚩 Below target — top {{ view.fuel.below | length }} by money at
+      stake</h3>
+    <p class="note-small">{{ view.fuel.below_total }} customer(s) are under
+      {{ "{:g}".format(view.fuel.target) }}%. Closing every gap to target
+      would be worth <strong>{{ eur(view.fuel.below_shortfall) }} EUR</strong>
+      on the carriage they already move. Ranked by that amount, not by the
+      percentage — a small customer far below target moves less money than a
+      large one slightly below it.</p>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>#</th><th>Customer</th>
+          <th>Weight charge (EUR)</th><th>Fuel (EUR)</th><th>Fuel %</th>
+          <th>vs target</th><th>At stake (EUR)</th></tr></thead>
+        <tbody>
+          {% for c in view.fuel.below %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong style="color:#bd3727;">{{ c.name }}</strong></td>
+            <td>{{ eur(c.weight) }}</td>
+            <td>{{ eur(c.fuel) }}</td>
+            <td><strong>{{ "{:.2f}".format(c.pct) }}%</strong></td>
+            <td><span style="color:#bd3727;font-weight:700;">
+              {{ "{:+.2f}".format(c.gap_pts) }} pts</span></td>
+            <td><strong>{{ eur(c.shortfall) }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="note-small">✓ Every customer on the fuel-bearing products is at
+      or above the {{ "{:g}".format(view.fuel.target) }}% target.</p>
+    {% endif %}
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr><th>#</th><th>Customer</th>
           <th>Weight charge (EUR)</th><th>Fuel (EUR)</th>
-          <th>Fuel %</th><th>vs overall</th><th>Lines</th></tr></thead>
+          <th>Fuel %</th><th>vs target</th><th>Lines</th></tr></thead>
         <tbody>
           {% for c in view.fuel.rows %}
           <tr>
@@ -418,11 +475,9 @@
             <td>{{ eur(c.weight) }}</td>
             <td>{{ eur(c.fuel) }}</td>
             <td><strong>{{ "{:.2f}".format(c.pct) }}%</strong></td>
-            <td>{% if c.delta_pts is not none %}
-              <span style="color:{{ '#1b7f4b' if c.delta_pts >= 0
+            <td><span style="color:{{ '#1b7f4b' if c.meets
                 else '#bd3727' }};font-weight:700;">
-                {{ "{:+.2f}".format(c.delta_pts) }} pts</span>
-              {% else %}—{% endif %}</td>
+                {{ "{:+.2f}".format(c.gap_pts) }} pts</span></td>
             <td class="note-small">{{ c.rows }}</td>
           </tr>
           {% endfor %}

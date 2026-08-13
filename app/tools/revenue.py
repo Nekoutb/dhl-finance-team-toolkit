@@ -787,6 +787,48 @@ def active_customers(top_n=60, now=None):
             if ongoing_rec else "", "rows": rows[:top_n]}
 
 
+# The fuel-surcharge target is a monthly commercial figure, so it is stored
+# per period; a month with none set falls back to the configured default.
+FUEL_TARGET_DEFAULT = 40.0
+FUEL_BELOW_TOP = 40
+
+
+def fuel_target(period):
+    """(target %, 'month'|'default') for one period."""
+    data = _load()
+    val = (data.get("fuel_targets") or {}).get(str(period))
+    if val is not None:
+        try:
+            return float(val), "month"
+        except (TypeError, ValueError):
+            pass
+    from ..config import load_config
+    cfg = load_config().get("fuel_target_pct")
+    try:
+        return float(cfg), "default"
+    except (TypeError, ValueError):
+        return FUEL_TARGET_DEFAULT, "default"
+
+
+def set_fuel_target(period, pct):
+    """Set (or clear, with None/'') the target for one month."""
+    with _lock, _FileLock(STORE_PATH):
+        data = _load()
+        targets = data.setdefault("fuel_targets", {})
+        if pct in (None, ""):
+            targets.pop(str(period), None)
+        else:
+            try:
+                val = float(pct)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(val) or not 0 <= val <= 200:
+                return None
+            targets[str(period)] = round(val, 2)
+        _save(data)
+    return fuel_target(period)[0]
+
+
 def fuel_ranking(period, top_n=30):
     """Top customers by FUEL SURCHARGE as a percentage of their weight
     charge, on the products that carry one (D, N, P, T, Y).
@@ -810,11 +852,26 @@ def fuel_ranking(period, top_n=30):
                      "fuel": c["fuel"], "rows": c["rows"], "pct": pct,
                      "delta_pts": (pct - overall) if overall is not None
                      else None})
+    target, target_src = fuel_target(period)
+    for r in rows:
+        r["meets"] = r["pct"] >= target
+        # What closing the gap to target would be worth on this customer's
+        # own carriage — the number that makes the list actionable.
+        r["shortfall"] = (max(0.0, target - r["pct"]) / 100.0) * r["weight"]
+        r["gap_pts"] = r["pct"] - target
     rows.sort(key=lambda r: -r["pct"])
+    below = sorted((r for r in rows if not r["meets"]),
+                   key=lambda r: -r["shortfall"])[:FUEL_BELOW_TOP]
     return {"rows": rows[:top_n], "overall": overall,
             "weight": base_w, "fuel": base_f,
             "products": sorted(FUEL_PRODUCTS),
-            "customers_total": len(fuel.get("customers") or {})}
+            "customers_total": len(fuel.get("customers") or {}),
+            "target": target, "target_source": target_src,
+            "overall_meets": (overall is not None and overall >= target),
+            "below": below,
+            "below_total": sum(1 for r in rows if not r["meets"]),
+            "below_shortfall": sum(r["shortfall"] for r in rows
+                                   if not r["meets"])}
 
 
 def pricing_top(rec, top_n=10):
