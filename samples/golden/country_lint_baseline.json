@@ -158,7 +158,7 @@
  "app/templates/revenue/index.html": {
   "XAF": 3,
   "cameroon": 2,
-  "zero_dec_money": 10
+  "zero_dec_money": 13
  },
  "app/templates/settings.html": {
   "momo_merchant": 1
@@ -195,6 +195,7 @@
   "cameroon": 2
  },
  "app/tools/revenue.py": {
-  "XAF": 1
+  "XAF": 1,
+  "cameroon": 1
  }
 }

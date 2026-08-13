@@ -2596,19 +2596,28 @@ def revenue_home(request: Request, pricing: str = "",
     # Active traders vs the credit-stop register: a top trader currently on
     # stop is flagged in red on the table.
     active = revenue.active_customers()
-    stopped_names = set()
+    stopped_names, stop_meta = set(), None
     try:
-        stopped, _meta = account_stop._latest_stopped()
+        stopped, stop_meta = account_stop._latest_stopped()
         # A CtP customer row names the customer under "customer" — not
         # "name". Reading the wrong key made every trader look clean.
-        stopped_names = {str(c.get("customer") or c.get("name")
-                             or "").strip().upper() for c in stopped}
+        stopped_names = {revenue._stop_key(c.get("customer") or c.get("name"))
+                         for c in stopped}
         stopped_names.discard("")
     except Exception:  # noqa: BLE001 — no CtP analysis yet: no flags
         pass
     if active:
         for r in active["rows"]:
-            r["stopped"] = r["key"] in stopped_names
+            # The register truncates long names, so an exact comparison
+            # misses real stops — match_stopped reports 'likely' for those
+            # rather than asserting them as fact.
+            r["stop"], r["stop_name"] = revenue.match_stopped(
+                r["key"], stopped_names)
+            r["stopped"] = bool(r["stop"])
+        active["stopped_count"] = sum(1 for r in active["rows"] if r["stopped"])
+        active["stop_source"] = (stop_meta or {}).get("source", "")
+        active["stop_as_of"] = (stop_meta or {}).get("as_of", "")
+        active["stop_total"] = len(stopped_names)
         active["month_labels"] = [_month_label(p) for p in active["months"]]
         active["current_label"] = _month_label(active["current_period"]) \
             if active["current_period"] else ""

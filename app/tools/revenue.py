@@ -53,8 +53,12 @@ _REQUIRED = [
     "Service Type", "Orgn", "Dest",
 ]
 
-# lanes kept per direction, biggest first — bounded so the store stays small
-MAX_LANES = 40
+# Lanes kept per direction, biggest first. A real month has ~800 outbound
+# lanes; the top 10 are what the page shows, but the PRIOR months must keep
+# far more than 10 or a lane that simply ranked lower last month comes back
+# as "new" instead of being compared. 400 covers the long tail at a few
+# hundred KB a month.
+MAX_LANES = 400
 
 
 def _norm_h(h):
@@ -457,6 +461,67 @@ def same_days_window(rec, union_days, target_days):
             "rev_per_kg": (net / kilos) if kilos > 0 else None}
 
 
+def like_for_like(months, periods, union_days):
+    """Every month cut back to the SAME number of billable days the running
+    month has reached, so the KPI lines compare equal spans.
+
+    Without this a 3-day August sits beside a 25-day July and the chart
+    reads as a collapse that is really just a shorter month. Months whose
+    stored detail predates this feature keep their full-month figures and
+    are marked ``partial=False`` so the page can say so.
+    """
+    ongoing = next((m for m in months if m["ongoing"]), None)
+    if not ongoing or not ongoing["billable_days"]:
+        return months, None
+    target = ongoing["billable_days"]
+    out = []
+    for m in months:
+        if m["ongoing"]:
+            out.append({**m, "clipped": True})
+            continue
+        w = same_days_window(periods[m["period"]], union_days, target)
+        if not w or not w["net"]:
+            out.append({**m, "clipped": False})
+            continue
+        out.append({**m, "clipped": True, "billable_days": w["days"],
+                    "net": w["net"], "kilos": w["kilos"],
+                    "shipments": w["shipments"],
+                    "rev_per_day": w["rev_per_day"],
+                    "rev_per_shipment": w["rev_per_shipment"],
+                    "rev_per_kg": w["rev_per_kg"],
+                    "through": w["through"]})
+    return out, target
+
+
+def landing_estimate(ongoing, months):
+    """Where the running month lands if it keeps its current daily rate,
+    projected over the typical billable days of the completed months."""
+    if not ongoing or not ongoing["billable_days"] or not ongoing["net"]:
+        return None
+    full = [m["billable_days"] for m in months
+            if not m["ongoing"] and m["billable_days"]]
+    if not full:
+        return None
+    typical = sum(full) / len(full)
+    rate = ongoing["net"] / ongoing["billable_days"]
+    net = rate * typical
+    ship_rate = ongoing["shipments"] / ongoing["billable_days"]
+    kilo_rate = ongoing["kilos"] / ongoing["billable_days"]
+    shipments = ship_rate * typical
+    kilos = kilo_rate * typical
+    return {"label": ongoing["label"] + " landing",
+            "period": ongoing["period"] + "-landing",
+            "typical_days": round(typical, 1),
+            "elapsed_days": ongoing["billable_days"],
+            "net": net, "billable_days": round(typical, 1),
+            "shipments": shipments, "kilos": kilos,
+            "rev_per_day": ongoing["rev_per_day"],
+            "rev_per_shipment": ongoing["rev_per_shipment"],
+            "rev_per_kg": ongoing["rev_per_kg"],
+            "totals": {"tax": ongoing["totals"]["tax"] / ongoing["billable_days"] * typical,
+                       "duty": ongoing["totals"]["duty"] / ongoing["billable_days"] * typical}}
+
+
 def _graph_series(months):
     """Pixel-ready polylines for the three KPIs: a SOLID line through the
     complete months and a DASHED closing segment to the ongoing month, so
@@ -493,28 +558,82 @@ def _graph_series(months):
     return out
 
 
+LANE_FLAT_PCT = 5.0             # within ±5% reads as unchanged
+
+
 def lanes_for(period, top_n=10):
-    """Top outbound + inbound lanes of a month by net revenue, with net
-    revenue per kilo per lane."""
+    """Top outbound + inbound lanes of a month by net revenue with their
+    RPK (revenue per kilo), each compared against the SAME lane's RPK
+    averaged over the three preceding months on record."""
     data = _load()
-    rec = (data.get("periods") or {}).get(str(period))
+    periods = data.get("periods") or {}
+    rec = periods.get(str(period))
     if not rec:
         return None
-    out = {}
+    prior_keys = [k for k in sorted(periods) if k < str(period)][-3:]
+    out = {"prior_months": prior_keys}
     for svc, label in (("OB", "outbound"), ("IB", "inbound")):
         rows = []
         for lane, v in sorted((rec.get("lanes") or {}).get(svc, {}).items(),
                               key=lambda kv: -kv[1]["net"])[:top_n]:
+            rpk = (v["net"] / v["kilos"]) if v["kilos"] > 0 else None
+            # the same lane's RPK in each prior month, averaged
+            past = []
+            for pk in prior_keys:
+                pv = ((periods[pk].get("lanes") or {})
+                      .get(svc, {}).get(lane))
+                if pv and pv.get("kilos", 0) > 0:
+                    past.append(pv["net"] / pv["kilos"])
+            prior_rpk = (sum(past) / len(past)) if past else None
+            delta = (100.0 * (rpk - prior_rpk) / prior_rpk)                 if rpk is not None and prior_rpk and prior_rpk > 0 else None
+            if delta is None:
+                trend = "new"
+            elif abs(delta) <= LANE_FLAT_PCT:
+                trend = "flat"
+            else:
+                trend = "up" if delta > 0 else "down"
             rows.append({
                 "lane": lane.replace("-", " → "), "net": v["net"],
                 "kilos": v["kilos"], "shipments": v["shipments"],
-                "per_kg": (v["net"] / v["kilos"]) if v["kilos"] > 0
-                else None})
+                "rpk": rpk, "prior_rpk": prior_rpk,
+                "delta_pct": delta, "trend": trend,
+                "prior_n": len(past)})
         out[label] = rows
     return out
 
 
-def active_customers(top_n=20, now=None):
+# Matching a trader against the credit-stop register. The register is
+# keyed on the AR customer name, which is frequently TRUNCATED there
+# ("SOCIETE ANONYME DES BOISSONS DU" for "…DU CAMEROUN"), so exact
+# comparison silently misses real stops. Truncation is prefix-shaped, which
+# is what separates a genuine miss from a coincidence: RGSTTC SARL and STBC
+# SARL score 0.80 on similarity but are NOT prefixes of one another. On a
+# credit control a false flag is as damaging as a missed one, so anything
+# short of exact is reported as a LIKELY match, never as fact.
+_STOP_MIN_PREFIX = 15
+
+
+def _stop_key(name):
+    return re.sub(r"\s+", " ", str(name or "").strip().upper())
+
+
+def match_stopped(trader_key, stop_keys):
+    """('exact'|'likely'|'', matched_name) for one trader."""
+    k = _stop_key(trader_key)
+    if not k:
+        return "", ""
+    if k in stop_keys:
+        return "exact", k
+    for s in stop_keys:
+        if len(s) < _STOP_MIN_PREFIX and len(k) < _STOP_MIN_PREFIX:
+            continue
+        if k.startswith(s) or s.startswith(k):
+            if min(len(k), len(s)) >= _STOP_MIN_PREFIX:
+                return "likely", s
+    return "", ""
+
+
+def active_customers(top_n=60, now=None):
     """The top traders BY WEIGHT over the last three complete months, and
     what they are moving in the current month — the point is spotting a big
     trader who has gone quiet (or is trading while on credit stop)."""
@@ -646,6 +765,10 @@ def dashboard(now=None):
     # Pricing defaults to the latest COMPLETE month — a run-rate month a few
     # days in would put noise in the price/kg column. The page offers every
     # month (the ongoing one included) as a selector.
+    # The KPI chart compares EQUAL spans: every month cut back to the same
+    # billable-day count the running month has reached.
+    lfl_months, lfl_target = like_for_like(months, periods, union_days)
+    landing = landing_estimate(ongoing, months)
     default = complete[-1] if complete else (months[-1] if months else None)
     # Months stored before the lane/daily detail existed still show their
     # headline figures, but cannot feed the lanes panel or the same-days
@@ -657,7 +780,11 @@ def dashboard(now=None):
             "needs_reupload": stale,
             "compare": {"prior_label": prior["label"] if prior else "",
                         "window": window},
-            "graphs": _graph_series(months),
+            "landing": landing,
+            "lfl_days": lfl_target,
+            "lfl_partial": [m["label"] for m in lfl_months
+                            if not m.get("clipped")],
+            "graphs": _graph_series(lfl_months),
             "eur_rate": EUR_RATES["XAF"],
             "pricing_period": default["period"] if default else "",
             "pricing": pricing_top(periods[default["period"]])

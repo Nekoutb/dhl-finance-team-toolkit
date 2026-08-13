@@ -81,8 +81,16 @@
 
     {% if view.graphs %}
     <h2 class="section-title" style="margin-top:18px;">KPI evolution
-      <span class="note-inline">solid = complete months · dotted = month in
-      progress</span></h2>
+      <span class="note-inline">
+        {%- if view.lfl_days %}every month cut to its first
+        {{ "{:g}".format(view.lfl_days) }} billable day(s) — like for like ·
+        {% endif %}solid = complete months · dotted = month in
+        progress</span></h2>
+    {% if view.lfl_partial %}
+    <p class="note-small">{{ view.lfl_partial | join(", ") }} could not be
+      cut to the same days (uploaded before the daily detail existed) and
+      show their full month.</p>
+    {% endif %}
     <div style="display:flex;gap:14px;flex-wrap:wrap;">
       {% for g in view.graphs %}
       <div style="flex:1;min-width:300px;border:1px solid
@@ -121,31 +129,46 @@
         <thead><tr><th></th>
           {% for m in view.months %}<th>{{ m.label }}
             {%- if m.ongoing %} *{% endif %}</th>{% endfor %}
+          {% if view.landing %}<th style="border-left:3px solid #2563eb;">
+            {{ view.landing.label }} †</th>{% endif %}
         </tr></thead>
         <tbody>
           <tr><td><strong>Net revenue (EUR)</strong></td>
             {% for m in view.months %}
             <td><strong>{{ eur(m.net) }}</strong></td>
-            {% endfor %}</tr>
+            {% endfor %}
+            {% if view.landing %}<td style="border-left:3px solid #2563eb;">
+              <strong>{{ eur(view.landing.net) }}</strong></td>{% endif %}</tr>
           <tr><td class="note-small">Net revenue (XAF)</td>
             {% for m in view.months %}
             <td class="note-small">{{ "{:,.0f}".format(m.net) }}</td>
-            {% endfor %}</tr>
+            {% endfor %}
+            {% if view.landing %}<td class="note-small"
+              style="border-left:3px solid #2563eb;">
+              {{ "{:,.0f}".format(view.landing.net) }}</td>{% endif %}</tr>
           <tr><td>Billable days</td>
             {% for m in view.months %}
-            <td>{{ "{:g}".format(m.billable_days) }}</td>{% endfor %}</tr>
+            <td>{{ "{:g}".format(m.billable_days) }}</td>{% endfor %}
+            {% if view.landing %}<td style="border-left:3px solid #2563eb;">
+              {{ "{:g}".format(view.landing.typical_days) }}</td>{% endif %}</tr>
           <tr><td><strong>Revenue / day (EUR)</strong></td>
             {% for m in view.months %}
-            <td>{{ eur(m.rev_per_day) }}</td>{% endfor %}</tr>
+            <td>{{ eur(m.rev_per_day) }}</td>{% endfor %}
+            {% if view.landing %}<td style="border-left:3px solid #2563eb;">
+              {{ eur(view.landing.rev_per_day) }}</td>{% endif %}</tr>
           <tr><td>Shipments</td>
             {% for m in view.months %}
-            <td>{{ "{:,.0f}".format(m.shipments) }}</td>{% endfor %}</tr>
+            <td>{{ "{:,.0f}".format(m.shipments) }}</td>{% endfor %}
+            {% if view.landing %}<td style="border-left:3px solid #2563eb;">
+              {{ "{:,.0f}".format(view.landing.shipments) }}</td>{% endif %}</tr>
           <tr><td><strong>Revenue / shipment (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_shipment, 2) }}</td>{% endfor %}</tr>
           <tr><td>Billed kilos</td>
             {% for m in view.months %}
-            <td>{{ "{:,.0f}".format(m.kilos) }}</td>{% endfor %}</tr>
+            <td>{{ "{:,.0f}".format(m.kilos) }}</td>{% endfor %}
+            {% if view.landing %}<td style="border-left:3px solid #2563eb;">
+              {{ "{:,.0f}".format(view.landing.kilos) }}</td>{% endif %}</tr>
           <tr><td><strong>Revenue / kg (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_kg, 2) }}</td>{% endfor %}</tr>
@@ -160,6 +183,13 @@
         </tbody>
       </table>
     </div>
+    {% if view.landing %}
+    <p class="note-small">† <strong>{{ view.landing.label }}</strong> = the
+      month's current daily rate ({{ "{:g}".format(view.landing.elapsed_days) }}
+      billable day(s) so far) carried over
+      {{ "{:g}".format(view.landing.typical_days) }} days, the average of the
+      completed months. A projection, not a result.</p>
+    {% endif %}
     <p class="note-small">Converted at the fixed rate
       {{ view.eur_rate }} XAF/EUR. Billable days come from the data: a day
       with no billing is not billable; Sundays never count; two Saturdays
@@ -221,7 +251,8 @@
         <div class="table-wrap">
           <table class="tx-table">
             <thead><tr><th>#</th><th>Lane</th><th>Net revenue (EUR)</th>
-              <th>Kg</th><th>Shipments</th><th>Rev / kg (EUR)</th></tr></thead>
+              <th>Kg</th><th>Shipments</th><th>RPK (EUR)</th>
+              <th>vs prior 3&nbsp;mo</th></tr></thead>
             <tbody>
               {% for l in view.lanes[direction] %}
               <tr>
@@ -230,10 +261,23 @@
                 <td>{{ eur(l.net) }}</td>
                 <td>{{ "{:,.0f}".format(l.kilos) }}</td>
                 <td>{{ "{:,.0f}".format(l.shipments) }}</td>
-                <td><strong>{{ eur(l.per_kg, 2) }}</strong></td>
+                <td><strong>{{ eur(l.rpk, 2) }}</strong></td>
+                <td>
+                  {%- if l.trend == 'up' %}<span style="color:#1b7f4b;
+                    font-weight:700;" title="RPK up {{ "{:+.1f}".format(l.delta_pct) }}% on the {{ eur(l.prior_rpk, 2) }} average of the prior {{ l.prior_n }} month(s)">▲
+                    {{ "{:+.0f}".format(l.delta_pct) }}%</span>
+                  {%- elif l.trend == 'down' %}<span style="color:#bd3727;
+                    font-weight:700;" title="RPK down {{ "{:+.1f}".format(l.delta_pct) }}% on the {{ eur(l.prior_rpk, 2) }} average of the prior {{ l.prior_n }} month(s)">▼
+                    {{ "{:+.0f}".format(l.delta_pct) }}%</span>
+                  {%- elif l.trend == 'flat' %}<span style="color:#b06f00;
+                    font-weight:700;" title="Within ±5% of the {{ eur(l.prior_rpk, 2) }} average of the prior {{ l.prior_n }} month(s)">▶
+                    {{ "{:+.0f}".format(l.delta_pct) }}%</span>
+                  {%- else %}<span class="note-inline"
+                    title="This lane did not run in the prior months on record">new</span>
+                  {%- endif %}</td>
               </tr>
               {% else %}
-              <tr><td colspan="6" class="note-small">No {{ direction }}
+              <tr><td colspan="7" class="note-small">No {{ direction }}
                 lanes in this month's file.</td></tr>
               {% endfor %}
             </tbody>
@@ -247,13 +291,25 @@
 
   {% if active %}
   <section class="panel">
-    <h2 class="section-title">🤝 Active customers — top 20 traders by weight,
-      last 3 months</h2>
+    <h2 class="section-title">🤝 Active customers — top
+      {{ active.rows | length }} traders by weight, last 3 months</h2>
     <p class="note-small">Are the big traders of
       {{ active.month_labels | join(", ") }} still trading
       {% if active.current_label %}in {{ active.current_label }}{% else %}this
-      month{% endif %}? <span style="color:#bd3727;font-weight:700;">Red</span>
-      = currently on credit stop.</p>
+      month{% endif %}?
+      {% if active.stopped_count %}<strong
+        style="color:#bd3727;">{{ active.stopped_count }}</strong> of them
+      {{ "is" if active.stopped_count == 1 else "are" }} on the credit-stop
+      register{% if active.stop_source %} ({{ active.stop_source }},
+      {{ active.stop_as_of }}, {{ active.stop_total }} account(s) held)
+      {%- endif %} — shown in red.{% else %}None of them is on the
+      credit-stop register.{% endif %}</p>
+    <div class="download-row" style="margin-bottom:6px;">
+      <button class="btn btn-small" type="button" id="act-toggle"
+              data-open="0">▾ Reveal all
+        {{ active.rows | length }}</button>
+      <span class="note-inline" id="act-count"></span>
+    </div>
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr><th>#</th><th>Customer</th>
@@ -264,13 +320,17 @@
         </tr></thead>
         <tbody>
           {% for c in active.rows %}
-          <tr>
+          <tr class="act-row{% if loop.index > 20 %} act-extra{% endif %}"
+              {% if loop.index > 20 %}style="display:none;"{% endif %}>
             <td>{{ loop.index }}</td>
             <td><strong{% if c.stopped %} style="color:#bd3727;"{% endif %}>
               {{ c.name }}</strong>
-              {% if c.stopped %}<span class="pill pill-stop"
-                title="This customer is currently on credit stop">STOP
-                CREDIT</span>{% endif %}</td>
+              {% if c.stop == 'exact' %}<span class="pill pill-stop"
+                title="On the credit-stop register as “{{ c.stop_name }}”">STOP
+                CREDIT</span>
+              {% elif c.stop == 'likely' %}<span class="pill pill-stop"
+                title="Almost certainly the account held as “{{ c.stop_name }}” — the register truncates long names. Confirm before acting.">STOP
+                CREDIT?</span>{% endif %}</td>
             <td><strong>{{ "{:,.1f}".format(c.avg_kilos) }}</strong></td>
             {% for p in active.months %}
             <td>{{ "{:,.1f}".format(c.months[p]) }}</td>
@@ -287,6 +347,30 @@
         </tbody>
       </table>
     </div>
+    <script>
+      (function () {
+        var btn = document.getElementById("act-toggle");
+        var extra = document.querySelectorAll("tr.act-extra");
+        var count = document.getElementById("act-count");
+        if (!btn) { return; }
+        if (!extra.length) { btn.style.display = "none"; return; }
+        function sync() {
+          var open = btn.dataset.open === "1";
+          extra.forEach(function (tr) {
+            tr.style.display = open ? "" : "none"; });
+          btn.textContent = (open ? "▴ Roll up to the top 20"
+                                  : "▾ Reveal all "
+                                    + ({{ active.rows | length }}));
+          count.textContent = open ? ""
+            : "showing 20 of {{ active.rows | length }}";
+        }
+        btn.addEventListener("click", function () {
+          btn.dataset.open = btn.dataset.open === "1" ? "0" : "1";
+          sync();
+        });
+        sync();
+      })();
+    </script>
   </section>
   {% endif %}
   {% endif %}

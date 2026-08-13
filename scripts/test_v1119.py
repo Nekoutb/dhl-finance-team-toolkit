@@ -153,9 +153,10 @@ check("outbound lanes aggregate origin → destination",
 check("inbound lanes likewise",
       lanes["inbound"][0]["lane"] == "LOS → DLA"
       and lanes["inbound"][0]["net"] == 240000.0)
-check("each lane carries its net revenue per kilo",
-      round(lanes["outbound"][0]["per_kg"], 2) == round(720000 / 60, 2)
-      and round(lanes["inbound"][0]["per_kg"], 2) == round(240000 / 60, 2))
+# v11.20 renamed the field to RPK and added the prior-months trend
+check("each lane carries its RPK",
+      round(lanes["outbound"][0]["rpk"], 2) == round(720000 / 60, 2)
+      and round(lanes["inbound"][0]["rpk"], 2) == round(240000 / 60, 2))
 
 # === 5. Active customers ===================================================
 act = revenue.active_customers(now=NOW)
@@ -237,6 +238,8 @@ check("the graph draws solid and dotted polylines",
       'stroke-dasharray="6 5"' in TPL and "solid_points" in TPL)
 check("the lanes panel renders both directions",
       "Lanes — top 10 outbound" in TPL and "Inbound — into Cameroon" in TPL)
+check("the active-customers panel is capped at the top 20 by default",
+      "act-extra" in TPL)
 check("the active-customers panel flags credit stops in red",
       "STOP" in TPL and "#bd3727" in TPL and "not trading" in TPL)
 check("the conversion rate is disclosed, not hardcoded",

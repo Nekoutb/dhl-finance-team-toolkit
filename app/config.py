@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.19 — 13 Aug 2026 · Revenue Analysis now reports in EUR, charts the KPI evolution (solid for completed months, dotted for the month in progress), and compares the running month against the SAME number of billable days in the prior month rather than a full-month average. Two new panels: Lanes — top 10 outbound and inbound routes with revenue per kilo — and Active customers — the top 20 traders by weight over the last three months against what they are moving now, with anyone on credit stop flagged red."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.20 — 13 Aug 2026 · Revenue Analysis: the KPI chart now cuts EVERY month back to the same number of billable days the running month has reached, so the lines compare like for like; the months table gains a “landing” column projecting where the running month ends at its current daily rate. Lanes show RPK against the prior three months' average with a green, amber or red arrow. Active customers now covers the top 60, rolled up to 20 with a reveal — and credit-stop matching survives the register's truncated names, which was hiding real stops."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
