@@ -67,8 +67,9 @@ r = client.get(f"/portal/{token}")
 check("portal statement 200", r.status_code == 200)
 check("contact fields present", all(f'name="{f}"' in r.text
       for f in ("confirmed_by", "role", "email", "phone")))
-check("select-all controls present", 'id="allpay"' in r.text
-      and 'id="allinv"' in r.text and 'id="selectAll"' in r.text)
+check("auto-allocation form present", 'id="allocform"' in r.text
+      and "oldest invoices first" in r.text
+      and "Confirm allocation" in r.text)
 check("customer-facing references shown (not internal doc nos)",
       "DLAR000252101" in r.text and "MTN-1744604901" in r.text)
 # The file lists ACME's 2026-05-18 invoice first; display must be oldest first.

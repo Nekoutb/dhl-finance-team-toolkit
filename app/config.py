@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.23 — 13 Aug 2026 · Fuel surcharge now has a target you set per month, on the Revenue Analysis page. Every customer is measured against that target instead of the average, and a “below target” list shows the top 40 who miss it — ranked by the money at stake (the gap in points applied to the carriage they already move), so the biggest recovery sits at the top rather than the worst percentage on a tiny account."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.24 — 25 Aug 2026 · CtP reads French SAP exports: a FBL5N file with French headers (Valeur de la devise de la pièce, Echéance nette, Numéro de pièce…) maps exactly like the English one — previously the amounts and due dates went unmapped and every dashboard KPI showed zero. The AGEING trial balance's Client / Total Ageing / Account Stop/Open columns are recognised too. Plus hardening: Content-Security-Policy on every page, robots.txt + noindex (this is an internal tool — search engines and AI crawlers are told to stay out), a favicon at last, and the footer stops claiming 'no login required' when you are in fact signed in."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

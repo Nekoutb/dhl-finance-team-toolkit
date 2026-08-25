@@ -6,6 +6,7 @@ for display). Total rows (balance populated, identifying fields empty, or an
 explicit "total" label) are excluded the same way as in the transaction file.
 """
 import re
+import unicodedata
 
 from . import ctp_rules, excel_reader
 
@@ -17,14 +18,17 @@ FIELD_CANDIDATES = {
     # never match the transaction file's account-number keys, so the credit-
     # hold register comes back empty. Claim the name column first.
     "name": ["customer account: name", "customer name", "account name",
-             "client name", "debtor name", "name"],
+             "client name", "debtor name", "compte client : nom",
+             "nom du client", "name"],
     "account": ["customer number", "customer no", "customer code", "bp number",
-                "account number", "account no", "customer", "account", "compte"],
+                "account number", "account no", "customer", "compte",
+                "no client", "numero client", "client", "account"],
     "segment": ["sales segment", "customer segment", "treatment plan",
                 "customer group", "segment", "gctp", "ctp", "channel"],
     "balance": ["receivable balance", "receivables balance", "ar balance",
                 "total receivable", "open balance", "outstanding balance",
-                "total due", "balance", "amount", "solde"],
+                "total due", "total ageing", "total aging", "balance",
+                "amount", "solde"],
     # "Account stop/open" is the customer trial balance's credit-hold column:
     # an "X" = on credit hold (account stopped), blank = open (not on hold).
     "hold": ["account stop/open", "account stop / open", "account stop",
@@ -82,9 +86,16 @@ def parse_hold_flag(value):
     return bool(s)
 
 
+def _fold(text):
+    """Lowercase + strip accents so a French export ("Numéro de pièce",
+    "Echéance nette") matches the same unaccented candidates."""
+    s = unicodedata.normalize("NFKD", str(text or ""))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower().strip()
+
+
 def _map_columns(header):
     used, mapping = set(), {}
-    lowered = {h: h.lower().strip() for h in header}
+    lowered = {h: _fold(h) for h in header}
     for field, candidates in FIELD_CANDIDATES.items():
         match = None
         # Pass 1 — exact header match, so a bare "Customer" (account number)

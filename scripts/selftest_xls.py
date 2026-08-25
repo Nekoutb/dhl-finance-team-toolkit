@@ -46,15 +46,28 @@ check(".xls parsed: metadata kept", any("Orange" in m for m in parsed["metadata"
 amounts = [r["data"].get("Amount (XAF)") for r in parsed["rows"]]
 check(".xls numbers are clean ints", amounts[0] == 150000)
 
-# Real upload through the web app
+# Real upload through the web app — the Orange tool now reads the Relevé
+# statement format, so the upload leg uses an .xls built from THAT sample.
+STMT_SRC = ROOT / "samples" / "orange_statement_sample.xlsx"
+STMT_DST = ROOT / "samples" / "orange_statement_sample.xls"
+wb_in = openpyxl.load_workbook(STMT_SRC, data_only=True)
+ws_in = wb_in.active
+wb_out = xlwt.Workbook()
+ws_out = wb_out.add_sheet("Transactions")
+for r, row in enumerate(ws_in.iter_rows(values_only=True)):
+    for c, val in enumerate(row):
+        if val is not None:
+            ws_out.write(r, c, val)
+wb_out.save(str(STMT_DST))
+print(f"built {STMT_DST.name}")
+
 client = TestClient(app)
-with open(DST, "rb") as fh:
+with open(STMT_DST, "rb") as fh:
     r = client.post("/tools/orange-cameroun/upload",
-                    files={"file": ("orange_cameroun_sample.xls", fh,
+                    files={"file": ("orange_statement_sample.xls", fh,
                                     "application/vnd.ms-excel")})
 check(".xls upload -> review 200", r.status_code == 200)
-check(".xls review shows transactions", "transaction(s) found" in r.text
-      and "MSISDN" in r.text)
+check(".xls review shows collections", "successful collection" in r.text)
 
 print("\nALL .XLS CHECKS PASSED")
 for p in (ROOT / "data" / "uploads").glob("*.xls"):

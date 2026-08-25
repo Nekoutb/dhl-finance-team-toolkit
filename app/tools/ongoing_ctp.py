@@ -15,6 +15,7 @@ the line items sum to the file's own total.
 import json
 import os
 import re
+import unicodedata
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -28,29 +29,36 @@ STORE_DIR = DATA_DIR / "ctp"
 CREDIT_ACTION = "Credit / payment on account — allocate to invoices"
 WITHIN_TERMS = "Within terms — monitor"
 
-# Logical field -> header fragments (lowercased), most specific first.
+# Logical field -> header fragments, most specific first. Matching is
+# lowercase AND accent-insensitive (see _fold), so one unaccented fragment
+# covers both spellings ("echeance" matches "Echéance nette"). French
+# fragments cover the SAP FBL5N export of a French-language login
+# ("AR DETAILS CM" arrives with "Valeur de la devise de la pièce" etc.).
 FIELD_CANDIDATES = {
     "customer": ["customer account: name", "customer name", "account name",
-                 "client name", "debtor name", "name of customer", "name"],
+                 "client name", "debtor name", "name of customer",
+                 "compte client : nom", "nom du client", "name"],
     "account": ["customer number", "customer no", "customer code", "bp number",
-                "account number", "account no", "customer", "account", "compte"],
+                "account number", "account no", "customer", "account", "compte",
+                "no client", "numero client", "client"],
     "invoice_no": ["invoice number", "invoice no", "billing document",
                    "document number", "invoice", "document no", "facture",
-                   "doc no"],
+                   "doc no", "numero de piece"],
     # The customer-facing reference (a duty invoice's "D0…" id may live here
     # rather than in the SAP document number).
     "reference": ["reference", "ref"],
     "invoice_date": ["invoice date", "billing date", "document date",
-                     "date facture", "doc date"],
+                     "date facture", "doc date", "date de piece"],
     "due_date": ["net due date", "due date", "payment due", "net due", "due",
-                 "echeance", "échéance"],
+                 "echeance nette", "echeance"],
     "doc_type": ["document type", "charge type", "invoice type", "doc type",
-                 "category", "type"],
+                 "type de piece", "category", "type"],
     "amount": ["document currency value", "open amount", "outstanding amount",
                "amount in eur", "outstanding", "balance", "amount due",
-               "amount", "montant", "value", "open"],
-    "currency": ["currency key", "currency", "curr", "devise"],
-    "clerk": ["accounting clerk", "clerk", "collector"],
+               "amount", "montant", "valeur de la devise", "valeur",
+               "value", "open"],
+    "currency": ["currency key", "currency", "curr", "cle de devise", "devise"],
+    "clerk": ["accounting clerk", "clerk", "collector", "gestionnaire"],
     "segment": ["sales segment", "treatment plan", "customer group", "segment",
                 "gctp", "ctp"],
     "country_rank": ["country rank", "rank", "tier"],
@@ -62,9 +70,17 @@ FIELD_CANDIDATES = {
 }
 
 
+def _fold(text):
+    """Lowercase + strip accents, so header matching is language-neutral
+    ("Echéance nette" -> "echeance nette", "Numéro de pièce" -> "numero de
+    piece"). A French-language SAP login exports French headers."""
+    s = unicodedata.normalize("NFKD", str(text or ""))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower()
+
+
 def _map_columns(header):
     used, mapping = set(), {}
-    lowered = {h: h.lower() for h in header}
+    lowered = {h: _fold(h) for h in header}
     for field, candidates in FIELD_CANDIDATES.items():
         for cand in candidates:
             match = next((h for h in header if h not in used and cand in lowered[h]), None)
@@ -166,7 +182,7 @@ def parse_trial_balance(path):
     """
     parsed = excel_reader.read_transactions(path)
     header = parsed["header"]
-    lowered = {h: h.lower() for h in header}
+    lowered = {h: _fold(h) for h in header}
     amount_col = None
     for cand in TB_AMOUNT_CANDIDATES:
         amount_col = next((h for h in header if cand in lowered[h]), None)

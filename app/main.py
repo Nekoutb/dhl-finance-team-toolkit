@@ -206,6 +206,22 @@ async def gate_and_cache(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Content-Security-Policy: everything is self-hosted except Google Fonts
+    # and the Cloudflare Turnstile challenge on the login page. Inline styles/
+    # scripts are part of the template design, so 'unsafe-inline' stays; the
+    # policy still blocks foreign scripts, plugins, base-tag hijacks and
+    # framing (frame-ancestors backs up X-Frame-Options).
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "frame-src https://challenges.cloudflare.com; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'")
+    # Internal finance tool — never appear in search engines or AI crawlers.
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
     if request.url.scheme == "https" or cfg.get("auth", {}).get("secure_cookies"):
         response.headers["Strict-Transport-Security"] = \
             "max-age=31536000; includeSubDomains"
@@ -231,6 +247,18 @@ def redirect_msg(path, message="", error="", status_code=303):
 @app.get("/healthz")
 def healthz():
     return {"status": "ok", "version": APP_VERSION}
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    """Internal finance tool: keep every crawler (search and AI alike) out."""
+    return Response("User-agent: *\nDisallow: /\n", media_type="text/plain")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(BASE_DIR / "app" / "static" / "favicon.svg",
+                        media_type="image/svg+xml")
 
 
 # --------------------------------------------------------------------------- #

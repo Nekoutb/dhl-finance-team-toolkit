@@ -63,9 +63,9 @@ check("analyze (3 file kinds) -> redirect", r.status_code == 303)
 token = re.search(r"results/([0-9a-f]+)/dashboard", r.headers["location"]).group(1)
 
 r = client.get(f"/tools/ongoing-ctp-monitoring/results/{token}")
-check("FIRST analysis: TB agreement shown", "trial balance" in r.text
-      and "First analysis" in r.text)
-check("TB agrees (7,960,000)", "agrees to the AR trial balance" in r.text)
+check("FIRST analysis: TB agreement shown",
+      "Trial balance agreed" in r.text)
+check("TB agrees (7,960,000)", "7,960,000" in r.text)
 
 # Merged master: 6 customers (5 + ZETA)
 m = ctp.load_master()
