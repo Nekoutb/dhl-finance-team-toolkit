@@ -671,10 +671,25 @@ def _graph_series(months):
 LANE_FLAT_PCT = 5.0             # within ±5% reads as unchanged
 
 
+def _lane_trend(now, prior):
+    """(delta %, 'up'|'down'|'flat'|'new') for one lane figure against its
+    prior-months average. 'new' means there is nothing to compare against."""
+    if now is None or not prior or prior <= 0:
+        return None, "new"
+    delta = 100.0 * (now - prior) / prior
+    if abs(delta) <= LANE_FLAT_PCT:
+        return delta, "flat"
+    return delta, "up" if delta > 0 else "down"
+
+
 def lanes_for(period, top_n=10):
     """Top outbound + inbound lanes of a month by net revenue with their
-    RPK (revenue per kilo), each compared against the SAME lane's RPK
-    averaged over the three preceding months on record."""
+    RPK (revenue per kilo) AND their billed weight, each compared against
+    the SAME lane's average over the three preceding months on record.
+
+    Both are reported because on their own either one misleads: an RPK up
+    30% on volume down 60% is a lane being lost, not a lane being repriced.
+    """
     data = _load()
     periods = data.get("periods") or {}
     rec = periods.get(str(period))
@@ -687,26 +702,28 @@ def lanes_for(period, top_n=10):
         for lane, v in sorted((rec.get("lanes") or {}).get(svc, {}).items(),
                               key=lambda kv: -kv[1]["net"])[:top_n]:
             rpk = (v["net"] / v["kilos"]) if v["kilos"] > 0 else None
-            # the same lane's RPK in each prior month, averaged
-            past = []
+            # the same lane's RPK and billed weight in each prior month.
+            # Both are averaged over the SAME months — the ones the lane
+            # actually ran — so the two comparisons share a denominator
+            # and prior_n describes them both.
+            past, past_kg = [], []
             for pk in prior_keys:
                 pv = ((periods[pk].get("lanes") or {})
                       .get(svc, {}).get(lane))
                 if pv and pv.get("kilos", 0) > 0:
                     past.append(pv["net"] / pv["kilos"])
+                    past_kg.append(pv["kilos"])
             prior_rpk = (sum(past) / len(past)) if past else None
-            delta = (100.0 * (rpk - prior_rpk) / prior_rpk)                 if rpk is not None and prior_rpk and prior_rpk > 0 else None
-            if delta is None:
-                trend = "new"
-            elif abs(delta) <= LANE_FLAT_PCT:
-                trend = "flat"
-            else:
-                trend = "up" if delta > 0 else "down"
+            prior_kilos = (sum(past_kg) / len(past_kg)) if past_kg else None
+            delta, trend = _lane_trend(rpk, prior_rpk)
+            kg_delta, kg_trend = _lane_trend(v["kilos"], prior_kilos)
             rows.append({
                 "lane": lane.replace("-", " → "), "net": v["net"],
                 "kilos": v["kilos"], "shipments": v["shipments"],
                 "rpk": rpk, "prior_rpk": prior_rpk,
                 "delta_pct": delta, "trend": trend,
+                "prior_kilos": prior_kilos,
+                "kg_delta_pct": kg_delta, "kg_trend": kg_trend,
                 "prior_n": len(past)})
         out[label] = rows
     return out

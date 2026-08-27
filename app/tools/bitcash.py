@@ -34,7 +34,7 @@ import zipfile
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 
 from ..config import BASE_DIR, DATA_DIR, UPLOAD_DIR
 from ..services import ai_ocr, excel_reader
@@ -45,7 +45,13 @@ FILES_DIR = DATA_DIR / "bitcash" / "files"
 RECON_DIR = DATA_DIR / "bitcash" / "recons"
 TEMPLATE_PATH = BASE_DIR / "samples" / "cm01_pc_template.xlsx"
 KINDS = {"bit": "BIT (Bank In Transit)", "cash": "Cash AR"}
-_lock = Lock()
+# REENTRANT on purpose. _persist_rows holds this across its whole row loop
+# while guarding ROWS_PATH, and the progress callback it calls every 250 rows
+# takes it again to guard STORE_PATH. A plain Lock deadlocks the ingest
+# thread there the moment the loop runs longer than the callback's 0.4s
+# write-throttle — the upload then hangs forever behind a spinner and the
+# second file is never read at all.
+_lock = RLock()
 
 _STATUS_CANDIDATES = ["status", "statut", "etat", "état", "state",
                       "open/closed", "situation"]
@@ -279,33 +285,55 @@ def _to_float(v):
 
 def _cash_rows_from(parsed, row_tick=None):
     """Build the Cash AR row-store rows from a parsed workbook, returning
-    (rows, date_col_header). Shared by the upload path and the in-place re-read
-    so both detect the ageing DOCUMENT DATE identically. ``row_tick(done)`` is
-    an optional per-row progress callback."""
+    (rows, date_col_header, amount_col_header). Shared by the upload path and
+    the in-place re-read so both detect the ageing DOCUMENT DATE identically.
+    Both header names are handed back so the page can SAY which column it
+    read: an unrecognised amount column otherwise reads every row as 0.00
+    while the open-item counts still look perfectly healthy.
+    ``row_tick(done)`` is an optional per-row progress callback."""
     header = parsed["header"]
     low = {h: _norm(h) for h in header}
+    used = set()
 
     def col(*cands):
+        """First unclaimed header matching a candidate — exact before
+        substring, and a header is only ever claimed once. The claiming
+        matters: SAP's technical layout calls the account "Customer", which
+        would otherwise be caught by the substring in "Customer Account:
+        Name 1". Resolve the most specific field first."""
         for cand in cands:
             for h in header:
-                if low[h] == cand:
+                if h not in used and low[h] == cand:
+                    used.add(h)
                     return h
         for cand in cands:
             for h in header:
-                if cand in low[h]:
+                if h not in used and cand in low[h]:
+                    used.add(h)
                     return h
         return None
 
-    c_acct = col("sap acct", "sap account")
+    # The SAME extract arrives under either of two SAP layouts: the team's
+    # short field names (SAP Acct / Amount / Doc. No.) and the raw technical
+    # ones (Customer / Company Code Currency Value / Document Number). A file
+    # in the layout the mapper did not know read every amount as 0 — the
+    # counts still looked healthy, so the page showed rows of dashes.
+    c_name = col("customer account: name", "customer account: name 1",
+                 "customer name", "compte client : nom", "nom du client",
+                 "name")
+    c_acct = col("sap acct", "sap account", "compte sap", "customer",
+                 "client")
     # The operational (IBS) account. Normally a number, but branch CASH tills
     # are identified here (CASHCM<branch>) while their SAP account is just a
     # dedicated till account — so the IRO layer keys on this, not sap_acct.
-    c_ibs = col("ibs acct", "ibs account")
-    c_asg = col("assignment")
+    c_ibs = col("ibs acct", "ibs account", "reference key 3",
+                "cle de reference 3", "reference 3")
+    c_asg = col("assignment", "affectation")
     c_ref = col("reference")
-    c_amt = col("amount")
-    c_name = col("customer account: name", "customer name", "name")
-    c_doc = col("doc. no.", "doc no")
+    c_amt = col("amount", "company code currency value",
+                "amount in local currency", "montant en devise societe",
+                "valeur de la devise de la piece", "montant")
+    c_doc = col("doc. no.", "doc no", "document number", "numero de piece")
     # Ageing is calculated from the DOCUMENT DATE — those candidates come first
     # (posting date & co. as fallbacks). Net-due/due date is excluded.
     _date_cands = ("document date", "doc. date", "doc date", "doc dt",
@@ -377,7 +405,7 @@ def _cash_rows_from(parsed, row_tick=None):
         })
         if row_tick:
             row_tick(i + 1)
-    return rows, (date_label if c_date else "")
+    return rows, (date_label if c_date else ""), _cellstr(c_amt) if c_amt else ""
 
 
 def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
@@ -398,15 +426,21 @@ def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
                  pct=40 + round(58 * done / total_rows))
     header = parsed["header"]
     low = {h: _norm(h) for h in header}
+    used = set()
 
     def col(*cands):
+        """As in _cash_rows_from: exact before substring, each header claimed
+        once, most specific field first — so "text" cannot be captured by
+        "Document Header Text" while the real "Text" column sits unused."""
         for cand in cands:
             for h in header:
-                if low[h] == cand:
+                if h not in used and low[h] == cand:
+                    used.add(h)
                     return h
         for cand in cands:
             for h in header:
-                if cand in low[h]:
+                if h not in used and cand in low[h]:
+                    used.add(h)
                     return h
         return None
 
@@ -418,14 +452,16 @@ def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
             except (json.JSONDecodeError, OSError):
                 store = {}
         if kind == "bit":
-            c_gl = col("g/l account")
-            c_asg = col("assignment")
-            c_amt = col("company code currency value")
-            c_date = col("posting date")
+            c_gl = col("g/l account", "compte general", "compte g/l")
+            c_asg = col("assignment", "affectation")
+            c_amt = col("company code currency value", "amount",
+                        "montant en devise societe", "montant")
+            c_date = col("posting date", "date comptable")
             c_ref = col("reference")
-            c_txt = col("text")
-            c_doc = col("document number")
-            c_key = col("posting key")
+            c_txt = col("text", "texte")
+            c_doc = col("document number", "doc. no.", "numero de piece")
+            c_key = col("posting key", "cle de comptabilisation",
+                        "cle comptable")
             rows = []
             for i, r in enumerate(parsed["rows"]):
                 d = r["data"]
@@ -445,8 +481,10 @@ def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
             store["bit_header"] = list(header)
             store["bit"] = rows
         else:
-            rows, date_col = _cash_rows_from(parsed, row_tick=_row_tick)
+            rows, date_col, amount_col = _cash_rows_from(
+                parsed, row_tick=_row_tick)
             store["cash"] = rows
+            store["cash_amount_col"] = amount_col
             # Remember which header fed the ageing date (or "" when none was
             # recognised) so the panel can show it — turns a silent
             # everything-undated into a legible diagnostic.
@@ -462,7 +500,8 @@ def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
 
 def rows_store():
     empty = {"bit_header": [], "bit": [], "cash": [],
-             "gen_bit": "", "gen_cash": "", "cash_date_col": ""}
+             "gen_bit": "", "gen_cash": "", "cash_date_col": "",
+             "cash_amount_col": ""}
     if not ROWS_PATH.exists():
         return empty
     try:
@@ -558,7 +597,7 @@ def reparse_current(kind="cash"):
         return False
     try:
         parsed = excel_reader.read_transactions(path)
-        rows, date_col = _cash_rows_from(parsed)
+        rows, date_col, amount_col = _cash_rows_from(parsed)
     except Exception:  # noqa: BLE001 — a broken file must never crash the caller
         _mark_reparsed(kind, stored)
         return False
@@ -582,6 +621,7 @@ def reparse_current(kind="cash"):
             return False
         store["cash"] = rows
         store["cash_date_col"] = date_col
+        store["cash_amount_col"] = amount_col
         store[f"reparsed_{kind}"] = stored   # keep gen_cash — same file, same ids
         _atomic(ROWS_PATH, json.dumps(store, ensure_ascii=False))
         committed = True
@@ -691,7 +731,11 @@ def cash_ageing(today=None):
             "month_end": month_end.strftime("%d/%m/%Y"),
             # Which header fed the ageing date ("" = none recognised) — shown on
             # the panel so an all-undated result is explained, not silent.
-            "date_col": store.get("cash_date_col", "")}
+            "date_col": store.get("cash_date_col", ""),
+            # Likewise for the money: "" means no amount column was
+            # recognised, so every figure below is 0.00 for that reason and
+            # not because the accounts are clear.
+            "amount_col": store.get("cash_amount_col", "")}
 
 
 def search_cash(query, limit=20):

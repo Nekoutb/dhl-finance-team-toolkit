@@ -3,6 +3,22 @@
 {% macro eur(v, dec=0) -%}
   {%- if v is none %}—{% else %}{{ ("{:,.%df}" % dec).format(v / view.eur_rate) }}{% endif -%}
 {%- endmacro %}
+{# One lane figure against its prior-months average. `what` names the
+   figure and `baseline` is that average already formatted. #}
+{% macro trend_cell(what, trend, delta, baseline, prior_n) -%}
+  {%- if trend == 'up' %}<span style="color:#1b7f4b;font-weight:700;"
+    title="{{ what }} up {{ "{:+.1f}".format(delta) }}% on the {{ baseline }} average of the prior {{ prior_n }} month(s)">▲
+    {{ "{:+.0f}".format(delta) }}%</span>
+  {%- elif trend == 'down' %}<span style="color:#bd3727;font-weight:700;"
+    title="{{ what }} down {{ "{:+.1f}".format(delta) }}% on the {{ baseline }} average of the prior {{ prior_n }} month(s)">▼
+    {{ "{:+.0f}".format(delta) }}%</span>
+  {%- elif trend == 'flat' %}<span style="color:#b06f00;font-weight:700;"
+    title="{{ what }} within ±5% of the {{ baseline }} average of the prior {{ prior_n }} month(s)">▶
+    {{ "{:+.0f}".format(delta) }}%</span>
+  {%- else %}<span class="note-inline"
+    title="This lane did not run in the prior months on record">new</span>
+  {%- endif -%}
+{%- endmacro %}
 {% block content %}
   <nav class="crumbs"><a href="/">Dashboard</a> / Sales / {{ tool.name }}</nav>
 
@@ -254,7 +270,11 @@
       {{ pricing_label }}</h2>
     <p class="note-small">Country to country, from the shipment's origin and
       destination. Duty-billing lines are left out — they carry charges but
-      no weight and no real route.
+      no weight and no real route. Both the weight billed and the price per
+      kilo are set against the same lane's average over the prior three
+      months on record{% if view.lanes.prior_months %}
+      ({{ view.lanes.prior_months | join(", ") }}){% endif %}: a rising RPK
+      on falling weight is a lane being lost, not a lane being repriced.
       {% if view.unmapped_codes %}<br>{{ view.unmapped_codes | length }} city
       code(s) have no country on file and show as
       <strong>?{{ view.unmapped_codes[0] }}</strong>-style entries:
@@ -270,7 +290,8 @@
         <div class="table-wrap">
           <table class="tx-table">
             <thead><tr><th>#</th><th>Lane</th><th>Net revenue (EUR)</th>
-              <th>Kg</th><th>Shipments</th><th>RPK (EUR)</th>
+              <th>Weight billed (kg)</th><th>vs prior 3&nbsp;mo</th>
+              <th>Shipments</th><th>RPK (EUR)</th>
               <th>vs prior 3&nbsp;mo</th></tr></thead>
             <tbody>
               {% for l in view.lanes[direction] %}
@@ -278,25 +299,17 @@
                 <td>{{ loop.index }}</td>
                 <td><strong>{{ l.lane }}</strong></td>
                 <td>{{ eur(l.net) }}</td>
-                <td>{{ "{:,.0f}".format(l.kilos) }}</td>
+                <td><strong>{{ "{:,.0f}".format(l.kilos) }}</strong></td>
+                <td>{{ trend_cell("Weight billed", l.kg_trend, l.kg_delta_pct,
+                      "{:,.0f} kg".format(l.prior_kilos) if l.prior_kilos
+                      else "—", l.prior_n) }}</td>
                 <td>{{ "{:,.0f}".format(l.shipments) }}</td>
                 <td><strong>{{ eur(l.rpk, 2) }}</strong></td>
-                <td>
-                  {%- if l.trend == 'up' %}<span style="color:#1b7f4b;
-                    font-weight:700;" title="RPK up {{ "{:+.1f}".format(l.delta_pct) }}% on the {{ eur(l.prior_rpk, 2) }} average of the prior {{ l.prior_n }} month(s)">▲
-                    {{ "{:+.0f}".format(l.delta_pct) }}%</span>
-                  {%- elif l.trend == 'down' %}<span style="color:#bd3727;
-                    font-weight:700;" title="RPK down {{ "{:+.1f}".format(l.delta_pct) }}% on the {{ eur(l.prior_rpk, 2) }} average of the prior {{ l.prior_n }} month(s)">▼
-                    {{ "{:+.0f}".format(l.delta_pct) }}%</span>
-                  {%- elif l.trend == 'flat' %}<span style="color:#b06f00;
-                    font-weight:700;" title="Within ±5% of the {{ eur(l.prior_rpk, 2) }} average of the prior {{ l.prior_n }} month(s)">▶
-                    {{ "{:+.0f}".format(l.delta_pct) }}%</span>
-                  {%- else %}<span class="note-inline"
-                    title="This lane did not run in the prior months on record">new</span>
-                  {%- endif %}</td>
+                <td>{{ trend_cell("RPK", l.trend, l.delta_pct,
+                      eur(l.prior_rpk, 2), l.prior_n) }}</td>
               </tr>
               {% else %}
-              <tr><td colspan="7" class="note-small">No {{ direction }}
+              <tr><td colspan="8" class="note-small">No {{ direction }}
                 lanes in this month's file.</td></tr>
               {% endfor %}
             </tbody>

@@ -87,7 +87,22 @@
   <section class="panel">
     <h2 class="section-title">⏳ Cash AR Ageing — as of {{ ageing.as_of }}
       {% if ageing.date_col %}<span class="note-inline">(aged from the
-        “{{ ageing.date_col }}” column)</span>{% endif %}</h2>
+        “{{ ageing.date_col }}” column{% if ageing.amount_col %}, amounts from
+        “{{ ageing.amount_col }}”{% endif %})</span>{% endif %}</h2>
+    {% if not ageing.amount_col %}
+    <div class="alert alert-error"><strong>No amount column was recognised in
+      the Cash AR file</strong> — every figure below reads 0 for that reason,
+      not because the accounts are clear. SAP exports this extract under
+      either the short field names (<code>Amount</code>) or the technical
+      ones (<code>Company Code Currency Value</code>); if yours uses a third
+      name, send it over and it will be added.
+      <form action="/tools/bit-cash-ar/age-current" method="post"
+            style="display:inline;margin-left:6px;">
+        <button class="btn btn-small" type="submit"
+                title="Re-read the Cash AR already on record — no re-upload needed">🔁 Re-read the file on record</button>
+      </form>
+    </div>
+    {% endif %}
     {% if not ageing.has_dates %}
     <div class="alert alert-error">No item date could be read{% if ageing.date_col %}
       in “{{ ageing.date_col }}”{% endif %} — everything shows as “no
