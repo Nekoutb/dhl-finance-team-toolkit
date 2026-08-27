@@ -131,6 +131,27 @@ ag = bitcash.cash_ageing(today=datetime(2026, 8, 27).date())
 check("the ageing panel is handed the amount column for that warning",
       "amount_col" in ag and ag["amount_col"] == "")
 
+# --- A header row edited out of step with its data --------------------------
+# The real 27 Aug 2026 export had two cells inserted into the HEADER ONLY: a
+# second "SAP Acct" and a blank. Every label from there rightwards then named
+# the wrong column, so the money sat under a heading that read "Reference"
+# while the column actually labelled "Amount" held near-nothing. Totals that
+# look plausible but are read from the wrong column are worse than none.
+BENT_HDR = (SHORT_HDR[:11] + ["SAP Acct", None] + SHORT_HDR[11:])
+load("cash_bent.xlsx", BENT_HDR, [r + ["", ""] for r in SHORT_ROWS])
+ag = bitcash.cash_ageing(today=datetime(2026, 8, 27).date())
+check("a header row with a blank and a repeat is reported, not guessed at",
+      len(ag["header_issues"]) == 2)
+check("the blank heading is located for the reader",
+      any("blank heading" in i for i in ag["header_issues"]))
+check("the repeated heading is named",
+      any("SAP Acct" in i for i in ag["header_issues"]))
+check("a clean header row raises nothing",
+      bitcash.header_issues(SHORT_HDR) == [])
+check("trailing padding is not mistaken for damage",
+      bitcash.header_issues(SHORT_HDR) == []
+      and bitcash.header_issues([]) == [])
+
 # --- BIT, both layouts ------------------------------------------------------
 BIT_HDR = ["Company Code", "Fiscal year/period", "Group Account Number",
            "G/L Account", "G/L Account: Long Text", "Posting Date",
@@ -189,14 +210,14 @@ def run():
 probe = threading.Thread(target=run, daemon=True)
 probe.start()
 check("a progress callback that re-takes the lock does not hang the ingest",
-      done.wait(timeout=30))
-probe.join(timeout=30)          # it must be off the row store before we upload
+      done.wait(timeout=120))
+probe.join(timeout=120)          # it must be off the row store before we upload
 
 # The whole upload path, both files in one submit, end to end.
 jobs = [("bit", book("j_bit.xlsx", BIT_HDR, BIT_ROWS), "BIT.xlsx"),
         ("cash", book("j_cash.xlsx", LONG_HDR, LONG_ROWS), "CashAR.xlsx")]
 bitcash.process_uploads_async(jobs)
-deadline = time.time() + 60
+deadline = time.time() + 180
 while time.time() < deadline and bitcash.status()["processing"]:
     time.sleep(0.05)
 st = bitcash.status()

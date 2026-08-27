@@ -89,6 +89,14 @@
       {% if ageing.date_col %}<span class="note-inline">(aged from the
         “{{ ageing.date_col }}” column{% if ageing.amount_col %}, amounts from
         “{{ ageing.amount_col }}”{% endif %})</span>{% endif %}</h2>
+    {% if ageing.header_issues %}
+    <div class="alert alert-error"><strong>The Cash AR file's header row does
+      not line up with its data</strong> — {{ ageing.header_issues | join("; ") }}.
+      Every column to the right of that carries the wrong name, so the figures
+      below are being read out of the wrong column and cannot be trusted.
+      Re-export the file from SAP without editing the header row, then upload
+      it again.</div>
+    {% endif %}
     {% if not ageing.amount_col %}
     <div class="alert alert-error"><strong>No amount column was recognised in
       the Cash AR file</strong> — every figure below reads 0 for that reason,

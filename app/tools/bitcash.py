@@ -283,6 +283,38 @@ def _to_float(v):
         return 0.0
 
 
+def header_issues(header):
+    """Signs that a header row has been edited out of step with its data:
+    a label repeated, or a blank cell sitting BETWEEN two labelled ones
+    (blanks after the last label are ordinary padding).
+
+    Both mean the columns to the right of the damage carry the wrong names,
+    so the mapper reads real-looking values out of the wrong column — the
+    27 Aug 2026 Cash AR export had two cells inserted into the header alone,
+    which left the money sitting under a header that read "Reference". The
+    tool must never guess its way past this; it says what it found and lets
+    the owner re-export.
+    """
+    labels = [_cellstr(h).strip() for h in (header or [])]
+    issues = []
+    # excel_reader names an interior blank heading "Column <n>" and suffixes a
+    # repeat "<name> (2)" — it has already trimmed the trailing padding, so
+    # both markers only ever appear where the row is genuinely damaged.
+    gaps = [h for h in labels if re.fullmatch(r"Column \d+", h)]
+    if gaps:
+        issues.append(f"{len(gaps)} blank heading(s) inside the row "
+                      + "(" + ", ".join(gaps[:5]) + ")")
+    dupes = []
+    for h in labels:
+        m = re.fullmatch(r"(.+) \(\d+\)", h)
+        if m and m.group(1) not in dupes:
+            dupes.append(m.group(1))
+    if dupes:
+        issues.append("repeated heading(s): "
+                      + ", ".join(f"“{d}”" for d in dupes[:5]))
+    return issues
+
+
 def _cash_rows_from(parsed, row_tick=None):
     """Build the Cash AR row-store rows from a parsed workbook, returning
     (rows, date_col_header, amount_col_header). Shared by the upload path and
@@ -485,6 +517,7 @@ def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
                 parsed, row_tick=_row_tick)
             store["cash"] = rows
             store["cash_amount_col"] = amount_col
+            store["cash_header"] = list(header)
             # Remember which header fed the ageing date (or "" when none was
             # recognised) so the panel can show it — turns a silent
             # everything-undated into a legible diagnostic.
@@ -501,7 +534,7 @@ def _persist_rows(kind, path, parsed=None, progress=None, new_gen=True):
 def rows_store():
     empty = {"bit_header": [], "bit": [], "cash": [],
              "gen_bit": "", "gen_cash": "", "cash_date_col": "",
-             "cash_amount_col": ""}
+             "cash_amount_col": "", "cash_header": []}
     if not ROWS_PATH.exists():
         return empty
     try:
@@ -735,7 +768,10 @@ def cash_ageing(today=None):
             # Likewise for the money: "" means no amount column was
             # recognised, so every figure below is 0.00 for that reason and
             # not because the accounts are clear.
-            "amount_col": store.get("cash_amount_col", "")}
+            "amount_col": store.get("cash_amount_col", ""),
+            # A header row edited out of step with its data mislabels every
+            # column to the right of the damage — flagged, never guessed at.
+            "header_issues": header_issues(store.get("cash_header", []))}
 
 
 def search_cash(query, limit=20):
