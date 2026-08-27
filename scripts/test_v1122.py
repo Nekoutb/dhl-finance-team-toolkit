@@ -173,8 +173,8 @@ check("the fuel panel is on the page",
       "Fuel surcharge" in r.text and "Top 30 by rate" in r.text
       and "vs target" in r.text)
 check("the KPI labels say weight charge, not revenue",
-      "Weight charge / day (EUR)" in r.text
-      and "Weight charge / kg (EUR)" in r.text)
+      "RpD w/o fuel surcharge (EUR)" in r.text
+      and "RpK w/o fuel surcharge (EUR)" in r.text)
 check("the recognised-revenue basis is stated",
       "LCU total − LCU taxes" in r.text or "LCU total" in r.text)
 

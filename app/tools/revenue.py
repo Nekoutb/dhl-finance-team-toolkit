@@ -287,8 +287,10 @@ def parse_file(path, source=""):
                     and btype not in LANE_EXCLUDED_BILLING_TYPES):
                 lane = lanes[svc].setdefault(
                     f"{country_of(orgn)}-{country_of(dest)}", {
-                        "net": 0.0, "kilos": 0.0, "awb_net": {}})
+                        "net": 0.0, "weight": 0.0, "kilos": 0.0,
+                        "awb_net": {}})
                 lane["net"] += net
+                lane["weight"] += w
                 lane["kilos"] += kg
                 if awb:
                     lane["awb_net"][awb] = lane["awb_net"].get(awb, 0.0) + net
@@ -328,7 +330,8 @@ def parse_file(path, source=""):
     for svc, table in lanes.items():
         top = sorted(table.items(), key=lambda kv: -kv[1]["net"])[:MAX_LANES]
         lanes_out[svc] = {
-            k: {"net": round(v["net"], 2), "kilos": round(v["kilos"], 2),
+            k: {"net": round(v["net"], 2), "weight": round(v["weight"], 2),
+                "kilos": round(v["kilos"], 2),
                 "shipments": sum(1 for x in v["awb_net"].values()
                                  if x > 0.005)}
             for k, v in top}
@@ -638,9 +641,9 @@ def _graph_series(months):
     the reader sees at a glance that the last point is provisional."""
     W, H, PAD = 460, 132, 30
     out = []
-    for key, label in (("rev_per_day", "Revenue / day"),
+    for key, label in (("rev_per_day", "RpD w/o fuel surcharge"),
                        ("rev_per_shipment", "Revenue / shipment"),
-                       ("rev_per_kg", "Revenue / kg")):
+                       ("rev_per_kg", "RpK w/o fuel surcharge")):
         pts = [(m["label"], m[key], m["ongoing"])
                for m in months if m.get(key)]
         if len(pts) < 2:
@@ -684,10 +687,12 @@ def _lane_trend(now, prior):
 
 def lanes_for(period, top_n=10):
     """Top outbound + inbound lanes of a month by net revenue with their
-    RPK (revenue per kilo) AND their billed weight, each compared against
-    the SAME lane's average over the three preceding months on record.
+    RpK w/o fuel surcharge (LCU Weight Charge / billed kilos — the fuel
+    surcharge would drift the price signal with every fuel repricing) AND
+    their billed weight, each compared against the SAME lane's average over
+    the three preceding months on record.
 
-    Both are reported because on their own either one misleads: an RPK up
+    Both are reported because on their own either one misleads: an RpK up
     30% on volume down 60% is a lane being lost, not a lane being repriced.
     """
     data = _load()
@@ -701,17 +706,24 @@ def lanes_for(period, top_n=10):
         rows = []
         for lane, v in sorted((rec.get("lanes") or {}).get(svc, {}).items(),
                               key=lambda kv: -kv[1]["net"])[:top_n]:
-            rpk = (v["net"] / v["kilos"]) if v["kilos"] > 0 else None
-            # the same lane's RPK and billed weight in each prior month.
+            # RpK w/o fuel surcharge: weight charge over kilos. A month
+            # stored before lanes carried their weight charge has no "weight"
+            # key — its RpK is unknowable, never approximated from net
+            # (which includes the fuel surcharge).
+            wc = v.get("weight")
+            rpk = (wc / v["kilos"]) \
+                if wc is not None and v["kilos"] > 0 else None
+            # the same lane's RpK and billed weight in each prior month.
             # Both are averaged over the SAME months — the ones the lane
-            # actually ran — so the two comparisons share a denominator
-            # and prior_n describes them both.
+            # actually ran with a weight charge on record — so the two
+            # comparisons share a denominator and prior_n describes both.
             past, past_kg = [], []
             for pk in prior_keys:
                 pv = ((periods[pk].get("lanes") or {})
                       .get(svc, {}).get(lane))
-                if pv and pv.get("kilos", 0) > 0:
-                    past.append(pv["net"] / pv["kilos"])
+                if (pv and pv.get("kilos", 0) > 0
+                        and pv.get("weight") is not None):
+                    past.append(pv["weight"] / pv["kilos"])
                     past_kg.append(pv["kilos"])
             prior_rpk = (sum(past) / len(past)) if past else None
             prior_kilos = (sum(past_kg) / len(past_kg)) if past_kg else None
@@ -966,9 +978,9 @@ def dashboard(now=None):
         # the prior month's full average rather than divide by nothing.
         if window and not window["net"]:
             window = None
-        for key, label in (("rev_per_day", "Revenue / day"),
+        for key, label in (("rev_per_day", "RpD w/o fuel surcharge"),
                            ("rev_per_shipment", "Revenue / shipment"),
-                           ("rev_per_kg", "Revenue / kg")):
+                           ("rev_per_kg", "RpK w/o fuel surcharge")):
             cur = ongoing[key]
             base = (window or prior)[key]
             kpis.append({
@@ -984,12 +996,19 @@ def dashboard(now=None):
     lfl_months, lfl_target = like_for_like(months, periods, union_days)
     landing = landing_estimate(ongoing, months)
     default = complete[-1] if complete else (months[-1] if months else None)
-    # Months stored before the lane/daily detail existed still show their
-    # headline figures, but cannot feed the lanes panel or the same-days
-    # comparison. Name them so the user knows a re-upload unlocks those.
+    # Months stored before the lane/daily detail existed — or before lanes
+    # carried their weight charge (the RpK-w/o-fuel numerator) — still show
+    # their headline figures, but cannot fully feed the lanes panel or the
+    # same-days comparison. Name them so a re-upload is asked for, not
+    # silently worked around.
+    def _lanes_incomplete(rec):
+        table = rec.get("lanes") or {}
+        return not table or any("weight" not in v
+                                for svc in table.values()
+                                for v in svc.values())
     stale = [m["label"] for m in months
              if not periods[m["period"]].get("daily")
-             or not periods[m["period"]].get("lanes")]
+             or _lanes_incomplete(periods[m["period"]])]
     unmapped = sorted({c for rec in periods.values()
                        for c in (rec.get("unmapped_codes") or [])})
     return {"months": months, "ongoing": ongoing, "kpis": kpis,

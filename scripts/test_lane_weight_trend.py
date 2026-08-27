@@ -1,12 +1,19 @@
 """A lane's BILLED WEIGHT is compared to its own prior-3-month average,
-alongside its RPK.
+alongside its RpK w/o fuel surcharge.
 
-RPK on its own misleads: a lane whose price per kilo jumps 30% while its
+RpK on its own misleads: a lane whose price per kilo jumps 30% while its
 volume halves is a lane being lost, not a lane being repriced. The lanes
 table therefore trends both figures over the same three prior months.
 
+The RpK numerator is the LCU WEIGHT CHARGE, never the recognised net —
+net carries the fuel surcharge, so a fuel repricing would read as a lane
+repricing. A month stored before lanes carried their weight charge cannot
+feed that number: it is skipped from the averages and named for re-upload,
+never approximated from net.
+
 Isolated to a temp data dir; the real data/ is never touched.
 """
+import json
 import sys
 import tempfile
 from datetime import datetime
@@ -45,15 +52,15 @@ HDR = ["Billing Period", "Air waybill", "Bill To Account",
        "Local Product Code"]
 
 
-def row(period, awb, inv, kg, w, dest="PAR", svc="OB", orgn="DLA"):
+def row(period, awb, inv, kg, w, dest="PAR", svc="OB", orgn="DLA", fuel=0):
     return {"Billing Period": period, "Air waybill": awb,
             "Bill To Account": "A1", "Bill To Account Name": "ALPHA LTD",
             "Shipment Date": datetime.fromisoformat(inv),
             "Invoice Date": datetime.fromisoformat(inv),
             "Billed Weight (Kilos)": kg, "LCU Weight Charge": w,
-            "LCU Fuel Surcharges": 0, "LCU Other Charges": 0,
+            "LCU Fuel Surcharges": fuel, "LCU Other Charges": 0,
             "LCU Discount": 0, "LCU Imp/Exp Duties & Taxes": 0,
-            "LCU Taxes to Applicable Charges": 0, "LCU Total": w,
+            "LCU Taxes to Applicable Charges": 0, "LCU Total": w + fuel,
             "Service Type": svc, "Billing Type": "R",
             "Orgn": orgn, "Dest": dest, "Local Product Code": "P "}
 
@@ -132,13 +139,58 @@ check("both comparisons share one month count",
 check("the existing RPK keys are untouched",
       set(("rpk", "prior_rpk", "delta_pct", "trend")) <= set(be))
 
+# --- The numerator is the WEIGHT CHARGE, never the fuel-carrying net --------
+# August: BRU keeps its 1,000/kg weight charge but now carries a heavy fuel
+# surcharge. Net per kilo would read 1,400 — the RpK must still say 1,000.
+seed("2026-08.xlsx", [
+    row("2026-08", "4080000001", "2026-08-06", 100, 100 * 1000, dest="BRU",
+        fuel=40000)])
+aug = {r["lane"]: r for r in revenue.lanes_for("2026-08")["outbound"]}
+be8 = aug["CM → BE"]
+check("RpK is the weight charge over kilos — fuel surcharge excluded "
+      f"(got {be8['rpk']:,.0f}, net/kg would be 1,400)", be8["rpk"] == 1000.0)
+check("so a fuel-only change reads FLAT against the prior months",
+      be8["trend"] == "flat")
+check("while the lane's net still carries the fuel money",
+      be8["net"] == 140000.0)
+
+# --- A month stored before lanes carried their weight charge ----------------
+# Strip "weight" from June's lanes, the way a pre-v11.26 store has them.
+store = json.loads(revenue.STORE_PATH.read_text(encoding="utf-8"))
+for svc in store["periods"]["2026-06"]["lanes"].values():
+    for lane in svc.values():
+        lane.pop("weight", None)
+revenue.STORE_PATH.write_text(json.dumps(store), encoding="utf-8")
+
+july = {r["lane"]: r for r in revenue.lanes_for("2026-07")["outbound"]}
+be7 = july["CM → BE"]
+check("a weight-less prior month drops out of BOTH averages, not just one",
+      be7["prior_n"] == 2 and be7["prior_kilos"] == 100.0
+      and be7["prior_rpk"] == 1000.0)
+check("the old month is never approximated from its fuel-carrying net",
+      round(be7["delta_pct"]) == 0)
+view = revenue.dashboard(now=datetime(2026, 8, 15))
+check("...and the month is named for re-upload on the page",
+      any("June" in m or "2026-06" in m for m in view["needs_reupload"]))
+
+# The current month itself, stored without lane weight, shows an honest
+# blank rather than a fuel-polluted number.
+for svc in store["periods"]["2026-07"]["lanes"].values():
+    for lane in svc.values():
+        lane.pop("weight", None)
+revenue.STORE_PATH.write_text(json.dumps(store), encoding="utf-8")
+july2 = {r["lane"]: r for r in revenue.lanes_for("2026-07")["outbound"]}
+check("a current month without lane weight shows no RpK at all",
+      july2["CM → BE"]["rpk"] is None
+      and july2["CM → BE"]["trend"] == "new")
+
 # The page must actually render the new column.
 html = (ROOT / "app" / "templates" / "revenue" / "index.html").read_text(
     encoding="utf-8")
 check("the lanes table has a Weight billed column",
       "Weight billed (kg)" in html)
 check("both figures render through the shared trend cell",
-      'trend_cell("Weight billed"' in html and 'trend_cell("RPK"' in html)
+      'trend_cell("Weight billed"' in html and 'trend_cell("RpK w/o fuel surcharge"' in html)
 check("the empty-table colspan still covers every column",
       'colspan="8"' in html)
 

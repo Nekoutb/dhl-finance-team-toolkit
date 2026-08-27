@@ -25,8 +25,9 @@
   <section class="panel">
     <h1>{{ tool.icon }} {{ tool.name }}</h1>
     <p class="lead">Revenue recognised (LCU total less taxes) in EUR, with
-      the per-day, per-shipment and per-kilo KPIs built on the weight
-      charge — the running month as a live run-rate.</p>
+      the RpD, per-shipment and RpK KPIs built on the weight charge alone —
+      fuel surcharge excluded — and the running month as a live
+      run-rate.</p>
     {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
     {% if processing %}
@@ -46,7 +47,9 @@
     {% if view.needs_reupload %}
     <div class="alert alert-info">{{ view.needs_reupload | join(", ") }}
       {{ "was" if view.needs_reupload | length == 1 else "were" }} read
-      before lanes and daily detail existed — upload
+      before the lanes and daily detail carried everything they do now (the
+      per-lane weight charge behind RpK w/o fuel surcharge included) —
+      upload
       {{ "that month" if view.needs_reupload | length == 1 else "those months" }}
       again to fill the lanes panel and the same-days comparison. The
       headline figures above are unaffected.</div>
@@ -168,7 +171,7 @@
             <td>{{ "{:g}".format(m.billable_days) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               {{ "{:g}".format(view.landing.typical_days) }}</td>{% endif %}</tr>
-          <tr><td><strong>Weight charge / day (EUR)</strong></td>
+          <tr><td><strong title="LCU Weight Charge ÷ billable days — fuel surcharge excluded">RpD w/o fuel surcharge (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_day) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
@@ -186,7 +189,7 @@
             <td>{{ "{:,.0f}".format(m.kilos) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               {{ "{:,.0f}".format(view.landing.kilos) }}</td>{% endif %}</tr>
-          <tr><td><strong>Weight charge / kg (EUR)</strong></td>
+          <tr><td><strong title="LCU Weight Charge ÷ billed kilos — fuel surcharge excluded">RpK w/o fuel surcharge (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_kg, 2) }}</td>{% endfor %}</tr>
           <tr><td class="note-small">Weight charge (KPI base, EUR)</td>
@@ -270,10 +273,12 @@
       {{ pricing_label }}</h2>
     <p class="note-small">Country to country, from the shipment's origin and
       destination. Duty-billing lines are left out — they carry charges but
-      no weight and no real route. Both the weight billed and the price per
-      kilo are set against the same lane's average over the prior three
-      months on record{% if view.lanes.prior_months %}
-      ({{ view.lanes.prior_months | join(", ") }}){% endif %}: a rising RPK
+      no weight and no real route. RpK w/o fuel surcharge is the LCU Weight
+      Charge over the billed kilos — fuel is left out so a fuel repricing
+      never reads as a lane repricing. Both it and the weight billed are set
+      against the same lane's average over the prior three months on
+      record{% if view.lanes.prior_months %}
+      ({{ view.lanes.prior_months | join(", ") }}){% endif %}: a rising RpK
       on falling weight is a lane being lost, not a lane being repriced.
       {% if view.unmapped_codes %}<br>{{ view.unmapped_codes | length }} city
       code(s) have no country on file and show as
@@ -291,7 +296,9 @@
           <table class="tx-table">
             <thead><tr><th>#</th><th>Lane</th><th>Net revenue (EUR)</th>
               <th>Weight billed (kg)</th><th>vs prior 3&nbsp;mo</th>
-              <th>Shipments</th><th>RPK (EUR)</th>
+              <th>Shipments</th>
+              <th title="LCU Weight Charge ÷ billed kilos — the fuel surcharge is excluded">RpK
+                w/o fuel surcharge (EUR)</th>
               <th>vs prior 3&nbsp;mo</th></tr></thead>
             <tbody>
               {% for l in view.lanes[direction] %}
@@ -305,8 +312,8 @@
                       else "—", l.prior_n) }}</td>
                 <td>{{ "{:,.0f}".format(l.shipments) }}</td>
                 <td><strong>{{ eur(l.rpk, 2) }}</strong></td>
-                <td>{{ trend_cell("RPK", l.trend, l.delta_pct,
-                      eur(l.prior_rpk, 2), l.prior_n) }}</td>
+                <td>{{ trend_cell("RpK w/o fuel surcharge", l.trend,
+                      l.delta_pct, eur(l.prior_rpk, 2), l.prior_n) }}</td>
               </tr>
               {% else %}
               <tr><td colspan="8" class="note-small">No {{ direction }}

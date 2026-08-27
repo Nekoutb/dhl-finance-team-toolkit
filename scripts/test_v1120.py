@@ -149,7 +149,7 @@ seed("lanes-06.xlsx", [
         orgn="DLA", dest="GVA")])
 lanes = revenue.lanes_for("2026-06")
 by_lane = {r["lane"]: r for r in lanes["outbound"]}
-check("the lane RPK is net revenue over kilos",
+check("the lane RpK is the weight charge over kilos",
       by_lane["CM → BE"]["rpk"] == 20000.0)
 check("a lane whose RPK rose is marked up",
       by_lane["CM → BE"]["trend"] == "up"
@@ -203,8 +203,8 @@ check("the default depth is 60 traders", revenue.active_customers.__defaults__[0
 # === 6. Template wiring ===================================================
 TPL = (ROOT / "app" / "templates" / "revenue" / "index.html").read_text(
     encoding="utf-8")
-check("the lane column is labelled RPK",
-      "RPK (EUR)" in TPL and "Rev / kg (EUR)" not in TPL)
+check("the lane column is labelled RpK w/o fuel surcharge",
+      "w/o fuel surcharge (EUR)" in TPL and "RPK (EUR)" not in TPL)
 check("the page explains the country basis and lists unmapped codes",
       "Country to country" in TPL and "iata_country_overrides" in TPL)
 check("the trend renders as coloured arrows",
@@ -228,7 +228,7 @@ from app import main  # noqa: E402
 client = TestClient(main.app)
 r = client.get("/tools/revenue-analysis")
 check("the dashboard renders with every panel",
-      r.status_code == 200 and "RPK (EUR)" in r.text
+      r.status_code == 200 and "w/o fuel surcharge (EUR)" in r.text
       and "landing" in r.text and "Reveal all" in r.text)
 
 if _fail:
