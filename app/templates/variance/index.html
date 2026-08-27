@@ -41,14 +41,25 @@
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top:10px;">
         Run variance analysis</button>
-      <p class="note-small" style="margin-top:8px;">Columns — TB: account ·
-        name · closing balance. GL: account · description · amount.</p>
+      <p class="note-small" style="margin-top:8px;">Columns — TB: Account
+        Code · Account Description · Closing Balance (the "Trial Balance by
+        Account" report export is read as-is: title and Amount&nbsp;Type /
+        Business&nbsp;Unit / Period rows above the header are skipped, the
+        Total row is dropped, and the CLOSING balance is used — never the
+        opening, never the movement columns). GL: account · description ·
+        amount (or debit/credit). English or French headers. Export each
+        year with its own period range and with the year's movements
+        included — an openings-only export carries no P&amp;L accounts and
+        will be flagged.</p>
     </form>
   </section>
 
   {% if result %}
   <section class="panel">
     <h2 class="section-title">Results</h2>
+    {% for w in result.tb_warnings or [] %}
+    <div class="alert alert-error">⚠ {{ w }}</div>
+    {% endfor %}
     <div class="download-row">
       <a class="btn btn-primary"
          href="/tools/variance-analysis/export/{{ result_token }}">⬇ Download Excel</a>

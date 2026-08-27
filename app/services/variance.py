@@ -80,10 +80,15 @@ def _norm_acct(value):
 
 
 def _find_col(header, *frags, exclude=()):
+    """First header matching a fragment — in FRAGMENT priority order, not
+    header order. The TB report lists Opening Balance before Closing
+    Balance; scanning headers first would hand "balance" the opening column
+    and silently compare two years of openings."""
     low = [str(h).lower() for h in header]
-    for i, h in enumerate(low):
-        if any(f in h for f in frags) and not any(x in h for x in exclude):
-            return header[i]
+    for f in frags:
+        for i, h in enumerate(low):
+            if f in h and not any(x in h for x in exclude):
+                return header[i]
     return None
 
 
@@ -104,16 +109,28 @@ def classify(account, name=""):
     return "balance"
 
 
+# Fragments that identify the TB/GL table header row inside a report export
+# that stacks metadata (Amount Type / Business Unit / Period From…) above it.
+_HEADER_HINT = ("account", "compte", "balance", "solde",
+                "debit", "credit", "description", "amount")
+
+
 def parse_tb(path):
-    """Trial balance → {account: {"name": str, "balance": float}}."""
-    parsed = excel_reader.read_transactions(path)
+    """Trial balance → {account: {"name": str, "balance": float}}.
+
+    The balance is the CLOSING position — "closing"/"solde" outrank the bare
+    "balance" fragment, and the Opening Balance column is never taken even
+    when it is the only *Balance column recognised.
+    """
+    parsed = excel_reader.read_transactions(path, header_hint=_HEADER_HINT)
     header = parsed["header"]
     c_acct = _find_col(header, "account", "compte", "acct") or (header[0] if header else None)
     c_name = _find_col(header, "name", "libell", "intitul", "description",
                        exclude=("account no", "account num"))
-    c_bal = _find_col(header, "closing", "balance", "solde", "ytd", "amount", "montant")
-    c_deb = _find_col(header, "debit", "débit")
-    c_cred = _find_col(header, "credit", "crédit")
+    c_bal = _find_col(header, "closing", "solde", "ytd", "balance", "amount",
+                      "montant", exclude=("opening", "ouverture"))
+    c_deb = _find_col(header, "debit", "débit", exclude=("movement",))
+    c_cred = _find_col(header, "credit", "crédit", exclude=("movement",))
 
     out = {}
     for row in parsed["rows"]:
@@ -139,7 +156,7 @@ def parse_tb(path):
 
 def parse_gl(path):
     """General ledger → [{account, name, description, amount}]."""
-    parsed = excel_reader.read_transactions(path)
+    parsed = excel_reader.read_transactions(path, header_hint=_HEADER_HINT)
     header = parsed["header"]
     c_acct = _find_col(header, "account", "compte", "acct") or (header[0] if header else None)
     c_name = _find_col(header, "account name", "libellé compte", "acct name")
@@ -250,6 +267,49 @@ def _comment_and_questions(acct, name, group, cy, py, variance, pct,
                          "approved the overrun and is corrective action "
                          "needed for the rest of the year?")
     return comment, questions
+
+
+def tb_checks(py_tb, cy_tb):
+    """Integrity warnings on the two trial balances BEFORE any variance is
+    read into them. Every one of these happened with a real export on
+    28 Aug 2026: two files that were the same data under different period
+    labels, both openings-only, neither netting to zero, no P&L accounts.
+    A variance built on such inputs is fiction — say so up front."""
+    warnings = []
+
+    def net(tb):
+        return round(sum(v["balance"] for v in tb.values()), 2)
+
+    if py_tb and cy_tb and set(py_tb) == set(cy_tb) and all(
+            abs(py_tb[k]["balance"] - cy_tb[k]["balance"]) < 0.005
+            for k in py_tb):
+        warnings.append(
+            "The two trial balances are NUMERICALLY IDENTICAL — every "
+            f"account ({len(cy_tb)}) carries the same balance in both files. "
+            "Every variance below is zero by construction. This usually "
+            "means the same export was uploaded twice, or the report was "
+            "run twice with the period filter not applied — re-export each "
+            "year with its own period range and an amount type that "
+            "includes the period's movements.")
+    for label, tb in (("prior-year", py_tb), ("current-year", cy_tb)):
+        imbalance = net(tb)
+        if tb and abs(imbalance) > 1.0:
+            warnings.append(
+                f"The {label} trial balance does not balance — debits and "
+                f"credits are off by {imbalance:,.2f}. The export is "
+                "incomplete (accounts missing, or the report's own Total "
+                "row shows the same difference); totals and variances "
+                "below inherit that gap.")
+    both = {**py_tb, **cy_tb}
+    if both and not any(classify(a, v.get("name", "")) in ("expense", "income")
+                        for a, v in both.items()):
+        warnings.append(
+            "Neither file carries any income or expense account — only "
+            "balance-sheet positions. An opening-balance-only export "
+            "drops the P&L accounts (they open at nil), so the expense "
+            "variance this tool is built for has nothing to compare. "
+            "Re-export with the year-to-date movements included.")
+    return warnings
 
 
 def build_analysis(py_tb, py_gl, cy_tb, cy_gl):

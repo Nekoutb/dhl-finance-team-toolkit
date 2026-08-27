@@ -33,9 +33,28 @@ def _is_blank_row(row):
     return all(cell in (None, "") for cell in row)
 
 
-def _detect_header(grid, max_scan=40):
-    """Return the index of the most likely header row."""
+def _detect_header(grid, max_scan=40, hint=()):
+    """Return the index of the most likely header row.
+
+    ``hint`` — column-name fragments the CALLER knows its table carries
+    ("account", "balance"…). A report export often stacks metadata rows
+    (Amount Type / Business Unit / Period…) above the real header; those are
+    just as texty as a header and sit right above populated rows, so the
+    generic heuristic below cannot tell them apart. A row matching two or
+    more hint fragments is the table header by construction, so it wins.
+    """
     scan = min(len(grid), max_scan)
+    if hint:
+        for i in range(scan):
+            cells = [str(c).lower() for c in grid[i] if c not in (None, "")]
+            # A header is a row of several column names, at least two of
+            # them hinted — a one-cell TITLE ("Trial Balance by Account")
+            # can match every fragment at once and must not qualify.
+            if len(cells) < 3:
+                continue
+            hits = sum(1 for f in hint if any(f in c for c in cells))
+            if hits >= 2:
+                return i
     for i in range(scan):
         cells = [c for c in grid[i] if c not in (None, "")]
         if len(cells) < 3:
@@ -103,8 +122,11 @@ def _read_xls_grid(path):
     return grid, sheet.name
 
 
-def read_transactions(path, max_scan=40):
-    """Parse an .xlsx/.xlsm/.xls export into header, metadata and rows."""
+def read_transactions(path, max_scan=40, header_hint=()):
+    """Parse an .xlsx/.xlsm/.xls export into header, metadata and rows.
+
+    ``header_hint``: optional column-name fragments identifying the caller's
+    table header — see _detect_header."""
     path = Path(path)
     if path.suffix.lower() == ".xls":
         grid, sheet_name = _read_xls_grid(path)
@@ -120,7 +142,7 @@ def read_transactions(path, max_scan=40):
     if not grid:
         return {"sheet": sheet_name, "header": [], "metadata": [], "rows": []}
 
-    header_idx = _detect_header(grid, max_scan)
+    header_idx = _detect_header(grid, max_scan, hint=header_hint)
     header = _build_header(grid[header_idx])
 
     metadata = []

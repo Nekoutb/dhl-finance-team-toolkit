@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Bump on every release so old-vs-new is visible in the footer of every page.
-APP_VERSION = "v11.26 — 27 Aug 2026 · RpK w/o fuel surcharge, everywhere it is discussed. The per-kilo and per-day KPIs are now NAMED what they always computed — RpK w/o fuel surcharge and RpD w/o fuel surcharge, LCU Weight Charge over billed kilos / billable days — and the lanes table's per-kilo price now actually computes it that way too: it used to divide the recognised net, which carries the fuel surcharge, so a fuel repricing read as a lane repricing. Lane RpK now uses the weight charge as its numerator, prior-month averages included. Months stored before lanes carried their weight charge are named for re-upload rather than approximated from net."  # lint:country-ok (release note, not behaviour)
+APP_VERSION = "v11.27 — 28 Aug 2026 · Variance analysis reads the Trial Balance by Account report as-is. The report stacks a title and Amount Type / Business Unit / Period rows above its header — the header detector took those for the table and read the ACCOUNT CODES as balances (a 285-billion trial balance, silently). The real header row is now found by its own column names, the CLOSING balance is used (never the Opening column the report lists first), and the Total row is dropped. Three integrity checks run on every upload and are shown with the results: two trial balances that are numerically identical, a trial balance that does not net to zero (the gap is stated), and an openings-only export carrying no P&L accounts — each of which happened, unannounced, with a real export this week."  # lint:country-ok (release note, not behaviour)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"

@@ -1888,9 +1888,13 @@ async def variance_analyze(request: Request):
         await _spool(up, dest)
         files[key] = dest
     try:
+        py_tb = variance.parse_tb(files["py_tb"])
+        cy_tb = variance.parse_tb(files["cy_tb"])
+        tb_warnings = variance.tb_checks(py_tb, cy_tb)
         result = variance.build_analysis(
-            variance.parse_tb(files["py_tb"]), variance.parse_gl(files["py_gl"]),
-            variance.parse_tb(files["cy_tb"]), variance.parse_gl(files["cy_gl"]))
+            py_tb, variance.parse_gl(files["py_gl"]),
+            cy_tb, variance.parse_gl(files["cy_gl"]))
+        result["tb_warnings"] = tb_warnings
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse(
             "variance/index.html",
