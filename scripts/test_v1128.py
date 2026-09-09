@@ -99,7 +99,9 @@ check("per-lane per-day slices are stored on top lanes",
 check("per-lane customers are stored on top lanes",
       lane["cust"]["D1"] == {"name": "DELTA", "net": 96000.0,
                              "weight": 96000.0, "kilos": 80.0,
-                             "shipments": 1})
+                             "shipments": 1,
+                             "days": {"2026-07-20":
+                                      [96000.0, 96000.0, 80.0]}})
 
 # === 2. The days-to-date window ============================================
 data = revenue._load()
@@ -261,6 +263,53 @@ check("…and the month has its detail back",
       revenue._load()["periods"]["2026-06"]["customers"]["A1"]["shipments"]
       == 3)
 
+# === 7d. Lane focus honours the days-to-date filter ========================
+lfd = revenue.lane_focus("2026-07", "OB", "CM-BE", dtd=10)
+check("the filter is accepted and echoed", lfd["dtd"] == 10
+      and lfd["dtd_unavailable"] is False)
+hd = lfd["headline"]
+check("headline covers days 1-10 of BOTH months",
+      hd["current"]["kilos"] == 120.0 and hd["prior"]["kilos"] == 100.0
+      and hd["current"]["net"] == 126000.0 and hd["prior"]["net"] == 100000.0)
+check("RpK and RpD come from the cut windows",
+      hd["current"]["rpk"] == 1050.0 and hd["prior"]["rpk"] == 1000.0
+      and hd["current"]["rpd"] == 126000.0 and hd["prior"]["rpd"] == 100000.0
+      and round(hd["delta_pct"]["rpk"], 1) == 5.0)
+check("lane shipments are unknown under the filter, never guessed",
+      hd["current"]["shipments"] is None
+      and hd["current"]["ships_per_day"] is None)
+cd = {c["name"]: c for c in lfd["customers"]}
+check("each customer is cut to the same window",
+      cd["ALPHA"]["kilos"] == 60.0 and cd["ALPHA"]["prev_kilos"] == 50.0
+      and round(cd["ALPHA"]["kg_delta_pct"], 1) == 20.0)
+check("a customer active only OUTSIDE the window is not on the lane here",
+      "DELTA" not in cd)
+check("joined/lost stay like for like (window vs window)",
+      {c["name"] for c in lfd["joined"]} == {"GAMMA"}
+      and lfd["lost"] == [{"name": "EPSILON", "kilos": 50.0}])
+check("price dispersion runs on the cut figures",
+      cd["GAMMA"]["rpk"] == 900.0
+      and round(cd["GAMMA"]["rpk_vs_lane_pct"], 1) == -14.3)
+check("concentration too",
+      lfd["concentration"]["current"][1] == 50.0
+      and lfd["concentration"]["prior"][1] == 50.0)
+
+# A month stored without the per-day customer slice cannot be cut — the
+# FULL months come back, flagged, never a silent mix of cut and uncut.
+data = revenue._load()
+for c in (data["periods"]["2026-06"]["lanes"]["OB"]["CM-BE"]["cust"]
+          .values()):
+    c.pop("days", None)
+revenue.STORE_PATH.write_text(__import__("json").dumps(data),
+                              encoding="utf-8")
+lfu = revenue.lane_focus("2026-07", "OB", "CM-BE", dtd=10)
+check("an uncuttable month falls back to FULL months and says so",
+      lfu["dtd"] is None and lfu["dtd_unavailable"] is True
+      and lfu["headline"]["current"]["kilos"] == 240.0)
+revenue.reparse_stored()          # June comes back whole from the kept file
+check("re-read restores the slice and the filter applies again",
+      revenue.lane_focus("2026-07", "OB", "CM-BE", dtd=10)["dtd"] == 10)
+
 # === 8. The page ===========================================================
 from testutil import smtp_guard  # noqa: E402
 smtp_guard()
@@ -290,6 +339,11 @@ r4 = client.get("/tools/revenue-analysis?pricing=2026-07&focus=IB:CM-BE")
 check("a lane with no slice explains itself instead of vanishing",
       "no per-customer\n      lane detail on record" in r4.text
       or "no per-customer lane detail on record" in r4.text)
+r5 = client.get(
+    "/tools/revenue-analysis?pricing=2026-07&focus=OB:CM-BE&dtd=10")
+check("the lane focus page under the filter says what it covers",
+      r5.status_code == 200 and "Every figure below" in r5.text
+      and "1st–10" in r5.text)
 
 print("\n" + ("ALL v11.28 TESTS PASSED" if not _fail
               else f"{_fail} CHECK(S) FAILED"))

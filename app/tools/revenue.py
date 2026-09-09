@@ -315,7 +315,7 @@ def parse_file(path, source=""):
                     if lc is None:
                         lc = lane["cust"][acct] = {
                             "name": "", "net": 0.0, "weight": 0.0,
-                            "kilos": 0.0, "awb_net": {}}
+                            "kilos": 0.0, "awb_net": {}, "days": {}}
                     if acct_name:
                         lc["name"] = acct_name
                     lc["net"] += net
@@ -323,6 +323,13 @@ def parse_file(path, source=""):
                     lc["kilos"] += kg
                     if awb:
                         lc["awb_net"][awb] = lc["awb_net"].get(awb, 0.0) + net
+                    if inv_day:
+                        # per-day slice per customer ON the lane — what lets
+                        # the Lane focus honour the days-to-date filter
+                        lcd = lc["days"].setdefault(inv_day, [0.0, 0.0, 0.0])
+                        lcd[0] += net
+                        lcd[1] += w
+                        lcd[2] += kg
             if acct:
                 c = customers.get(acct)
                 if c is None:
@@ -390,7 +397,9 @@ def parse_file(path, source=""):
                         "weight": round(lc["weight"], 2),
                         "kilos": round(lc["kilos"], 2),
                         "shipments": sum(1 for x in lc["awb_net"].values()
-                                         if x > 0.005)}
+                                         if x > 0.005),
+                        "days": {d: [round(x, 2) for x in dd]
+                                 for d, dd in lc["days"].items()}}
                     for a, lc in v["cust"].items()}
             out_t[k] = entry
     return {
@@ -960,12 +969,12 @@ def lanes_for(period, top_n=10, dtd=None):
     return out
 
 
-def lane_focus(period, svc, lane_key):
+def lane_focus(period, svc, lane_key, dtd=None):
     """One lane under the microscope: five analyses of the CUSTOMERS that
     feed it, this month against the prior month on record.
 
     1  Headline — the lane's own KPIs (net, weight billed, kilos, shipments,
-       shipments/day, RpK w/o fuel surcharge), current vs prior.
+       shipments/day, RpD and RpK w/o fuel surcharge), current vs prior.
     2  Top customers by weight, each with their month-on-month move.
     3  Movers — customers who joined the lane and customers who left it.
     4  Concentration — the share of the lane's kilos carried by its top 1,
@@ -974,8 +983,16 @@ def lane_focus(period, svc, lane_key):
     5  Price dispersion — each customer's RpK against the lane's own
        average: who is paying under the lane's going rate, and by how much.
 
-    None when the lane has no stored customer slice (a month uploaded
-    before the slice existed, or a lane below the LANE_DETAIL_TOP cut).
+    ``dtd`` (days to date): every figure on BOTH sides — the lane headline
+    and each customer — covers only the first n calendar days of its month,
+    so the comparison stays like for like. Shipments are not sliced per day
+    and read as unknown. A month whose stored slice predates the per-day
+    customer detail cannot be cut: the FULL months are returned instead,
+    flagged ``dtd_unavailable`` so the page says so rather than mixing cut
+    and uncut figures.
+
+    None when the lane has no stored customer slice at all (a month
+    uploaded before the slice existed, or a lane below LANE_DETAIL_TOP).
     """
     data = _load()
     periods = data.get("periods") or {}
@@ -991,17 +1008,38 @@ def lane_focus(period, svc, lane_key):
             .get(svc, {}).get(lane_key)) if prior_key else None
     prev_cust = (prev or {}).get("cust") or {}
 
+    def _sliceable(e):
+        return (e is None or ("days" in e
+                and all("days" in c for c in (e.get("cust") or {}).values())))
+
+    dtd_unavailable = False
+    if dtd and not (_sliceable(entry) and _sliceable(prev)):
+        dtd, dtd_unavailable = None, True
+
     union = _union_ship_days(periods)
-    days_cur = month_metrics(rec, union)["billable_days"]
-    days_prev = (month_metrics(periods[prior_key], union)["billable_days"]
-                 if prior_key else None)
+
+    def _bdays(pkey):
+        """Billable days of the month — inside the window when dtd is on."""
+        if not pkey:
+            return None
+        return sum(wd for day, wd in _month_billable_sequence(pkey, union)
+                   if not dtd or int(day[8:10]) <= dtd)
+
+    days_cur, days_prev = _bdays(str(period)), _bdays(prior_key)
 
     def headline(e, days):
         if not e:
             return None
-        wc, kg = e.get("weight"), e.get("kilos", 0.0)
-        ships = e.get("shipments")
-        return {"net": e.get("net"), "weight": wc, "kilos": kg,
+        if dtd:
+            cut = _lane_cut(e, dtd)
+            if cut is None:
+                return None
+            net_v, wc, kg = cut["net"], cut["weight"], cut["kilos"]
+            ships = None                 # not sliced per day — unknown
+        else:
+            net_v, wc, kg = e.get("net"), e.get("weight"), e.get("kilos", 0.0)
+            ships = e.get("shipments")
+        return {"net": net_v, "weight": wc, "kilos": kg,
                 "shipments": ships,
                 "ships_per_day": (ships / days)
                 if ships is not None and days else None,
@@ -1017,16 +1055,36 @@ def lane_focus(period, svc, lane_key):
     deltas = {k: pct(cur_h.get(k), (prev_h or {}).get(k))
               for k in cur_h} if prev_h else {}
 
-    # grouped by NAME (one customer, many billing accounts = one line)
+    # grouped by NAME (one customer, many billing accounts = one line).
+    # Under days-to-date each customer's figures come from their per-day
+    # slice, and a customer with no activity INSIDE the window is not on
+    # the lane for this comparison — so joined/lost stay like for like too.
     def by_name(cust):
         table = {}
         for acct, c in cust.items():
+            if dtd:
+                net_v = wc = kg = 0.0
+                for d, dd in (c.get("days") or {}).items():
+                    if int(d[8:10]) <= dtd:
+                        net_v += dd[0]
+                        wc += dd[1]
+                        kg += dd[2]
+                if not (net_v or wc or kg):
+                    continue
+                ships = None
+            else:
+                net_v, wc = c.get("net") or 0, c.get("weight") or 0
+                kg, ships = c.get("kilos") or 0, c.get("shipments") or 0
             key = (c.get("name") or acct).strip().upper()
             g = table.setdefault(key, {"name": c.get("name") or acct,
                                        "net": 0.0, "weight": 0.0,
-                                       "kilos": 0.0, "shipments": 0})
-            for f in ("net", "weight", "kilos", "shipments"):
-                g[f] += c.get(f) or 0
+                                       "kilos": 0.0,
+                                       "shipments": None if dtd else 0})
+            g["net"] += net_v
+            g["weight"] += wc
+            g["kilos"] += kg
+            if not dtd:
+                g["shipments"] += ships
         return table
 
     cur_c, prev_c = by_name(entry["cust"]), by_name(prev_cust)
@@ -1065,6 +1123,7 @@ def lane_focus(period, svc, lane_key):
 
     return {"lane": lane_key.replace("-", " → "), "key": lane_key,
             "svc": svc, "period": str(period), "prior_period": prior_key,
+            "dtd": dtd, "dtd_unavailable": dtd_unavailable,
             "headline": {"current": cur_h, "prior": prev_h,
                          "delta_pct": deltas},
             "customers": customers,

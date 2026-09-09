@@ -2635,7 +2635,8 @@ def revenue_home(request: Request, pricing: str = "", dtd: int = 0,
     view["focus_requested"] = focus if m_focus else ""
     if m_focus and view.get("pricing_period"):
         view["lane_focus"] = revenue.lane_focus(
-            view["pricing_period"], m_focus.group(1), m_focus.group(2))
+            view["pricing_period"], m_focus.group(1), m_focus.group(2),
+            dtd=dtd or None)
     view["can_reparse"] = bool(revenue.stored_sources())
     # Active traders vs the credit-stop register: a top trader currently on
     # stop is flagged in red on the table.

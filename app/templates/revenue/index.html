@@ -441,9 +441,21 @@
       record” above if it is already kept) and this analysis lights up.</div>
     {% endif %}
     {% if lf %}
-    {% if view.dtd %}<p class="note-small"><strong>The customer detail below
-      is full-month</strong> — the per-customer slice is not stored per day,
-      so the days-to-date filter does not apply here.</p>{% endif %}
+    {% if lf.dtd %}
+    <p class="note-small"><span class="pill pill-watch">Days to date</span>
+      Every figure below — the lane's headline and each customer's — covers
+      only the <strong>1st–{{ lf.dtd }}</strong> of its month, so the two
+      months compare like for like. Shipments are not sliced per day and
+      show as —.</p>
+    {% elif lf.dtd_unavailable %}
+    <div class="alert alert-info">⏳ The days-to-date filter cannot cut this
+      lane yet: {% if lf.prior_period %}one of {{ pricing_label }} and
+      {{ lf.prior_period }}{% else %}{{ pricing_label }}{% endif %} was
+      stored before per-day customer detail existed. <strong>Full months are
+      shown below instead</strong> — upload the month again (or press
+      “Re-read the files on record” above if it is already kept) and the
+      filter applies here too.</div>
+    {% endif %}
 
     <!-- 1. Headline KPIs, current vs prior month -->
     <div class="table-wrap">
@@ -490,7 +502,7 @@
             <td><strong>{{ c.name }}</strong></td>
             <td>{{ "{:,.0f}".format(c.kilos) }}</td>
             <td>{% if c.share_pct is none %}—{% else %}{{ "{:.1f}".format(c.share_pct) }}%{% endif %}</td>
-            <td>{{ "{:,}".format(c.shipments) }}</td>
+            <td>{% if c.shipments is none %}—{% else %}{{ "{:,}".format(c.shipments) }}{% endif %}</td>
             <td>{% if c.prev_kilos is none %}<span class="note-inline">new on lane</span>{% else %}{{ "{:,.0f}".format(c.prev_kilos) }}{% endif %}</td>
             <td>{% if c.kg_delta_pct is none %}—{% else %}<strong style="color:{{ '#1b7f4b' if c.kg_delta_pct >= 0 else '#bd3727' }};">{{ "{:+.0f}".format(c.kg_delta_pct) }}%</strong>{% endif %}</td>
             <td>{{ eur(c.rpk, 2) }}</td>
