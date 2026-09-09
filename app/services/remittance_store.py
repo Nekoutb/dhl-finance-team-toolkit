@@ -154,7 +154,11 @@ def list_batches():
     _ensure()
     out = [_read(p) for p in _BATCH.glob("*.json")]
     out = [b for b in out if b]
-    out.sort(key=lambda b: b.get("created_at", ""), reverse=True)
+    # created_at only carries seconds — two uploads in the same second tied,
+    # and the winner was whichever random hex filename globbed first.
+    # created_seq (nanoseconds, absent on old batches -> 0) settles it.
+    out.sort(key=lambda b: (b.get("created_at", ""),
+                            b.get("created_seq", 0)), reverse=True)
     return out
 
 

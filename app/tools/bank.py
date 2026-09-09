@@ -9,6 +9,7 @@ Reports persist under data/bank/<token>.json so they can be revisited.
 """
 import hashlib
 import json
+import os
 import re
 import threading
 import uuid
@@ -439,9 +440,25 @@ def delete_report(token):
 
 
 def save_report(report):
+    """ATOMIC write. The results page polls load_report() while the
+    background worker rewrites this same file; a plain write_text lets a
+    poll read the file half-written, load_report swallows the JSON error as
+    None, and the page flashes "report not found" mid-build. Unique temp
+    name + os.replace, exactly as record_daily_balance above (its comment
+    explains the Windows PermissionError retry)."""
+    import time as _time
     STORE_DIR.mkdir(parents=True, exist_ok=True)
-    (STORE_DIR / f"{report['token']}.json").write_text(
-        json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    target = STORE_DIR / f"{report['token']}.json"
+    tmp = target.with_name(
+        f"{target.name}.{os.getpid()}.{os.urandom(3).hex()}.tmp")
+    tmp.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    for attempt in range(20):
+        try:
+            os.replace(tmp, target)
+            return report["token"]
+        except PermissionError:
+            _time.sleep(0.01 * (attempt + 1))
+    os.replace(tmp, target)
     return report["token"]
 
 

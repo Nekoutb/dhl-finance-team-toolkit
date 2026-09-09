@@ -85,8 +85,12 @@ check("ungranted area: GET blocked 403", r.status_code == 403 and "No access to 
 # nav + landing show only granted areas
 home = client.get("/").text
 check("landing shows granted areas", "Orange Money" in home and "Bank Statements" in home)
+# The LINK must be hidden — the words can legitimately appear elsewhere on
+# the page (a release note in the footer mentioned "Variance analysis" and
+# stranded the old wording match).
 check("landing hides ungranted areas",
-      "Variance analysis" not in home and "CtP Portal" not in home)
+      'href="/tools/variance-analysis"' not in home
+      and "CtP Portal" not in home)
 
 # employee can't reach Administration
 check("employee blocked from /admin", client.get("/admin").status_code == 403)

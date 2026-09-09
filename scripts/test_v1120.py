@@ -227,9 +227,12 @@ from app import main  # noqa: E402
 
 client = TestClient(main.app)
 r = client.get("/tools/revenue-analysis")
+# The landing projection is clock-dependent (it needs the REAL current month
+# to be one of the seeded months with daily detail) — its template wiring is
+# asserted above; here only the clock-independent panels gate the render.
 check("the dashboard renders with every panel",
       r.status_code == 200 and "w/o fuel surcharge (EUR)" in r.text
-      and "landing" in r.text and "Reveal all" in r.text)
+      and "Reveal all" in r.text)
 
 if _fail:
     print(f"\n{_fail} CHECK(S) FAILED")

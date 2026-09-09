@@ -136,7 +136,13 @@ def build_statements_from_gl(path, source_name):
 
     batch_id = remittance_store.new_token()[:12]
     created = remittance_store.now_iso()
-    batch = {"id": batch_id, "created_at": created, "source": source_name, "customers": []}
+    # created_at is second-resolution for display; created_seq breaks the tie
+    # when two uploads land in the same second, so "newest first" listings
+    # never coin-flip on which batch is newest.
+    import time
+    batch = {"id": batch_id, "created_at": created,
+             "created_seq": time.time_ns(),
+             "source": source_name, "customers": []}
 
     for key, bucket in customers.items():
         # Oldest to newest (undated lines last); ids assigned after sorting so

@@ -258,11 +258,14 @@ wsv.append([4003026258, 2414645274, 500000, "OMEGA",
 wbv.save(cash_v)
 bitcash._persist_rows("cash", cash_v)
 _stv = bitcash.rows_store()
-agv = bitcash.cash_ageing()
+# Pinned "today": 19 Jun is 36 days old (b31), 1 Mar is 146 (b61). Unpinned,
+# this was a time bomb — the day 19 Jun crossed the 60-day line the expected
+# b61 changed, and the test started failing on a correct app.
+agv = bitcash.cash_ageing(today=datetime(2026, 7, 25).date())
 check("broken #VALUE! header: document date found by content (not Clearing)",
       _stv["cash"][0]["date"] == "2026-06-19"
       and _stv.get("cash_date_col") == "document date (auto-detected)")
-check("content-detected ageing fills buckets (as-of-today from doc date)",
+check("content-detected ageing fills buckets (as-of 25 Jul from doc date)",
       agv["has_dates"] and agv["totals"]["b61"] == 500000.0)
 
 # 5b. The EXISTING file on record gains its ageing via in-place re-read: fake
@@ -292,10 +295,13 @@ check("landing GET does not auto-parse (still no dates, marker unset)",
 check("reparse_current re-reads the stored file in place",
       bitcash.reparse_current("cash") is True)
 _st5b = bitcash.rows_store()
-ag1 = bitcash.cash_ageing()
+# Pinned "today" again: at 25 Jul, 15.03 is 132 days old (b61) and 01.07 is
+# 24 days (b0) — unpinned, 01.07 crossed the 60-day line in September and
+# the expected bucket total changed under the test.
+ag1 = bitcash.cash_ageing(today=datetime(2026, 7, 25).date())
 check("existing file now shows an ageing (dates from Doc. Date)",
       ag1["has_dates"] and ag1["date_col"] == "Doc. Date"
-      and ag1["totals"]["b61"] == 50000.0)   # 15.03 is >60 days before today
+      and ag1["totals"]["b61"] == 50000.0)   # only 15.03 as of 25 Jul
 check("in-place re-read keeps the generation (sandboxes stay valid)",
       _st5b.get("gen_cash") == _gen_before)
 check("re-read is attempted once per stored file",

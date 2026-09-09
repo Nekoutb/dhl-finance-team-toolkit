@@ -98,12 +98,21 @@ try:
     print("ok: PDF statement read by AI OCR (mocked) -> credits + payers")
 
     # --- 5. async start_report for a PDF: returns at once, fills in later ---
+    import threading
     import time
     _orig2 = ai_ocr.extract_bank_statement
-    ai_ocr.extract_bank_statement = lambda b, m, c: {
-        "bank_name": "SGBC", "lines": [
+    # The mock HOLDS the background read until the stub has been observed —
+    # an instant mock let the worker overwrite "running" with the finished
+    # report before the next line of this test ran (a coin-flip failure).
+    _gate = threading.Event()
+
+    def _held_extract(b, m, c):
+        _gate.wait(timeout=10)
+        return {"bank_name": "SGBC", "lines": [
             {"date": "2026-06-13", "description": "VIR", "payer": "DELTA CORP",
              "credit": 2400000.0, "debit": 0.0}]}
+
+    ai_ocr.extract_bank_statement = _held_extract
     pdf2 = ROOT / "data" / "uploads" / "_test_async.pdf"
     pdf2.write_bytes(b"%PDF-1.4 dummy")
     try:
@@ -111,6 +120,7 @@ try:
         stub = bank.load_report(tok)
         check("start_report returns immediately with a running stub",
               stub and stub["status"] == "running")
+        _gate.set()
         rep3 = None
         for _ in range(80):
             rep3 = bank.load_report(tok)
