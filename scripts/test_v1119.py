@@ -132,8 +132,9 @@ check("the page can say WHICH window it compared against",
 
 # === 3. The KPI evolution graph ============================================
 graphs = {g["key"]: g for g in view["graphs"]}
-check("three KPI graphs, one per metric",
-      set(graphs) == {"rev_per_day", "rev_per_shipment", "rev_per_kg"})
+check("a KPI graph per compared metric (shipments included since v11.28)",
+      set(graphs) == {"rev_per_day", "rev_per_shipment", "rev_per_kg",
+                      "shipments", "ships_per_day"})
 g = graphs["rev_per_day"]
 check("every month is a point", len(g["coords"]) == 4)
 check("complete months draw the SOLID line",

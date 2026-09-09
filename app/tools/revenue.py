@@ -64,6 +64,12 @@ _REQUIRED = [
 # back as "new" instead of being compared.
 MAX_LANES = 400
 
+# Per-day and per-customer breakdowns are stored only for this many top lanes
+# per direction — they feed the days-to-date filter and the Lane focus panel,
+# and carrying them for all 400 stored lanes would bloat a store that is
+# parsed on every page view.
+LANE_DETAIL_TOP = 60
+
 # Lanes are COUNTRY to country, not city to city — the file routes on IATA
 # city codes (DLA, YAO, BRU …) and the owner reports on countries. The map
 # ships with the app (samples/reference/iata_country.json, generated from an
@@ -283,29 +289,56 @@ def parse_file(path, source=""):
                 seen_codes.add(orgn)
             if dest:
                 seen_codes.add(dest)
+            acct = str(r[ix["Bill To Account"]] or "").strip()
+            acct_name = str(r[ix["Bill To Account Name"]] or "").strip()
             if (svc in lanes and orgn and dest
                     and btype not in LANE_EXCLUDED_BILLING_TYPES):
                 lane = lanes[svc].setdefault(
                     f"{country_of(orgn)}-{country_of(dest)}", {
                         "net": 0.0, "weight": 0.0, "kilos": 0.0,
-                        "awb_net": {}})
+                        "awb_net": {}, "days": {}, "cust": {}})
                 lane["net"] += net
                 lane["weight"] += w
                 lane["kilos"] += kg
                 if awb:
                     lane["awb_net"][awb] = lane["awb_net"].get(awb, 0.0) + net
-            acct = str(r[ix["Bill To Account"]] or "").strip()
+                # Per-day slice (days-to-date filter) and per-customer slice
+                # (Lane focus). Kept at finalise only for the top lanes.
+                if inv_day:
+                    ld = lane["days"].setdefault(inv_day, [0.0, 0.0, 0.0])
+                    ld[0] += net
+                    ld[1] += w
+                    ld[2] += kg
+                if acct:
+                    lc = lane["cust"].get(acct)
+                    if lc is None:
+                        lc = lane["cust"][acct] = {
+                            "name": "", "net": 0.0, "weight": 0.0,
+                            "kilos": 0.0, "awb_net": {}}
+                    if acct_name:
+                        lc["name"] = acct_name
+                    lc["net"] += net
+                    lc["weight"] += w
+                    lc["kilos"] += kg
+                    if awb:
+                        lc["awb_net"][awb] = lc["awb_net"].get(awb, 0.0) + net
             if acct:
                 c = customers.get(acct)
                 if c is None:
                     c = customers[acct] = {"name": "", "net": 0.0,
-                                           "weight": 0.0, "kilos": 0.0}
-                name = str(r[ix["Bill To Account Name"]] or "").strip()
-                if name:
-                    c["name"] = name
+                                           "weight": 0.0, "kilos": 0.0,
+                                           "awb_net": {}, "days": {}}
+                if acct_name:
+                    c["name"] = acct_name
                 c["net"] += net
                 c["weight"] += w
                 c["kilos"] += kg
+                if awb:
+                    c["awb_net"][awb] = c["awb_net"].get(awb, 0.0) + net
+                if inv_day:
+                    # kilos per invoice day — what the days-to-date view of
+                    # the active-customers table is built from
+                    c["days"][inv_day] = c["days"].get(inv_day, 0.0) + kg
     finally:
         wb.close()
     if not period_votes:
@@ -316,6 +349,10 @@ def parse_file(path, source=""):
     for c in customers.values():
         for k in ("net", "weight", "kilos"):
             c[k] = round(c[k], 2)
+        # A shipment = an AWB whose signed net is positive for this customer
+        # (same rule as the month total). The raw awb map is not stored.
+        c["shipments"] = sum(1 for v in c.pop("awb_net").values() if v > 0.005)
+        c["days"] = {d: round(v, 2) for d, v in c["days"].items()}
     daily_out = {}
     for day, dd in sorted(daily.items()):
         awbs = sorted(a for a, v in dd["awb_net"].items() if v > 0.005)
@@ -329,12 +366,25 @@ def parse_file(path, source=""):
     lanes_out = {}
     for svc, table in lanes.items():
         top = sorted(table.items(), key=lambda kv: -kv[1]["net"])[:MAX_LANES]
-        lanes_out[svc] = {
-            k: {"net": round(v["net"], 2), "weight": round(v["weight"], 2),
-                "kilos": round(v["kilos"], 2),
-                "shipments": sum(1 for x in v["awb_net"].values()
-                                 if x > 0.005)}
-            for k, v in top}
+        out_t = lanes_out[svc] = {}
+        for rank, (k, v) in enumerate(top):
+            entry = {"net": round(v["net"], 2),
+                     "weight": round(v["weight"], 2),
+                     "kilos": round(v["kilos"], 2),
+                     "shipments": sum(1 for x in v["awb_net"].values()
+                                      if x > 0.005)}
+            if rank < LANE_DETAIL_TOP:
+                entry["days"] = {d: [round(x, 2) for x in dd]
+                                 for d, dd in v["days"].items()}
+                entry["cust"] = {
+                    a: {"name": lc["name"] or a,
+                        "net": round(lc["net"], 2),
+                        "weight": round(lc["weight"], 2),
+                        "kilos": round(lc["kilos"], 2),
+                        "shipments": sum(1 for x in lc["awb_net"].values()
+                                         if x > 0.005)}
+                    for a, lc in v["cust"].items()}
+            out_t[k] = entry
     return {
         "period": period,
         "source": str(source or Path(path).name),
@@ -508,6 +558,7 @@ def month_metrics(rec, union_days):
         "billable_days": days,
         "rev_per_day": (weight / days) if days else None,
         "shipments": shipments,
+        "ships_per_day": (shipments / days) if days else None,
         "rev_per_shipment": (weight / shipments) if shipments else None,
         "kilos": kilos,
         "rev_per_kg": (weight / kilos) if kilos > 0 else None,
@@ -567,6 +618,50 @@ def same_days_window(rec, union_days, target_days):
             "weight": round(weight, 2),
             "kilos": round(kilos, 2), "shipments": ships,
             "rev_per_day": (weight / cum) if cum else None,
+            "ships_per_day": (ships / cum) if cum else None,
+            "rev_per_shipment": (weight / ships) if ships else None,
+            "rev_per_kg": (weight / kilos) if kilos > 0 else None}
+
+
+def dtd_window(rec, n, union_days):
+    """The month's position over its first ``n`` CALENDAR days (the 1st to
+    the ``n``-th of the month) — the "days to date" filter. Distinct from
+    same_days_window, which counts BILLABLE days: "the first 10 days of this
+    month against the first 10 days of last month" means the calendar here.
+
+    None when the record has no daily detail or the window catches nothing.
+    """
+    daily = rec.get("daily")
+    if not daily or not n:
+        return None
+    pfx = rec["period"]
+    net = weight = kilos = 0.0
+    seen, counted = set(), 0
+    caught = False
+    for day, dd in daily.items():
+        if not day.startswith(pfx) or int(day[8:10]) > n:
+            continue
+        caught = True
+        net += dd.get("net", 0.0)
+        weight += dd.get("weight", 0.0)
+        kilos += dd.get("kilos", 0.0)
+        awbs = dd.get("awbs")
+        if awbs is None:
+            counted += dd.get("shipments", 0)
+        else:
+            seen.update(awbs)
+    if not caught:
+        return None
+    # Billable days elapsed WITHIN the window, so the per-day rates stay on
+    # the same footing as the full-month ones.
+    cum = sum(wd for day, wd in _month_billable_sequence(pfx, union_days)
+              if int(day[8:10]) <= n)
+    ships = len(seen) + counted
+    return {"days": cum, "cal_days": n, "net": round(net, 2),
+            "weight": round(weight, 2),
+            "kilos": round(kilos, 2), "shipments": ships,
+            "rev_per_day": (weight / cum) if cum else None,
+            "ships_per_day": (ships / cum) if cum else None,
             "rev_per_shipment": (weight / ships) if ships else None,
             "rev_per_kg": (weight / kilos) if kilos > 0 else None}
 
@@ -629,21 +724,32 @@ def landing_estimate(ongoing, months):
             "billable_days": round(typical, 1),
             "shipments": shipments, "kilos": kilos,
             "rev_per_day": ongoing["rev_per_day"],
+            "ships_per_day": ongoing["ships_per_day"],
             "rev_per_shipment": ongoing["rev_per_shipment"],
             "rev_per_kg": ongoing["rev_per_kg"],
             "totals": {"tax": ongoing["totals"]["tax"] / ongoing["billable_days"] * typical,
                        "duty": ongoing["totals"]["duty"] / ongoing["billable_days"] * typical}}
 
 
+# The compared KPIs — boxes, evolution charts and the same-days windows all
+# run off this one table. unit "eur" renders through the EUR conversion;
+# "count" is a plain number (shipments are not money).
+KPI_DEFS = (
+    ("rev_per_day", "RpD w/o fuel surcharge", "eur", 0),
+    ("rev_per_shipment", "Revenue / shipment", "eur", 2),
+    ("rev_per_kg", "RpK w/o fuel surcharge", "eur", 2),
+    ("shipments", "Shipments", "count", 0),
+    ("ships_per_day", "Shipments / day", "count", 1),
+)
+
+
 def _graph_series(months):
-    """Pixel-ready polylines for the three KPIs: a SOLID line through the
+    """Pixel-ready polylines for the compared KPIs: a SOLID line through the
     complete months and a DASHED closing segment to the ongoing month, so
     the reader sees at a glance that the last point is provisional."""
     W, H, PAD = 460, 132, 30
     out = []
-    for key, label in (("rev_per_day", "RpD w/o fuel surcharge"),
-                       ("rev_per_shipment", "Revenue / shipment"),
-                       ("rev_per_kg", "RpK w/o fuel surcharge")):
+    for key, label, unit, dec in KPI_DEFS:
         pts = [(m["label"], m[key], m["ongoing"])
                for m in months if m.get(key)]
         if len(pts) < 2:
@@ -665,7 +771,8 @@ def _graph_series(months):
         solid = [c for c in coords if not c["ongoing"]]
         dashed = coords[-2:] if coords[-1]["ongoing"] else []
         out.append({
-            "key": key, "label": label, "coords": coords, "w": W, "h": H,
+            "key": key, "label": label, "unit": unit, "dec": dec,
+            "coords": coords, "w": W, "h": H,
             "solid_points": " ".join(f"{c['x']},{c['y']}" for c in solid),
             "dash_points": " ".join(f"{c['x']},{c['y']}" for c in dashed)})
     return out
@@ -685,7 +792,26 @@ def _lane_trend(now, prior):
     return delta, "up" if delta > 0 else "down"
 
 
-def lanes_for(period, top_n=10):
+def _lane_cut(entry, dtd):
+    """One lane's (net, weight, kilos) over the month's first ``dtd``
+    calendar days, from its stored per-day slice. None when the slice is
+    absent (a month stored before the slice existed, or a lane below the
+    LANE_DETAIL_TOP cut) — unknowable, never approximated from the full
+    month."""
+    days = entry.get("days")
+    if days is None:
+        return None
+    net = weight = kilos = 0.0
+    for d, vals in days.items():
+        if int(d[8:10]) <= dtd:
+            net += vals[0]
+            weight += vals[1]
+            kilos += vals[2]
+    return {"net": round(net, 2), "weight": round(weight, 2),
+            "kilos": round(kilos, 2)}
+
+
+def lanes_for(period, top_n=10, dtd=None):
     """Top outbound + inbound lanes of a month by net revenue with their
     RpK w/o fuel surcharge (LCU Weight Charge / billed kilos — the fuel
     surcharge would drift the price signal with every fuel repricing) AND
@@ -694,6 +820,11 @@ def lanes_for(period, top_n=10):
 
     Both are reported because on their own either one misleads: an RpK up
     30% on volume down 60% is a lane being lost, not a lane being repriced.
+
+    ``dtd`` (days to date): every figure — this month's and the prior
+    averages — is cut to the first n calendar days of its month. Lanes are
+    still RANKED by the full month, so the list does not reshuffle as the
+    filter moves. Shipments are not sliced per day and show as unknown.
     """
     data = _load()
     periods = data.get("periods") or {}
@@ -701,7 +832,7 @@ def lanes_for(period, top_n=10):
     if not rec:
         return None
     prior_keys = [k for k in sorted(periods) if k < str(period)][-3:]
-    out = {"prior_months": prior_keys}
+    out = {"prior_months": prior_keys, "dtd": dtd}
     for svc, label in (("OB", "outbound"), ("IB", "inbound")):
         rows = []
         for lane, v in sorted((rec.get("lanes") or {}).get(svc, {}).items(),
@@ -710,9 +841,17 @@ def lanes_for(period, top_n=10):
             # stored before lanes carried their weight charge has no "weight"
             # key — its RpK is unknowable, never approximated from net
             # (which includes the fuel surcharge).
-            wc = v.get("weight")
-            rpk = (wc / v["kilos"]) \
-                if wc is not None and v["kilos"] > 0 else None
+            if dtd:
+                cut = _lane_cut(v, dtd)
+                net_v = cut["net"] if cut else None
+                kilos_v = cut["kilos"] if cut else None
+                wc = cut["weight"] if cut else None
+                ships = None
+            else:
+                net_v, kilos_v = v["net"], v["kilos"]
+                wc, ships = v.get("weight"), v["shipments"]
+            rpk = (wc / kilos_v) \
+                if wc is not None and kilos_v and kilos_v > 0 else None
             # the same lane's RpK and billed weight in each prior month.
             # Both are averaged over the SAME months — the ones the lane
             # actually ran with a weight charge on record — so the two
@@ -721,17 +860,24 @@ def lanes_for(period, top_n=10):
             for pk in prior_keys:
                 pv = ((periods[pk].get("lanes") or {})
                       .get(svc, {}).get(lane))
-                if (pv and pv.get("kilos", 0) > 0
-                        and pv.get("weight") is not None):
+                if not pv:
+                    continue
+                if dtd:
+                    pcut = _lane_cut(pv, dtd)
+                    if pcut and pcut["kilos"] > 0:
+                        past.append(pcut["weight"] / pcut["kilos"])
+                        past_kg.append(pcut["kilos"])
+                elif pv.get("kilos", 0) > 0 and pv.get("weight") is not None:
                     past.append(pv["weight"] / pv["kilos"])
                     past_kg.append(pv["kilos"])
             prior_rpk = (sum(past) / len(past)) if past else None
             prior_kilos = (sum(past_kg) / len(past_kg)) if past_kg else None
             delta, trend = _lane_trend(rpk, prior_rpk)
-            kg_delta, kg_trend = _lane_trend(v["kilos"], prior_kilos)
+            kg_delta, kg_trend = _lane_trend(kilos_v, prior_kilos)
             rows.append({
-                "lane": lane.replace("-", " → "), "net": v["net"],
-                "kilos": v["kilos"], "shipments": v["shipments"],
+                "lane": lane.replace("-", " → "), "key": lane, "svc": svc,
+                "net": net_v,
+                "kilos": kilos_v, "shipments": ships,
                 "rpk": rpk, "prior_rpk": prior_rpk,
                 "delta_pct": delta, "trend": trend,
                 "prior_kilos": prior_kilos,
@@ -739,6 +885,120 @@ def lanes_for(period, top_n=10):
                 "prior_n": len(past)})
         out[label] = rows
     return out
+
+
+def lane_focus(period, svc, lane_key):
+    """One lane under the microscope: five analyses of the CUSTOMERS that
+    feed it, this month against the prior month on record.
+
+    1  Headline — the lane's own KPIs (net, weight billed, kilos, shipments,
+       shipments/day, RpK w/o fuel surcharge), current vs prior.
+    2  Top customers by weight, each with their month-on-month move.
+    3  Movers — customers who joined the lane and customers who left it.
+    4  Concentration — the share of the lane's kilos carried by its top 1,
+       3 and 5 customers, current vs prior (a lane hanging off one shipper
+       is a different risk from the same volume spread over twenty).
+    5  Price dispersion — each customer's RpK against the lane's own
+       average: who is paying under the lane's going rate, and by how much.
+
+    None when the lane has no stored customer slice (a month uploaded
+    before the slice existed, or a lane below the LANE_DETAIL_TOP cut).
+    """
+    data = _load()
+    periods = data.get("periods") or {}
+    rec = periods.get(str(period))
+    if not rec:
+        return None
+    entry = (rec.get("lanes") or {}).get(svc, {}).get(lane_key)
+    if not entry or entry.get("cust") is None:
+        return None
+    prior_keys = [k for k in sorted(periods) if k < str(period)]
+    prior_key = prior_keys[-1] if prior_keys else None
+    prev = ((periods.get(prior_key, {}).get("lanes") or {})
+            .get(svc, {}).get(lane_key)) if prior_key else None
+    prev_cust = (prev or {}).get("cust") or {}
+
+    union = _union_ship_days(periods)
+    days_cur = month_metrics(rec, union)["billable_days"]
+    days_prev = (month_metrics(periods[prior_key], union)["billable_days"]
+                 if prior_key else None)
+
+    def headline(e, days):
+        if not e:
+            return None
+        wc, kg = e.get("weight"), e.get("kilos", 0.0)
+        ships = e.get("shipments")
+        return {"net": e.get("net"), "weight": wc, "kilos": kg,
+                "shipments": ships,
+                "ships_per_day": (ships / days)
+                if ships is not None and days else None,
+                "rpk": (wc / kg) if wc is not None and kg > 0 else None}
+
+    cur_h, prev_h = headline(entry, days_cur), headline(prev, days_prev)
+
+    def pct(cur, base):
+        return (100.0 * (cur - base) / base) \
+            if cur is not None and base and base > 0 else None
+
+    deltas = {k: pct(cur_h.get(k), (prev_h or {}).get(k))
+              for k in cur_h} if prev_h else {}
+
+    # grouped by NAME (one customer, many billing accounts = one line)
+    def by_name(cust):
+        table = {}
+        for acct, c in cust.items():
+            key = (c.get("name") or acct).strip().upper()
+            g = table.setdefault(key, {"name": c.get("name") or acct,
+                                       "net": 0.0, "weight": 0.0,
+                                       "kilos": 0.0, "shipments": 0})
+            for f in ("net", "weight", "kilos", "shipments"):
+                g[f] += c.get(f) or 0
+        return table
+
+    cur_c, prev_c = by_name(entry["cust"]), by_name(prev_cust)
+    lane_kg = sum(c["kilos"] for c in cur_c.values()) or 0.0
+    lane_rpk = cur_h["rpk"]
+
+    customers = []
+    for k, c in cur_c.items():
+        p = prev_c.get(k)
+        rpk = (c["weight"] / c["kilos"]) if c["kilos"] > 0 else None
+        customers.append({
+            "name": c["name"], "kilos": round(c["kilos"], 1),
+            "weight": round(c["weight"], 2),
+            "shipments": c["shipments"],
+            "share_pct": (100.0 * c["kilos"] / lane_kg) if lane_kg else None,
+            "rpk": rpk,
+            "rpk_vs_lane_pct": (100.0 * (rpk - lane_rpk) / lane_rpk)
+            if rpk is not None and lane_rpk else None,
+            "prev_kilos": round(p["kilos"], 1) if p else None,
+            "kg_delta_pct": pct(c["kilos"], p["kilos"] if p else None)})
+    customers.sort(key=lambda c: -c["kilos"])
+
+    joined = [c for c in customers if c["prev_kilos"] is None]
+    lost = sorted(({"name": c["name"], "kilos": round(c["kilos"], 1)}
+                   for k, c in prev_c.items()
+                   if k not in cur_c and c["kilos"] > 0),
+                  key=lambda c: -c["kilos"])
+
+    def concentration(table):
+        kgs = sorted((c["kilos"] for c in table.values()), reverse=True)
+        tot = sum(kgs)
+        if not tot:
+            return None
+        return {n: round(100.0 * sum(kgs[:n]) / tot, 1)
+                for n in (1, 3, 5)}
+
+    return {"lane": lane_key.replace("-", " → "), "key": lane_key,
+            "svc": svc, "period": str(period), "prior_period": prior_key,
+            "headline": {"current": cur_h, "prior": prev_h,
+                         "delta_pct": deltas},
+            "customers": customers,
+            "joined": joined, "lost": lost,
+            "concentration": {"current": concentration(cur_c),
+                              "prior": concentration(prev_c) or None},
+            "customer_count": {"current": len(cur_c),
+                               "prior": len(prev_c) or None}}
 
 
 # Matching a trader against the credit-stop register. The register is
@@ -772,10 +1032,16 @@ def match_stopped(trader_key, stop_keys):
     return "", ""
 
 
-def active_customers(top_n=60, now=None):
+def active_customers(top_n=60, now=None, dtd=None):
     """The top traders BY WEIGHT over the last three complete months, and
     what they are moving in the current month — the point is spotting a big
-    trader who has gone quiet (or is trading while on credit stop)."""
+    trader who has gone quiet (or is trading while on credit stop).
+
+    ``dtd`` (days to date): every month's kilos — the three prior months AND
+    the current one — are cut to its first n calendar days, from each
+    customer's stored per-day kilos. A month stored before that detail
+    existed keeps its full-month kilos and is named in ``dtd_partial``, so
+    a like-for-like table never silently mixes cut and uncut figures."""
     data = _load()
     periods = data.get("periods") or {}
     now = now or datetime.now()
@@ -785,14 +1051,24 @@ def active_customers(top_n=60, now=None):
     if not last3:
         return None
     ongoing_rec = periods.get(this_month)
+    dtd_partial = []
 
     def by_name(rec):
         table = {}
+        partial = False
         for acct, c in (rec.get("customers") or {}).items():
             key = (c.get("name") or acct).strip().upper()
             g = table.setdefault(key, {"name": c.get("name") or acct,
                                       "kilos": 0.0})
-            g["kilos"] += c.get("kilos", 0.0)
+            if dtd and c.get("days") is not None:
+                g["kilos"] += sum(v for d, v in c["days"].items()
+                                  if int(d[8:10]) <= dtd)
+            else:
+                if dtd:
+                    partial = True
+                g["kilos"] += c.get("kilos", 0.0)
+        if partial:
+            dtd_partial.append(rec.get("period", "?"))
         return table
 
     maps = {pkey: by_name(periods[pkey]) for pkey in last3}
@@ -813,7 +1089,8 @@ def active_customers(top_n=60, now=None):
                      if ongoing_rec else None})
     rows.sort(key=lambda r: -r["avg_kilos"])
     return {"months": last3, "current_period": this_month
-            if ongoing_rec else "", "rows": rows[:top_n]}
+            if ongoing_rec else "", "rows": rows[:top_n],
+            "dtd": dtd, "dtd_partial": sorted(set(dtd_partial))}
 
 
 # The fuel-surcharge target is a monthly commercial figure, so it is stored
@@ -903,10 +1180,11 @@ def fuel_ranking(period, top_n=30):
                                    if not r["meets"])}
 
 
-def pricing_top(rec, top_n=10):
+def pricing_top(rec, top_n=10, billable_days=None):
     """The month's top customers by net revenue (internal DHL included, per
     the owner's choice) with price/kg = WEIGHT CHARGE / kilos, against the
-    whole file's average, variance in %.
+    whole file's average, variance in %. Each customer also carries their
+    shipment count and shipments per billable day of the month.
 
     Grouped by CUSTOMER NAME, not billing account — one customer (chiefly
     the internal DHL entity) bills under many account numbers and must be
@@ -918,12 +1196,19 @@ def pricing_top(rec, top_n=10):
         g = by_name.get(key)
         if g is None:
             g = by_name[key] = {"name": c.get("name") or acct,
-                                "accounts": [], "net": 0.0,
+                                "accounts": [], "net": 0.0, "shipments": 0,
                                 "weight": 0.0, "kilos": 0.0}
         g["accounts"].append(acct)
         g["net"] += c["net"]
         g["weight"] += c["weight"]
         g["kilos"] += c["kilos"]
+        # None (not 0) when the stored month predates per-customer shipment
+        # counts — the column then shows a dash instead of a false zero.
+        s = c.get("shipments")
+        if s is None:
+            g["shipments"] = None
+        elif g.get("shipments") is not None:
+            g["shipments"] = g.get("shipments", 0) + s
     tot_weight = sum(c["weight"] for c in customers.values())
     tot_kilos = sum(c["kilos"] for c in customers.values())
     file_avg = (tot_weight / tot_kilos) if tot_kilos > 0 else None
@@ -933,19 +1218,30 @@ def pricing_top(rec, top_n=10):
         per_kg = (g["weight"] / g["kilos"]) if g["kilos"] > 0 else None
         variance = (100.0 * (per_kg - file_avg) / file_avg) \
             if per_kg is not None and file_avg and file_avg > 0 else None
+        ships = g["shipments"]
         out.append({"account": ", ".join(g["accounts"][:3])
                     + (" …" if len(g["accounts"]) > 3 else ""),
                     "name": g["name"], "net": round(g["net"], 2),
                     "kilos": round(g["kilos"], 2),
                     "weight": round(g["weight"], 2), "per_kg": per_kg,
+                    "shipments": ships,
+                    "ships_per_day": (ships / billable_days)
+                    if ships is not None and billable_days else None,
                     "variance_pct": variance})
-    return {"rows": out, "file_avg": file_avg}
+    return {"rows": out, "file_avg": file_avg,
+            "billable_days": billable_days}
 
 
-def dashboard(now=None):
+def dashboard(now=None, days_to_date=None):
     """Everything the page needs, months ascending. The month equal to the
     CURRENT calendar month is flagged ongoing — its per-day figure divides
-    by the billable days elapsed in the data, i.e. a live run-rate."""
+    by the billable days elapsed in the data, i.e. a live run-rate.
+
+    ``days_to_date`` (1–31) is the page's Days-to-date filter: every
+    comparison panel — KPI boxes, evolution charts, months side by side,
+    lanes — is cut to the FIRST n calendar days of each month, so the first
+    ten days of this month sit against the first ten days of every other
+    month. Months without daily detail cannot be cut and are named."""
     from ..services.ctp_rules import EUR_RATES
     data = _load()
     periods = data.get("periods") or {}
@@ -963,6 +1259,29 @@ def dashboard(now=None):
             m["label"] = m["period"]
     complete = [m for m in months if not m["ongoing"]]
     ongoing = next((m for m in months if m["ongoing"]), None)
+
+    dtd, dtd_uncut = None, []
+    try:
+        dtd = max(1, min(31, int(days_to_date))) if days_to_date else None
+    except (TypeError, ValueError):
+        dtd = None
+    cmp_months = months
+    if dtd:
+        cmp_months = []
+        for m in months:
+            w = dtd_window(periods[m["period"]], dtd, union_days)
+            if w:
+                cmp_months.append({
+                    **m, "clipped": True, "billable_days": w["days"],
+                    "net": w["net"], "weight": w["weight"],
+                    "kilos": w["kilos"], "shipments": w["shipments"],
+                    "rev_per_day": w["rev_per_day"],
+                    "ships_per_day": w["ships_per_day"],
+                    "rev_per_shipment": w["rev_per_shipment"],
+                    "rev_per_kg": w["rev_per_kg"]})
+            else:
+                cmp_months.append({**m, "clipped": False})
+                dtd_uncut.append(m["label"])
     # The three KPI boxes: the ongoing month against the PRIOR month over
     # the SAME number of elapsed billable days ("compare it to the same
     # number of days in the prior month" — a full-month average would make
@@ -970,21 +1289,37 @@ def dashboard(now=None):
     # month's full average when its daily detail predates this feature.
     kpis = []
     window = None
+    dtd_base_label = ""
     prior = complete[-1] if complete else None
-    if ongoing and prior:
+    if dtd:
+        # Days-to-date: the ongoing month's first n days against the prior
+        # month's SAME first n days — both already cut above.
+        cur_m = next((m for m in cmp_months
+                      if m["ongoing"] and m.get("clipped")), None)
+        base_m = next((m for m in reversed(cmp_months)
+                       if not m["ongoing"] and m.get("clipped")), None)
+        if cur_m and base_m:
+            dtd_base_label = base_m["label"]
+            for key, label, unit, dec in KPI_DEFS:
+                cur, base = cur_m.get(key), base_m.get(key)
+                kpis.append({
+                    "key": key, "label": label, "unit": unit, "dec": dec,
+                    "value": cur, "baseline": base,
+                    "delta_pct": (100.0 * (cur - base) / base)
+                    if cur is not None and base and base > 0 else None})
+    elif ongoing and prior:
         window = same_days_window(periods[prior["period"]], union_days,
                                   ongoing["billable_days"])
         # A window that caught no billing is not a baseline — fall back to
         # the prior month's full average rather than divide by nothing.
         if window and not window["net"]:
             window = None
-        for key, label in (("rev_per_day", "RpD w/o fuel surcharge"),
-                           ("rev_per_shipment", "Revenue / shipment"),
-                           ("rev_per_kg", "RpK w/o fuel surcharge")):
+        for key, label, unit, dec in KPI_DEFS:
             cur = ongoing[key]
-            base = (window or prior)[key]
+            base = (window or prior).get(key)
             kpis.append({
-                "key": key, "label": label, "value": cur, "baseline": base,
+                "key": key, "label": label, "unit": unit, "dec": dec,
+                "value": cur, "baseline": base,
                 # a negative baseline would invert the sign — suppress it
                 "delta_pct": (100.0 * (cur - base) / base)
                 if cur is not None and base and base > 0 else None})
@@ -993,8 +1328,15 @@ def dashboard(now=None):
     # month (the ongoing one included) as a selector.
     # The KPI chart compares EQUAL spans: every month cut back to the same
     # billable-day count the running month has reached.
-    lfl_months, lfl_target = like_for_like(months, periods, union_days)
-    landing = landing_estimate(ongoing, months)
+    if dtd:
+        # Under days-to-date every month is already cut to the same window —
+        # the charts run on those; the billable-day like-for-like is off.
+        lfl_months, lfl_target = ([m for m in cmp_months
+                                   if m.get("clipped")], None)
+        landing = None            # a projection has no place in a d-t-d view
+    else:
+        lfl_months, lfl_target = like_for_like(months, periods, union_days)
+        landing = landing_estimate(ongoing, months)
     default = complete[-1] if complete else (months[-1] if months else None)
     # Months stored before the lane/daily detail existed — or before lanes
     # carried their weight charge (the RpK-w/o-fuel numerator) — still show
@@ -1003,33 +1345,51 @@ def dashboard(now=None):
     # silently worked around.
     def _lanes_incomplete(rec):
         table = rec.get("lanes") or {}
-        return not table or any("weight" not in v
-                                for svc in table.values()
-                                for v in svc.values())
+        if not table:
+            return True
+        for svc in table.values():
+            vals = list(svc.values())        # stored ranked by net
+            if any("weight" not in v for v in vals):
+                return True
+            # the day and customer slices behind days-to-date + Lane focus
+            if any("days" not in v or "cust" not in v
+                   for v in vals[:LANE_DETAIL_TOP]):
+                return True
+        return any("days" not in c or "shipments" not in c
+                   for c in (rec.get("customers") or {}).values())
     stale = [m["label"] for m in months
              if not periods[m["period"]].get("daily")
              or _lanes_incomplete(periods[m["period"]])]
     unmapped = sorted({c for rec in periods.values()
                        for c in (rec.get("unmapped_codes") or [])})
-    return {"months": months, "ongoing": ongoing, "kpis": kpis,
+    return {"months": cmp_months if dtd else months,
+            "ongoing": ongoing, "kpis": kpis,
+            "dtd": dtd, "dtd_uncut": dtd_uncut,
             "needs_reupload": stale,
             "unmapped_codes": unmapped,
-            "compare": {"prior_label": prior["label"] if prior else "",
+            "compare": {"prior_label": dtd_base_label
+                        or (prior["label"] if prior else ""),
                         "window": window},
             "landing": landing,
             "lfl_days": lfl_target,
-            "lfl_partial": [m["label"] for m in lfl_months
-                            if not m.get("clipped")],
+            "lfl_partial": [] if dtd else [m["label"] for m in lfl_months
+                                           if not m.get("clipped")],
             "graphs": _graph_series(lfl_months),
             "eur_rate": EUR_RATES["XAF"],
             "pricing_period": default["period"] if default else "",
-            "pricing": pricing_top(periods[default["period"]])
+            "pricing": pricing_top(periods[default["period"]],
+                                   billable_days=default["billable_days"])
             if default else {"rows": [], "file_avg": None},
-            "lanes": lanes_for(default["period"]) if default else None,
+            "lanes": lanes_for(default["period"], dtd=dtd)
+            if default else None,
             "fuel": fuel_ranking(default["period"]) if default else None}
 
 
 def pricing_for(period):
     data = _load()
-    rec = (data.get("periods") or {}).get(str(period))
-    return pricing_top(rec) if rec else None
+    periods = data.get("periods") or {}
+    rec = periods.get(str(period))
+    if not rec:
+        return None
+    days = month_metrics(rec, _union_ship_days(periods))["billable_days"]
+    return pricing_top(rec, billable_days=days)

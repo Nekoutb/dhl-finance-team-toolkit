@@ -72,27 +72,57 @@
       {% endfor %}
     </div>
 
+    <form method="get" action="/tools/revenue-analysis" style="margin-top:16px;
+          display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      {% if view.pricing_period %}<input type="hidden" name="pricing"
+        value="{{ view.pricing_period }}">{% endif %}
+      <label class="note-small" for="dtd"><strong>Days to date</strong> — cut
+        every comparison to the first N days of each month:</label>
+      <input type="number" id="dtd" name="dtd" min="1" max="31"
+             value="{{ view.dtd or '' }}" style="width:74px;">
+      <button class="btn btn-small btn-primary" type="submit">Apply</button>
+      {% if view.dtd %}
+      <a class="btn btn-small" href="/tools/revenue-analysis{% if view.pricing_period %}?pricing={{ view.pricing_period }}{% endif %}">Back to full months</a>
+      <span class="pill pill-watch">Comparing the 1st–{{ view.dtd }} of each
+        month</span>
+      {% endif %}
+    </form>
+    {% if view.dtd and view.dtd_uncut %}
+    <p class="note-small">{{ view.dtd_uncut | join(", ") }}
+      {{ "has" if view.dtd_uncut | length == 1 else "have" }} no daily detail
+      on record and cannot be cut — full-month figures shown there. A
+      re-upload of the month fixes it.</p>
+    {% endif %}
+
     {% if view.kpis %}
     <h2 class="section-title" style="margin-top:18px;">
+      {%- if view.dtd %}
+      {{ view.ongoing.label }} — days 1–{{ view.dtd }} vs the same days of
+      {{ view.compare.prior_label }}
+      {%- else %}
       {{ view.ongoing.label }} — run-rate
       {%- if view.compare.window %} vs {{ view.compare.prior_label }} over
       its first {{ "{:g}".format(view.compare.window.days) }} billable
       day(s) (to {{ view.compare.window.through }})
       {%- elif view.compare.prior_label %} vs the {{ view.compare.prior_label }}
-      full-month average{% endif %}</h2>
+      full-month average{% endif %}
+      {%- endif %}</h2>
     <div class="stat-row" style="display:flex;gap:12px;flex-wrap:wrap;">
       {% for k in view.kpis %}
       <div class="stat-card" style="flex:1;min-width:190px;border:1px solid
            rgba(100,116,139,.25);border-radius:12px;padding:12px 14px;">
         <div class="note-small">{{ k.label }}</div>
         <div style="font-size:1.25rem;font-weight:700;">
-          {{ eur(k.value, 2 if k.key != 'rev_per_day' else 0) }}
-          <span class="note-inline">EUR</span></div>
+          {%- if k.unit == 'count' -%}
+          {% if k.value is none %}—{% else %}{{ ("{:,.%df}" % k.dec).format(k.value) }}{% endif %}
+          {%- else -%}
+          {{ eur(k.value, k.dec) }} <span class="note-inline">EUR</span>
+          {%- endif -%}</div>
         {% if k.delta_pct is not none %}
         <div class="note-small" style="color:{{ '#1b7f4b' if k.delta_pct >= 0
              else '#bd3727' }};">
           {{ "{:+.1f}".format(k.delta_pct) }}% vs
-          {{ eur(k.baseline, 2 if k.key != 'rev_per_day' else 0) }}</div>
+          {% if k.unit == 'count' %}{{ ("{:,.%df}" % k.dec).format(k.baseline) }}{% else %}{{ eur(k.baseline, k.dec) }}{% endif %}</div>
         {% endif %}
       </div>
       {% endfor %}
@@ -102,7 +132,9 @@
     {% if view.graphs %}
     <h2 class="section-title" style="margin-top:18px;">KPI evolution
       <span class="note-inline">
-        {%- if view.lfl_days %}every month cut to its first
+        {%- if view.dtd %}every month cut to its first {{ view.dtd }}
+        calendar day(s) — days to date ·
+        {% elif view.lfl_days %}every month cut to its first
         {{ "{:g}".format(view.lfl_days) }} billable day(s) — like for like ·
         {% endif %}solid = complete months · dotted = month in
         progress</span></h2>
@@ -116,7 +148,7 @@
       <div style="flex:1;min-width:300px;border:1px solid
            rgba(100,116,139,.25);border-radius:12px;padding:10px 12px;">
         <div class="note-small" style="margin-bottom:2px;">{{ g.label }}
-          <span class="note-inline">EUR</span></div>
+          {% if g.unit != 'count' %}<span class="note-inline">EUR</span>{% endif %}</div>
         <svg viewBox="0 0 {{ g.w }} {{ g.h }}" style="width:100%;height:auto;">
           {% if g.solid_points %}
           <polyline points="{{ g.solid_points }}" fill="none"
@@ -131,8 +163,9 @@
           <circle cx="{{ c.x }}" cy="{{ c.y }}" r="4"
                   fill="{{ '#f59e0b' if c.ongoing else '#2563eb' }}"/>
           <text x="{{ c.x }}" y="{{ c.y - 9 }}" text-anchor="middle"
-                font-size="11" fill="currentColor">{{ eur(c.v,
-                  2 if g.key == 'rev_per_kg' else 0) }}</text>
+                font-size="11" fill="currentColor">{% if g.unit == 'count'
+                %}{{ ("{:,.%df}" % g.dec).format(c.v) }}{% else %}{{ eur(c.v,
+                  g.dec) }}{% endif %}</text>
           <text x="{{ c.x }}" y="{{ g.h - 8 }}" text-anchor="middle"
                 font-size="10" fill="currentColor"
                 opacity="0.75">{{ c.label.split(' ')[0][:3] }}</text>
@@ -143,7 +176,9 @@
     </div>
     {% endif %}
 
-    <h2 class="section-title" style="margin-top:18px;">Months side by side</h2>
+    <h2 class="section-title" style="margin-top:18px;">Months side by side
+      {%- if view.dtd %} <span class="note-inline">first {{ view.dtd }}
+      day(s) of each month</span>{% endif %}</h2>
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr><th></th>
@@ -181,6 +216,11 @@
             <td>{{ "{:,.0f}".format(m.shipments) }}</td>{% endfor %}
             {% if view.landing %}<td style="border-left:3px solid #2563eb;">
               {{ "{:,.0f}".format(view.landing.shipments) }}</td>{% endif %}</tr>
+          <tr><td><strong>Shipments / day</strong></td>
+            {% for m in view.months %}
+            <td>{% if m.ships_per_day is none %}—{% else %}{{ "{:,.1f}".format(m.ships_per_day) }}{% endif %}</td>{% endfor %}
+            {% if view.landing %}<td style="border-left:3px solid #2563eb;">
+              {% if view.landing.ships_per_day is defined and view.landing.ships_per_day is not none %}{{ "{:,.1f}".format(view.landing.ships_per_day) }}{% else %}—{% endif %}</td>{% endif %}</tr>
           <tr><td><strong>Weight charge / shipment (EUR)</strong></td>
             {% for m in view.months %}
             <td>{{ eur(m.rev_per_shipment, 2) }}</td>{% endfor %}</tr>
@@ -198,6 +238,8 @@
             {% if view.landing %}<td class="note-small"
               style="border-left:3px solid #2563eb;">
               {{ eur(view.landing.weight) }}</td>{% endif %}</tr>
+          {% if not view.dtd %}{# tax/duty splits are full-month figures —
+             under days-to-date they would sit beside cut rows and mislead #}
           <tr><td class="note-small">of which taxes (excluded, EUR)</td>
             {% for m in view.months %}
             <td class="note-small">{{ eur(m.totals.tax) }}</td>
@@ -206,6 +248,7 @@
             {% for m in view.months %}
             <td class="note-small">{{ eur(m.totals.duty) }}</td>
             {% endfor %}</tr>
+          {% endif %}
         </tbody>
       </table>
     </div>
@@ -233,7 +276,7 @@
     <div class="download-row" style="margin-bottom:8px;">
       {% for m in view.months %}
       <a class="btn btn-small {% if m.period == view.pricing_period %}btn-primary{% endif %}"
-         href="/tools/revenue-analysis?pricing={{ m.period }}">{{ m.label }}</a>
+         href="/tools/revenue-analysis?pricing={{ m.period }}{% if view.dtd %}&amp;dtd={{ view.dtd }}{% endif %}">{{ m.label }}</a>
       {% endfor %}
     </div>
     {% if view.pricing.file_avg %}
@@ -244,7 +287,9 @@
     <div class="table-wrap">
       <table class="tx-table">
         <thead><tr><th>#</th><th>Customer</th><th>Net revenue (EUR)</th>
-          <th>Billed kg</th><th>Price / kg (EUR)</th><th>File average</th>
+          <th>Billed kg</th><th>Shipments</th>
+          <th title="Shipments over the month's billable days">Shipments / day</th>
+          <th>Price / kg (EUR)</th><th>File average</th>
           <th>Variance</th></tr></thead>
         <tbody>
           {% for c in view.pricing.rows %}
@@ -254,6 +299,8 @@
               <span class="note-inline">{{ c.account }}</span></td>
             <td>{{ eur(c.net) }}</td>
             <td>{{ "{:,.0f}".format(c.kilos) }}</td>
+            <td>{% if c.shipments is none %}—{% else %}{{ "{:,}".format(c.shipments) }}{% endif %}</td>
+            <td>{% if c.ships_per_day is none %}—{% else %}{{ "{:,.1f}".format(c.ships_per_day) }}{% endif %}</td>
             <td><strong>{{ eur(c.per_kg, 2) }}</strong></td>
             <td>{{ eur(view.pricing.file_avg, 2) }}</td>
             <td>{% if c.variance_pct is not none %}
@@ -280,6 +327,11 @@
       record{% if view.lanes.prior_months %}
       ({{ view.lanes.prior_months | join(", ") }}){% endif %}: a rising RpK
       on falling weight is a lane being lost, not a lane being repriced.
+      {% if view.lanes.dtd %}<strong>Days to date: every figure — this
+      month's and the prior averages — covers only the 1st–{{ view.lanes.dtd }}
+      of its month.</strong> Shipments are not sliced per day and show as
+      —. Click a lane to open its Lane focus.{% else %}Click a lane to open
+      its Lane focus below.{% endif %}
       {% if view.unmapped_codes %}<br>{{ view.unmapped_codes | length }} city
       code(s) have no country on file and show as
       <strong>?{{ view.unmapped_codes[0] }}</strong>-style entries:
@@ -304,13 +356,15 @@
               {% for l in view.lanes[direction] %}
               <tr>
                 <td>{{ loop.index }}</td>
-                <td><strong>{{ l.lane }}</strong></td>
+                <td><a href="/tools/revenue-analysis?pricing={{ view.pricing_period }}&amp;focus={{ l.svc }}:{{ l.key }}{% if view.dtd %}&amp;dtd={{ view.dtd }}{% endif %}#lanefocus"
+                       title="Open the Lane focus for {{ l.lane }}"
+                       style="text-decoration:none;"><strong>{{ l.lane }} 🔍</strong></a></td>
                 <td>{{ eur(l.net) }}</td>
-                <td><strong>{{ "{:,.0f}".format(l.kilos) }}</strong></td>
+                <td><strong>{% if l.kilos is none %}—{% else %}{{ "{:,.0f}".format(l.kilos) }}{% endif %}</strong></td>
                 <td>{{ trend_cell("Weight billed", l.kg_trend, l.kg_delta_pct,
                       "{:,.0f} kg".format(l.prior_kilos) if l.prior_kilos
                       else "—", l.prior_n) }}</td>
-                <td>{{ "{:,.0f}".format(l.shipments) }}</td>
+                <td>{% if l.shipments is none %}—{% else %}{{ "{:,}".format(l.shipments) }}{% endif %}</td>
                 <td><strong>{{ eur(l.rpk, 2) }}</strong></td>
                 <td>{{ trend_cell("RpK w/o fuel surcharge", l.trend,
                       l.delta_pct, eur(l.prior_rpk, 2), l.prior_n) }}</td>
@@ -328,14 +382,136 @@
   </section>
   {% endif %}
 
+  {% if view.lane_focus %}
+  {% set lf = view.lane_focus %}
+  <section class="panel" id="lanefocus">
+    <h2 class="section-title">🔍 Lane focus — {{ lf.lane }}
+      ({{ "outbound" if lf.svc == "OB" else "inbound" }}),
+      {{ pricing_label }}{% if lf.prior_period %} vs
+      {{ lf.prior_period }}{% endif %}</h2>
+    <p class="note-small">The customers that feed this lane, this month
+      against the last month on record — five reads: the lane's own KPIs,
+      its top customers month on month, who joined and who left, how
+      concentrated the volume is, and who pays under the lane's going
+      rate.{% if view.dtd %} <strong>The customer detail below is
+      full-month</strong> — the per-customer slice is not stored per day, so
+      the days-to-date filter does not apply here.{% endif %}</p>
+
+    <!-- 1. Headline KPIs, current vs prior month -->
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead><tr><th>Lane KPI</th><th class="num">{{ pricing_label }}</th>
+          <th class="num">{{ lf.prior_period or "prior" }}</th>
+          <th class="num">Change</th></tr></thead>
+        <tbody>
+          {% for key, label, iseur, dec in [
+              ("net", "Net revenue (EUR)", true, 0),
+              ("weight", "Weight charge (EUR)", true, 0),
+              ("kilos", "Weight billed (kg)", false, 0),
+              ("shipments", "Shipments", false, 0),
+              ("ships_per_day", "Shipments / day", false, 1),
+              ("rpk", "RpK w/o fuel surcharge (EUR)", true, 2)] %}
+          {% set cur = lf.headline.current[key] %}
+          {% set prev = lf.headline.prior[key] if lf.headline.prior else none %}
+          {% set d = lf.headline.delta_pct.get(key) %}
+          <tr><td><strong>{{ label }}</strong></td>
+            <td style="text-align:right;">{% if cur is none %}—{% elif iseur %}{{ eur(cur, dec) }}{% else %}{{ ("{:,.%df}" % dec).format(cur) }}{% endif %}</td>
+            <td style="text-align:right;">{% if prev is none %}—{% elif iseur %}{{ eur(prev, dec) }}{% else %}{{ ("{:,.%df}" % dec).format(prev) }}{% endif %}</td>
+            <td style="text-align:right;">{% if d is none %}<span class="note-inline">new</span>{% else %}<strong style="color:{{ '#1b7f4b' if d >= 0 else '#bd3727' }};">{{ "{:+.1f}".format(d) }}%</strong>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 2 & 5. Top customers with their MoM move and price vs the lane -->
+    <h3 class="mini-title" style="margin-top:16px;">Customers on the lane —
+      {{ lf.customers | length }} this month{% if lf.customer_count.prior %},
+      {{ lf.customer_count.prior }} last month{% endif %}</h3>
+    <div class="table-wrap" style="max-height:420px;">
+      <table class="tx-table">
+        <thead><tr><th>#</th><th>Customer</th><th>Kg</th>
+          <th title="Share of the lane's billed kilos">Share</th>
+          <th>Shipments</th><th>Kg last month</th><th>Kg change</th>
+          <th>RpK w/o fuel (EUR)</th>
+          <th title="This customer's RpK against the lane's own average — negative = paying under the lane's going rate">vs lane avg</th></tr></thead>
+        <tbody>
+          {% for c in lf.customers %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ c.name }}</strong></td>
+            <td>{{ "{:,.0f}".format(c.kilos) }}</td>
+            <td>{% if c.share_pct is none %}—{% else %}{{ "{:.1f}".format(c.share_pct) }}%{% endif %}</td>
+            <td>{{ "{:,}".format(c.shipments) }}</td>
+            <td>{% if c.prev_kilos is none %}<span class="note-inline">new on lane</span>{% else %}{{ "{:,.0f}".format(c.prev_kilos) }}{% endif %}</td>
+            <td>{% if c.kg_delta_pct is none %}—{% else %}<strong style="color:{{ '#1b7f4b' if c.kg_delta_pct >= 0 else '#bd3727' }};">{{ "{:+.0f}".format(c.kg_delta_pct) }}%</strong>{% endif %}</td>
+            <td>{{ eur(c.rpk, 2) }}</td>
+            <td>{% if c.rpk_vs_lane_pct is none %}—{% else %}<strong style="color:{{ '#bd3727' if c.rpk_vs_lane_pct < -5 else '#1b7f4b' if c.rpk_vs_lane_pct > 5 else '#b06f00' }};">{{ "{:+.1f}".format(c.rpk_vs_lane_pct) }}%</strong>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 3 & 4. Movers and concentration -->
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;">
+      <div style="flex:1;min-width:280px;">
+        <h3 class="mini-title">Joined the lane</h3>
+        {% if lf.joined %}
+        <ul class="note-small" style="margin:6px 0;padding-left:20px;">
+          {% for c in lf.joined %}<li><strong>{{ c.name }}</strong> —
+            {{ "{:,.0f}".format(c.kilos) }} kg</li>{% endfor %}
+        </ul>
+        {% else %}<p class="note-small">No new customers this month.</p>{% endif %}
+        <h3 class="mini-title" style="margin-top:10px;">Left the lane</h3>
+        {% if lf.lost %}
+        <ul class="note-small" style="margin:6px 0;padding-left:20px;">
+          {% for c in lf.lost %}<li><strong>{{ c.name }}</strong> — moved
+            {{ "{:,.0f}".format(c.kilos) }} kg last month, nothing this
+            month</li>{% endfor %}
+        </ul>
+        {% else %}<p class="note-small">Nobody dropped off the lane.</p>{% endif %}
+      </div>
+      <div style="flex:1;min-width:280px;">
+        <h3 class="mini-title">Concentration — share of the lane's kilos</h3>
+        <div class="table-wrap">
+          <table class="tx-table">
+            <thead><tr><th></th><th>This month</th><th>Last month</th></tr></thead>
+            <tbody>
+              {% for n in [1, 3, 5] %}
+              <tr><td><strong>Top {{ n }} customer{{ "s" if n > 1 }}</strong></td>
+                <td>{% if lf.concentration.current %}{{ lf.concentration.current[n] }}%{% else %}—{% endif %}</td>
+                <td>{% if lf.concentration.prior %}{{ lf.concentration.prior[n] }}%{% else %}—{% endif %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="note-small">A lane hanging off one shipper is a different
+          risk from the same kilos spread across twenty.</p>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
   {% if active %}
   <section class="panel">
     <h2 class="section-title">🤝 Active customers — top
-      {{ active.rows | length }} traders by weight, last 3 months</h2>
+      {{ active.rows | length }} traders by weight, last 3 months
+      {%- if active.dtd %} <span class="note-inline">first {{ active.dtd }}
+      day(s) of each month</span>{% endif %}</h2>
+    {% if active.dtd and active.dtd_partial %}
+    <p class="note-small"><strong>{{ active.dtd_partial | join(", ") }}</strong>
+      {{ "has" if active.dtd_partial | length == 1 else "have" }} no
+      per-customer daily detail on record — full-month kilos shown for
+      {{ "that month" if active.dtd_partial | length == 1 else "those months" }};
+      a re-upload fixes it.</p>
+    {% endif %}
     <p class="note-small">Are the big traders of
       {{ active.month_labels | join(", ") }} still trading
       {% if active.current_label %}in {{ active.current_label }}{% else %}this
       month{% endif %}?
+      {% if active.dtd %}Every month's kilos here — the three priors and the
+      current one — cover only its 1st–{{ active.dtd }}, so the columns are
+      like for like.{% endif %}
       {% if active.stopped_count %}<strong
         style="color:#bd3727;">{{ active.stopped_count }}</strong> of them
       {{ "is" if active.stopped_count == 1 else "are" }} on the credit-stop

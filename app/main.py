@@ -2616,19 +2616,27 @@ def _month_label(period):
 
 
 @app.get("/tools/revenue-analysis", response_class=HTMLResponse)
-def revenue_home(request: Request, pricing: str = "",
-                 message: str = "", error: str = ""):
-    view = revenue.dashboard()
+def revenue_home(request: Request, pricing: str = "", dtd: int = 0,
+                 focus: str = "", message: str = "", error: str = ""):
+    dtd = dtd if 1 <= dtd <= 31 else 0
+    view = revenue.dashboard(days_to_date=dtd or None)
     if pricing and re.fullmatch(r"\d{4}-\d{2}", pricing):
         chosen = revenue.pricing_for(pricing)
         if chosen is not None:
             view["pricing"] = chosen
             view["pricing_period"] = pricing
-            view["lanes"] = revenue.lanes_for(pricing)
+            view["lanes"] = revenue.lanes_for(pricing, dtd=dtd or None)
             view["fuel"] = revenue.fuel_ranking(pricing)
+    # Lane focus: the customers feeding one lane, this month vs last. The
+    # lane comes from the ?focus=SVC:KEY link on the lanes table.
+    view["lane_focus"] = None
+    m_focus = re.fullmatch(r"(OB|IB):([A-Z?]{1,4}-[A-Z?]{1,4})", focus or "")
+    if m_focus and view.get("pricing_period"):
+        view["lane_focus"] = revenue.lane_focus(
+            view["pricing_period"], m_focus.group(1), m_focus.group(2))
     # Active traders vs the credit-stop register: a top trader currently on
     # stop is flagged in red on the table.
-    active = revenue.active_customers()
+    active = revenue.active_customers(dtd=dtd or None)
     stopped_names, stop_meta = set(), None
     try:
         stopped, stop_meta = account_stop._latest_stopped()

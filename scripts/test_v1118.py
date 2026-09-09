@@ -217,7 +217,7 @@ check("months come out ascending",
 check("the current calendar month is flagged ongoing",
       view["ongoing"] and view["ongoing"]["period"] == "2026-08")
 check("KPI boxes compare the run-rate to the prior month, same days",
-      len(view["kpis"]) == 3 and all(k["baseline"] for k in view["kpis"]))
+      len(view["kpis"]) == 5 and all(k["baseline"] for k in view["kpis"]))
 kpi = {k["key"]: k for k in view["kpis"]}
 check("revenue/day delta is computed",
       round(kpi["rev_per_day"]["value"], 0) == 300000
@@ -321,7 +321,8 @@ pos = dict(neg, period="2026-08", totals=dict(neg["totals"], net=100.0),
 revenue.store_period(dict(pos), {})
 v2 = revenue.dashboard(now=datetime(2026, 8, 12))
 check("a negative baseline shows no delta instead of a sign-flipped one",
-      all(k["delta_pct"] is None for k in v2["kpis"]))
+      all(k["delta_pct"] is None for k in v2["kpis"]
+          if k["unit"] == "eur"))
 revenue.delete_period("2026-06")
 revenue.delete_period("2026-08")
 
