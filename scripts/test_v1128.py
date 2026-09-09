@@ -209,6 +209,57 @@ check("5: price dispersion — GAMMA pays 20% under the lane's going rate",
       and round(gamma["rpk_vs_lane_pct"], 1) == -20.0)
 check("a lane with no stored customer slice returns None, not a guess",
       revenue.lane_focus("2026-07", "IB", "CM-BE") is None)
+check("1: the lane's RpD is in the headline (weight charge / billable days)",
+      h["current"]["rpd"] == 270000.0 / 2 and h["prior"]["rpd"] == 150000.0)
+
+# === 7b. A month with no per-day lane slice says so under the filter =======
+data = revenue._load()
+for svc in data["periods"]["2026-07"]["lanes"].values():
+    for entry in svc.values():
+        entry.pop("days", None)
+revenue.STORE_PATH.write_text(__import__("json").dumps(data),
+                              encoding="utf-8")
+lanes_missing = revenue.lanes_for("2026-07", dtd=10)
+check("all-blank lanes under the filter raise the dtd_missing flag",
+      lanes_missing["dtd_missing"] is True)
+check("the flag stays down when the slices exist",
+      revenue.lanes_for("2026-06", dtd=10)["dtd_missing"] is False)
+# restore July for the page checks below
+seed("2026-07.xlsx", [
+    row("2026-07", "701", "A1", "ALPHA", "2026-07-06", 60, 72000, "BRU"),
+    row("2026-07", "702", "G1", "GAMMA", "2026-07-06", 60, 54000, "BRU"),
+    row("2026-07", "703", "G1", "GAMMA", "2026-07-06", 70, 35000, "LOS"),
+    row("2026-07", "704", "D1", "DELTA", "2026-07-20", 80, 96000, "BRU"),
+    row("2026-07", "705", "A1", "ALPHA", "2026-07-20", 40, 48000, "BRU"),
+    row("2026-07", "706", "G1", "GAMMA", "2026-07-20", 30, 15000, "LOS")])
+
+# === 7c. Sources are retained; re-read heals old months without re-upload ==
+import shutil
+import time as _t
+revenue.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+spool = revenue.UPLOAD_DIR / "rev_test1234.xlsx"
+shutil.copy(_tmp / "2026-06.xlsx", spool)
+revenue.ingest_async([(spool, "june re-export.xlsx")])
+deadline = _t.time() + 30
+while _t.time() < deadline and revenue.status().get("processing"):
+    _t.sleep(0.05)
+kept = dict(revenue.stored_sources())
+check("the ingested file is RETAINED, one per month",
+      "2026-06" in kept and kept["2026-06"].name == "ib434_2026-06.xlsx"
+      and not spool.exists())
+# cripple June the way a pre-v11.28 store is, then re-read from the kept file
+data = revenue._load()
+for c in data["periods"]["2026-06"]["customers"].values():
+    c.pop("days", None)
+    c.pop("shipments", None)
+revenue.STORE_PATH.write_text(__import__("json").dumps(data),
+                              encoding="utf-8")
+done, errors = revenue.reparse_stored()
+check("re-read rebuilds the month from the kept file", done == ["2026-06"]
+      and errors == [])
+check("…and the month has its detail back",
+      revenue._load()["periods"]["2026-06"]["customers"]["A1"]["shipments"]
+      == 3)
 
 # === 8. The page ===========================================================
 from testutil import smtp_guard  # noqa: E402
@@ -224,9 +275,21 @@ r2 = client.get("/tools/revenue-analysis?pricing=2026-07&focus=OB:CM-BE")
 check("the lane focus panel renders from a lane link",
       r2.status_code == 200 and "Lane focus — CM → BE" in r2.text
       and "EPSILON" in r2.text)
+check("the lane focus headline shows RpD",
+      "RpD w/o fuel surcharge (EUR)" in r2.text)
+check("the chosen lane is selected in the dropdown",
+      'value="OB:CM-BE"\n            selected' in r2.text
+      or 'value="OB:CM-BE" selected' in r2.text)
 r3 = client.get("/tools/revenue-analysis?pricing=2026-07")
 check("pricing table carries the new columns",
       "Shipments / day" in r3.text)
+check("the Lane focus sandbox with its dropdown renders WITHOUT a click",
+      "choose a lane" in r3.text and "Analyse\n        lane" in r3.text
+      and 'id="lanefocus"' in r3.text)
+r4 = client.get("/tools/revenue-analysis?pricing=2026-07&focus=IB:CM-BE")
+check("a lane with no slice explains itself instead of vanishing",
+      "no per-customer\n      lane detail on record" in r4.text
+      or "no per-customer lane detail on record" in r4.text)
 
 print("\n" + ("ALL v11.28 TESTS PASSED" if not _fail
               else f"{_fail} CHECK(S) FAILED"))

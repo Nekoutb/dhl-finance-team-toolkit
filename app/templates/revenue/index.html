@@ -52,7 +52,15 @@
       upload
       {{ "that month" if view.needs_reupload | length == 1 else "those months" }}
       again to fill the lanes panel and the same-days comparison. The
-      headline figures above are unaffected.</div>
+      headline figures above are unaffected.
+      {% if view.can_reparse %}
+      <form action="/tools/revenue-analysis/reparse" method="post"
+            style="display:inline;margin-left:6px;">
+        <button class="btn btn-small" type="submit"
+                title="Re-read the files already on record with the current parser — no re-export needed">🔁
+          Re-read the files on record</button>
+      </form>
+      {% endif %}</div>
     {% endif %}
 
     <div class="stat-row" style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -338,6 +346,15 @@
       {{ view.unmapped_codes | join(", ") }}. Add them under
       <code>iata_country_overrides</code> in Settings to fold them into a
       country.{% endif %}</p>
+    {% if view.lanes.dtd_missing %}
+    <div class="alert alert-info">⏳ Days to date has nothing to cut here
+      yet: {{ pricing_label }} was stored before lanes carried their per-day
+      detail, so its first-{{ view.lanes.dtd }}-days figures are unknowable.
+      Upload the month again (or press “Re-read the files on record” above if
+      it is already kept) and this panel fills in — the comparison then takes
+      the first {{ view.lanes.dtd }} days of {{ pricing_label }} against the
+      first {{ view.lanes.dtd }} days of each prior month.</div>
+    {% endif %}
     <div style="display:flex;gap:16px;flex-wrap:wrap;">
       {% for direction, label in [("outbound", "Outbound — leaving Cameroon"),
                                   ("inbound", "Inbound — into Cameroon")] %}
@@ -382,20 +399,51 @@
   </section>
   {% endif %}
 
-  {% if view.lane_focus %}
+  {% if view.lanes %}
   {% set lf = view.lane_focus %}
   <section class="panel" id="lanefocus">
-    <h2 class="section-title">🔍 Lane focus — {{ lf.lane }}
+    <h2 class="section-title">🔍 Lane focus{% if lf %} — {{ lf.lane }}
       ({{ "outbound" if lf.svc == "OB" else "inbound" }}),
       {{ pricing_label }}{% if lf.prior_period %} vs
-      {{ lf.prior_period }}{% endif %}</h2>
-    <p class="note-small">The customers that feed this lane, this month
-      against the last month on record — five reads: the lane's own KPIs,
-      its top customers month on month, who joined and who left, how
-      concentrated the volume is, and who pays under the lane's going
-      rate.{% if view.dtd %} <strong>The customer detail below is
-      full-month</strong> — the per-customer slice is not stored per day, so
-      the days-to-date filter does not apply here.{% endif %}</p>
+      {{ lf.prior_period }}{% endif %}{% endif %}</h2>
+    <p class="note-small">Pick a lane to open five reads of the customers
+      feeding it, {{ pricing_label }} against the last month on record: the
+      lane's own KPIs (RpD, RpK, shipments…), its top contributors month on
+      month, who joined and who left, how concentrated the volume is, and
+      who pays under the lane's going rate.</p>
+    <form method="get" action="/tools/revenue-analysis"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      {% if view.pricing_period %}<input type="hidden" name="pricing"
+        value="{{ view.pricing_period }}">{% endif %}
+      {% if view.dtd %}<input type="hidden" name="dtd" value="{{ view.dtd }}">{% endif %}
+      <select name="focus" style="min-width:220px;">
+        <option value="">— choose a lane —</option>
+        {% for direction, dlabel in [("outbound", "Outbound"),
+                                     ("inbound", "Inbound")] %}
+        {% if view.lanes[direction] %}
+        <optgroup label="{{ dlabel }} — top {{ view.lanes[direction] | length }} by net revenue">
+          {% for l in view.lanes[direction] %}
+          <option value="{{ l.svc }}:{{ l.key }}"
+            {% if view.focus_requested == l.svc ~ ":" ~ l.key %}selected{% endif %}>
+            {{ l.lane }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% endfor %}
+      </select>
+      <button class="btn btn-small btn-primary" type="submit">Analyse
+        lane</button>
+    </form>
+    {% if view.focus_requested and not lf %}
+    <div class="alert alert-info">⏳ {{ pricing_label }} has no per-customer
+      lane detail on record yet — it was uploaded before that detail
+      existed. Upload the month again (or press “Re-read the files on
+      record” above if it is already kept) and this analysis lights up.</div>
+    {% endif %}
+    {% if lf %}
+    {% if view.dtd %}<p class="note-small"><strong>The customer detail below
+      is full-month</strong> — the per-customer slice is not stored per day,
+      so the days-to-date filter does not apply here.</p>{% endif %}
 
     <!-- 1. Headline KPIs, current vs prior month -->
     <div class="table-wrap">
@@ -410,6 +458,7 @@
               ("kilos", "Weight billed (kg)", false, 0),
               ("shipments", "Shipments", false, 0),
               ("ships_per_day", "Shipments / day", false, 1),
+              ("rpd", "RpD w/o fuel surcharge (EUR)", true, 0),
               ("rpk", "RpK w/o fuel surcharge (EUR)", true, 2)] %}
           {% set cur = lf.headline.current[key] %}
           {% set prev = lf.headline.prior[key] if lf.headline.prior else none %}
@@ -489,6 +538,7 @@
           risk from the same kilos spread across twenty.</p>
       </div>
     </div>
+    {% endif %}
   </section>
   {% endif %}
 

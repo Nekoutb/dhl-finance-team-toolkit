@@ -193,6 +193,7 @@ def parse_file(path, source=""):
     is not an IB434 revenue detail (missing columns, no period)."""
     import openpyxl
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    rows_iter = None
     try:
         ws = wb[wb.sheetnames[0]]
         rows_iter = ws.iter_rows(values_only=True)
@@ -340,6 +341,13 @@ def parse_file(path, source=""):
                     # the active-customers table is built from
                     c["days"][inv_day] = c["days"].get(inv_day, 0.0) + kg
     finally:
+        # An un-exhausted read-only row iterator keeps a zip-member handle
+        # open UNDERNEATH wb.close() (zipfile only releases the OS handle
+        # once every member stream is closed) — on Windows that leaves the
+        # uploaded file locked and undeletable until garbage collection.
+        # Bites exactly when parsing raised, i.e. on the wrong-file path.
+        if rows_iter is not None:
+            rows_iter.close()
         wb.close()
     if not period_votes:
         raise ValueError("no Billing Period values found in the file")
@@ -436,6 +444,30 @@ def delete_period(period):
 # Background ingest (same contract as the BIT/Cash AR upload: the request
 # returns at once, the page polls `processing` until the month lands).
 # --------------------------------------------------------------------------- #
+def _retire_spool(path, keep=None):
+    """Move the spooled upload to its retained name — or just discard it.
+    Windows can hold a freshly-read file for a moment (an antivirus scan, a
+    reader mid-close), so both operations are retried; a stranded spool
+    file is cosmetic and must NEVER kill the ingest thread over a lock."""
+    import shutil
+    path = Path(path)
+    for attempt in range(20):
+        try:
+            if keep is not None:
+                path.replace(keep)
+            else:
+                path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            time.sleep(0.01 * (attempt + 1))
+    try:
+        if keep is not None:
+            shutil.copyfile(path, keep)
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def ingest_async(jobs):
     """``jobs`` = [(stored_path, source_name)] — parse on a thread."""
     with _lock, _FileLock(STORE_PATH):
@@ -460,12 +492,20 @@ def ingest_async(jobs):
             try:
                 record, customers = parse_file(path, source)
                 store_period(record, customers)
+                # RETAIN the source, one file per month (a re-upload of the
+                # month replaces it). When the store later learns to keep
+                # new detail — per-day lane slices, say — reparse_stored()
+                # rebuilds every month from these instead of asking the team
+                # to re-export and re-upload the whole year.
+                keep = UPLOAD_DIR / (f"ib434_{record['period']}"
+                                     f"{Path(path).suffix.lower()}")
+                for other in UPLOAD_DIR.glob(f"ib434_{record['period']}.*"):
+                    if other != keep:
+                        _retire_spool(other)
+                _retire_spool(path, keep=keep)
             except Exception as exc:  # noqa: BLE001 — surfaced on the page
                 errors.append(f"{source}: {exc}")
-            finally:
-                # the spooled copy has served its purpose — the store keeps
-                # the aggregates; keeping every upload would grow forever
-                Path(path).unlink(missing_ok=True)
+                _retire_spool(path)
         with _lock, _FileLock(STORE_PATH):
             data = _load()
             data.pop("processing", None)
@@ -476,6 +516,33 @@ def ingest_async(jobs):
             _save(data)
 
     threading.Thread(target=_runner, daemon=True).start()
+
+
+def stored_sources():
+    """The retained IB434 files, one per month: [(period, path)]."""
+    if not UPLOAD_DIR.exists():
+        return []
+    out = []
+    for p in sorted(UPLOAD_DIR.glob("ib434_*.*")):
+        m = re.match(r"ib434_(\d{4}-\d{2})\.", p.name)
+        if m:
+            out.append((m.group(1), p))
+    return out
+
+
+def reparse_stored():
+    """Re-read every retained month through the CURRENT parser — how months
+    already on record pick up newly stored detail without a re-upload.
+    Returns (reparsed periods, errors)."""
+    done, errors = [], []
+    for period, path in stored_sources():
+        try:
+            record, customers = parse_file(path, path.name)
+            store_period(record, customers)
+            done.append(record["period"])
+        except Exception as exc:  # noqa: BLE001 — reported, never fatal
+            errors.append(f"{path.name}: {exc}")
+    return done, errors
 
 
 def status():
@@ -884,6 +951,12 @@ def lanes_for(period, top_n=10, dtd=None):
                 "kg_delta_pct": kg_delta, "kg_trend": kg_trend,
                 "prior_n": len(past)})
         out[label] = rows
+    # Every displayed lane blank under the filter = the month predates the
+    # per-day lane slice entirely — the page must say so, not show a wall
+    # of dashes.
+    allrows = out["outbound"] + out["inbound"]
+    out["dtd_missing"] = bool(dtd and allrows
+                              and all(r["kilos"] is None for r in allrows))
     return out
 
 
@@ -932,6 +1005,7 @@ def lane_focus(period, svc, lane_key):
                 "shipments": ships,
                 "ships_per_day": (ships / days)
                 if ships is not None and days else None,
+                "rpd": (wc / days) if wc is not None and days else None,
                 "rpk": (wc / kg) if wc is not None and kg > 0 else None}
 
     cur_h, prev_h = headline(entry, days_cur), headline(prev, days_prev)

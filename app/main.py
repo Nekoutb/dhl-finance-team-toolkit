@@ -2628,12 +2628,15 @@ def revenue_home(request: Request, pricing: str = "", dtd: int = 0,
             view["lanes"] = revenue.lanes_for(pricing, dtd=dtd or None)
             view["fuel"] = revenue.fuel_ranking(pricing)
     # Lane focus: the customers feeding one lane, this month vs last. The
-    # lane comes from the ?focus=SVC:KEY link on the lanes table.
+    # lane comes from the dropdown in the Lane focus sandbox (or a lane
+    # link on the lanes table) as ?focus=SVC:KEY.
     view["lane_focus"] = None
     m_focus = re.fullmatch(r"(OB|IB):([A-Z?]{1,4}-[A-Z?]{1,4})", focus or "")
+    view["focus_requested"] = focus if m_focus else ""
     if m_focus and view.get("pricing_period"):
         view["lane_focus"] = revenue.lane_focus(
             view["pricing_period"], m_focus.group(1), m_focus.group(2))
+    view["can_reparse"] = bool(revenue.stored_sources())
     # Active traders vs the credit-stop register: a top trader currently on
     # stop is flagged in red on the table.
     active = revenue.active_customers(dtd=dtd or None)
@@ -2733,6 +2736,25 @@ async def revenue_fuel_target(request: Request):
     return redirect_msg(f"/tools/revenue-analysis?pricing={period}",
                         message=f"Fuel target for {_month_label(period)} set "
                                 f"to {float(raw):g}%.")
+
+
+@app.post("/tools/revenue-analysis/reparse")
+def revenue_reparse(request: Request):
+    """Re-read every retained IB434 file through the current parser — how a
+    month already on record picks up newly stored detail (per-day lane
+    slices, per-customer shipments) without being re-exported from SAP."""
+    done, errors = revenue.reparse_stored()
+    if not done and not errors:
+        return redirect_msg("/tools/revenue-analysis",
+                            error="No files on record to re-read yet — "
+                                  "months uploaded from now on are kept.")
+    if errors:
+        return redirect_msg("/tools/revenue-analysis",
+                            error="Re-read hit a problem: "
+                                  + " · ".join(errors))
+    return redirect_msg("/tools/revenue-analysis",
+                        message=f"{len(done)} month(s) re-read with the "
+                                "current parser: " + ", ".join(done) + ".")
 
 
 @app.post("/tools/revenue-analysis/delete")
